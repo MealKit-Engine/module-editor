@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <unordered_map>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -33,8 +34,10 @@ constexpr const char* kBuildLogWindow = "빌드 로그###BuildLog";
 constexpr size_t kUndoLimit = 100;
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
 
+constexpr const char* kEntityPayload = "MEALKIT_ENTITY";
+
 // 행 벡터 규약 TRS 행렬 (ImGuizmo와 같은 메모리 배치: 이동이 [12..14])
-void compose(const Entity& e, f32 out[16]) {
+void compose(const scene::Transform& e, f32 out[16]) {
     const Vec3 x = rotate(e.rotation, {1, 0, 0}) * e.scale.x;
     const Vec3 y = rotate(e.rotation, {0, 1, 0}) * e.scale.y;
     const Vec3 z = rotate(e.rotation, {0, 0, 1}) * e.scale.z;
@@ -42,7 +45,7 @@ void compose(const Entity& e, f32 out[16]) {
     std::memcpy(out, m, sizeof(m));
 }
 
-void decompose(const f32 m[16], Entity& e) {
+void decompose(const f32 m[16], scene::Transform& e) {
     Vec3 x{m[0], m[1], m[2]}, y{m[4], m[5], m[6]}, z{m[8], m[9], m[10]};
     const f32 sx = std::max(length(x), 0.01f), sy = std::max(length(y), 0.01f), sz = std::max(length(z), 0.01f);
     x = x / sx;
@@ -72,7 +75,7 @@ void decompose(const f32 m[16], Entity& e) {
 }
 
 // 광선과 회전된 상자(엔티티 로컬 공간의 center ± half)의 교차 거리. 맞지 않으면 음수.
-f32 rayBox(Vec3 origin, Vec3 dir, const Entity& e, Vec3 center, Vec3 half) {
+f32 rayBox(Vec3 origin, Vec3 dir, const scene::Transform& e, Vec3 center, Vec3 half) {
     const Quat inv{-e.rotation.x, -e.rotation.y, -e.rotation.z, e.rotation.w};
     const Vec3 o = rotate(inv, origin - e.position) - center;
     const Vec3 d = rotate(inv, dir);
@@ -154,6 +157,7 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     m_window = &window;
     m_renderer = &renderer;
     m_models = &models;
+    m_focusPanel = kInspectorWindow; // 편집 모드로 시작: 인스펙터를 앞으로
     if (!m_imgui.init(window, renderer, executableDirectory() + "\\mealkit_editor.ini")) {
         MEALKIT_ERROR("Editor UI initialization failed");
         return false;
@@ -247,15 +251,16 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
 
     const render::MeshId box = m_models->boxMesh();
     for (const Entity& e : m_scene.entities) {
+        const scene::Transform world = scene::worldTransform(m_scene, e);
         render::InstanceData inst;
-        inst.position = e.position;
-        inst.rotation = e.rotation;
-        inst.scale = isMarker(e) ? kSpawnSize : e.scale;
+        inst.position = world.position;
+        inst.rotation = world.rotation;
+        inst.scale = isMarker(e) ? kSpawnSize : world.scale;
         inst.color = e.color;
         inst.flags = e.flags;
         if (e.id == m_selected) inst.flags |= render::kInstanceHighlight;
         const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model);
-        out.add(model ? m_models->pickLod(*model, m_cameraPos, e.position, e.scale) : box, inst);
+        out.add(model ? m_models->pickLod(*model, m_cameraPos, world.position, world.scale) : box, inst);
     }
 }
 
@@ -438,45 +443,105 @@ void Editor::drawHierarchy(bool editing) {
     ImGui::Separator();
 
     if (ImGui::BeginChild("##entities")) {
-        const f32 swatch = ImGui::GetTextLineHeight() * 0.8f;
+        // 부모 → 자식 목록 (entities 순서)
+        std::unordered_map<u32, std::vector<size_t>> children;
+        std::vector<size_t> roots;
         for (size_t i = 0; i < m_scene.entities.size(); ++i) {
             const Entity& e = m_scene.entities[i];
-            ImGui::PushID(static_cast<int>(e.id));
-            f32 rgb[3];
-            unpackColor(e.color, rgb);
-            ImGui::ColorButton("##swatch", ImVec4(rgb[0], rgb[1], rgb[2], 1.0f),
-                               ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(swatch, swatch));
-            ImGui::SameLine();
-            std::string label = e.name.empty() ? "(이름 없음)" : e.name;
-            if (!e.is(scene::kTypeSolid)) {
-                const reflect::TypeInfo* type = entityType(e);
-                label += std::string("  · ") + (type ? type->label : e.type.c_str());
-            }
-            const u32 id = e.id;
-            if (ImGui::Selectable(label.c_str(), m_selected == id, ImGuiSelectableFlags_AllowDoubleClick)) {
-                m_selected = id;
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) focusSelected();
-            }
-            bool structural = false;
-            if (ImGui::BeginPopupContextItem()) {
-                m_selected = id;
-                if (ImGui::MenuItem("복제", "Ctrl+D")) {
-                    duplicateSelected();
-                    structural = true;
-                }
-                if (ImGui::MenuItem("삭제", "Delete")) {
-                    deleteSelected();
-                    structural = true;
-                }
-                ImGui::EndPopup();
-            }
-            ImGui::PopID();
-            if (structural) break; // 목록이 바뀌었으므로 다음 프레임에 다시 그린다
+            if (e.parent && m_scene.find(e.parent)) children[e.parent].push_back(i);
+            else roots.push_back(i);
+        }
+        m_treeAction = {};
+        for (size_t i : roots) drawEntityNode(i, children);
+        // 빈 곳에 놓으면 최상위로
+        const ImVec2 rest = ImGui::GetContentRegionAvail();
+        ImGui::InvisibleButton("##treeRoot", ImVec2(std::max(rest.x, 1.0f), std::max(rest.y, ImGui::GetFrameHeight())));
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload))
+                m_treeAction = {TreeAction::Reparent, *static_cast<const u32*>(payload->Data), 0};
+            ImGui::EndDragDropTarget();
         }
     }
     ImGui::EndChild();
+    // 트리를 다 그린 뒤에 구조를 바꾼다 (그리는 도중에 목록이 바뀌지 않게)
+    switch (m_treeAction.kind) {
+    case TreeAction::Reparent: reparent(m_treeAction.entity, m_treeAction.parent); break;
+    case TreeAction::Duplicate: duplicateSelected(); break;
+    case TreeAction::Delete: deleteSelected(); break;
+    case TreeAction::None: break;
+    }
     ImGui::EndDisabled();
     ImGui::End();
+}
+
+void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vector<size_t>>& children) {
+    const Entity& e = m_scene.entities[index];
+    const u32 id = e.id;
+    const auto kids = children.find(id);
+    const bool leaf = kids == children.end();
+    ImGui::PushID(static_cast<int>(id));
+    const f32 swatch = ImGui::GetTextLineHeight() * 0.8f;
+    f32 rgb[3];
+    unpackColor(e.color, rgb);
+    std::string label = e.name.empty() ? "(이름 없음)" : e.name;
+    if (!e.is(scene::kTypeSolid)) {
+        const reflect::TypeInfo* type = entityType(e);
+        label += std::string("  · ") + (type ? type->label : e.type.c_str());
+    }
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
+    if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    if (m_selected == id) flags |= ImGuiTreeNodeFlags_Selected;
+    // 라벨 앞에 색 견본 자리를 비워 두고 그리기 목록에 직접 그린다
+    const bool open = ImGui::TreeNodeEx("##node", flags, "      %s", label.c_str());
+    {
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const f32 x = min.x + ImGui::GetTreeNodeToLabelSpacing();
+        const f32 y = min.y + (ImGui::GetItemRectSize().y - swatch) * 0.5f;
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, y), ImVec2(x + swatch, y + swatch),
+                                                  ImGui::ColorConvertFloat4ToU32(ImVec4(rgb[0], rgb[1], rgb[2], 1.0f)), 2.0f);
+    }
+    // 클릭 선택, 더블클릭 이동, 끌어서 부모 바꾸기
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
+        m_selected = id;
+        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) focusSelected();
+    }
+    if (ImGui::BeginDragDropSource()) {
+        ImGui::SetDragDropPayload(kEntityPayload, &id, sizeof(id));
+        ImGui::Text("%s → (놓을 물체의 자식으로)", label.c_str());
+        ImGui::EndDragDropSource();
+    }
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload))
+            m_treeAction = {TreeAction::Reparent, *static_cast<const u32*>(payload->Data), id};
+        ImGui::EndDragDropTarget();
+    }
+    if (ImGui::BeginPopupContextItem()) {
+        m_selected = id;
+        if (ImGui::MenuItem("복제", "Ctrl+D")) m_treeAction = {TreeAction::Duplicate, id, 0};
+        if (ImGui::MenuItem("삭제", "Delete")) m_treeAction = {TreeAction::Delete, id, 0};
+        if (ImGui::MenuItem("최상위로 꺼내기", nullptr, false, e.parent != 0)) m_treeAction = {TreeAction::Reparent, id, 0};
+        ImGui::EndPopup();
+    }
+    if (open && !leaf) {
+        for (size_t child : kids->second) drawEntityNode(child, children);
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
+}
+
+void Editor::reparent(u32 entityId, u32 parentId) {
+    Entity* e = m_scene.find(entityId);
+    if (!e || e->parent == parentId) return;
+    if (parentId && scene::isDescendant(m_scene, parentId, entityId)) {
+        setStatus("자기 자신이나 자식 아래로는 옮길 수 없습니다");
+        return;
+    }
+    pushUndo(capture());
+    const scene::Transform world = scene::worldTransform(m_scene, *e); // 화면에서 제자리를 지킨다
+    e->parent = parentId;
+    scene::setWorldTransform(m_scene, *e, world);
+    const Entity* parent = parentId ? m_scene.find(parentId) : nullptr;
+    setStatus(parent ? e->name + " → " + parent->name + "의 자식" : e->name + " → 최상위");
 }
 
 void Editor::drawInspector(bool editing) {
@@ -543,9 +608,9 @@ void Editor::drawInspector(bool editing) {
             }
         }
 
-        ImGui::SeparatorText("변환");
+        ImGui::SeparatorText(e->parent ? "변환 (부모 기준)" : "변환");
         f32 matrix[16], t[3], r[3], s[3];
-        compose(*e, matrix);
+        compose(scene::localTransform(*e), matrix);
         ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
         bool changed = ImGui::DragFloat3("위치", t, 0.05f, 0.0f, 0.0f, "%.2f");
         changed |= ImGui::DragFloat3("회전 (도)", r, 0.5f, 0.0f, 0.0f, "%.1f");
@@ -553,7 +618,11 @@ void Editor::drawInspector(bool editing) {
         if (changed) {
             for (f32& v : s) v = std::max(v, 0.01f);
             ImGuizmo::RecomposeMatrixFromComponents(t, r, s, matrix);
-            decompose(matrix, *e);
+            scene::Transform local;
+            decompose(matrix, local);
+            e->position = local.position;
+            e->rotation = local.rotation;
+            e->scale = local.scale;
             markChanged();
         }
 
@@ -730,7 +799,7 @@ void Editor::drawGizmo() {
     ImGuizmo::SetOrthographic(false);
     ImGuizmo::SetRect(m_viewport.x, m_viewport.y, m_viewport.width, m_viewport.height);
     f32 matrix[16];
-    compose(*e, matrix);
+    compose(scene::worldTransform(m_scene, *e), matrix); // 기즈모는 월드 공간, 결과는 부모 기준으로 되돌려 넣는다
 
     const ImGuizmo::OPERATION ops[3] = {ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE};
     ImGuizmo::OPERATION op = ops[m_gizmoOp];
@@ -741,7 +810,9 @@ void Editor::drawGizmo() {
     const bool snapping = ImGui::GetIO().KeyCtrl;
 
     if (ImGuizmo::Manipulate(&m_view.m[0][0], &m_proj.m[0][0], op, mode, matrix, nullptr, snapping ? snap : nullptr)) {
-        decompose(matrix, *e);
+        scene::Transform world;
+        decompose(matrix, world);
+        scene::setWorldTransform(m_scene, *e, world);
         markChanged();
     }
 }
@@ -845,13 +916,14 @@ void Editor::handlePicking() {
     u32 best = 0;
     f32 bestT = 1e30f;
     for (const Entity& e : m_scene.entities) {
-        Vec3 center{}, half = (isMarker(e) ? kSpawnSize : e.scale) * 0.5f;
+        const scene::Transform w = scene::worldTransform(m_scene, e);
+        Vec3 center{}, half = (isMarker(e) ? kSpawnSize : w.scale) * 0.5f;
         if (const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model)) {
             const Vec3 c = (model->boundsMin + model->boundsMax) * 0.5f, h = (model->boundsMax - model->boundsMin) * 0.5f;
-            center = {c.x * e.scale.x, c.y * e.scale.y, c.z * e.scale.z};
-            half = {std::fabs(h.x * e.scale.x), std::fabs(h.y * e.scale.y), std::fabs(h.z * e.scale.z)};
+            center = {c.x * w.scale.x, c.y * w.scale.y, c.z * w.scale.z};
+            half = {std::fabs(h.x * w.scale.x), std::fabs(h.y * w.scale.y), std::fabs(h.z * w.scale.z)};
         }
-        const f32 t = rayBox(m_cameraPos, dir, e, center, half);
+        const f32 t = rayBox(m_cameraPos, dir, w, center, half);
         if (t >= 0.0f && t < bestT) {
             bestT = t;
             best = e.id;
@@ -985,33 +1057,50 @@ void Editor::addModelEntity() {
     setStatus("모델 추가: " + path);
 }
 
+// 선택한 물체와 그 자식들을 같은 구조로 복사한다
 void Editor::duplicateSelected() {
     const Entity* e = selected();
     if (!e) return;
     pushUndo(capture());
-    Entity copy = *e;
-    copy.id = m_scene.nextId++;
-    copy.name += " 복사";
-    copy.position.x += 1.0f;
-    m_scene.entities.push_back(copy);
-    m_selected = copy.id;
-    setStatus("복제: " + copy.name);
+    const std::vector<u32> ids = scene::subtree(m_scene, e->id);
+    std::unordered_map<u32, u32> remap;
+    for (u32 id : ids) remap[id] = m_scene.nextId++;
+    std::vector<Entity> copies;
+    for (u32 id : ids) {
+        Entity copy = *m_scene.find(id);
+        const bool top = id == m_selected;
+        copy.id = remap[id];
+        copy.parent = top ? copy.parent : remap[copy.parent];
+        if (top) {
+            copy.name += " 복사";
+            copy.position.x += 1.0f;
+        }
+        copies.push_back(std::move(copy));
+    }
+    const std::string name = copies.front().name;
+    const u32 newId = copies.front().id;
+    m_scene.entities.insert(m_scene.entities.end(), copies.begin(), copies.end());
+    m_selected = newId;
+    setStatus("복제: " + name + (ids.size() > 1 ? " (자식 " + std::to_string(ids.size() - 1) + "개 포함)" : ""));
 }
 
+// 선택한 물체와 그 자식들을 지운다
 void Editor::deleteSelected() {
-    const int index = m_scene.indexOf(m_selected);
-    if (index < 0) return;
+    const Entity* e = selected();
+    if (!e) return;
     pushUndo(capture());
-    setStatus("삭제: " + m_scene.entities[static_cast<size_t>(index)].name);
-    m_scene.entities.erase(m_scene.entities.begin() + index);
+    const std::vector<u32> ids = scene::subtree(m_scene, e->id);
+    setStatus("삭제: " + e->name + (ids.size() > 1 ? " (자식 " + std::to_string(ids.size() - 1) + "개 포함)" : ""));
+    std::erase_if(m_scene.entities, [&](const Entity& x) { return std::find(ids.begin(), ids.end(), x.id) != ids.end(); });
     m_selected = 0;
 }
 
 void Editor::focusSelected() {
     const Entity* e = selected();
     if (!e) return;
-    const f32 extent = std::max({e->scale.x, e->scale.y, e->scale.z});
-    m_cameraPos = e->position - cameraForward() * (std::min(extent, 60.0f) * 1.2f + 6.0f);
+    const scene::Transform w = scene::worldTransform(m_scene, *e);
+    const f32 extent = std::max({w.scale.x, w.scale.y, w.scale.z});
+    m_cameraPos = w.position - cameraForward() * (std::min(extent, 60.0f) * 1.2f + 6.0f);
 }
 
 void Editor::newScene() {

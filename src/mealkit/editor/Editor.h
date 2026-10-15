@@ -9,6 +9,7 @@
 #include "mealkit/scene/Scene.h"
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace mealkit {
@@ -88,6 +89,8 @@ private:
     void drawMenuBar();
     void drawStatusBar();
     void drawHierarchy(bool editing);
+    void drawEntityNode(size_t index, const std::unordered_map<u32, std::vector<size_t>>& children);
+    void reparent(u32 entityId, u32 parentId); // 월드 위치를 지키며 부모를 바꾼다 (0 = 최상위)
     void drawInspector(bool editing);
     void drawEnvironment(bool editing);
     void drawTuning();
@@ -169,6 +172,13 @@ private:
     Snapshot m_pending;
     bool m_editActive = false;
     bool m_changed = false;
+
+    struct TreeAction {
+        enum Kind { None, Reparent, Duplicate, Delete } kind = None;
+        u32 entity = 0;
+        u32 parent = 0;
+    };
+    TreeAction m_treeAction; // 씬 트리에서 고른 구조 변경 (트리를 다 그린 뒤 처리)
 
     char m_nameBuffer[128] = {};
     u32 m_nameBufferId = 0;
