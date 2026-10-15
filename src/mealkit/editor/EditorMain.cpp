@@ -130,7 +130,10 @@ int main(int argc, char** argv) {
     const std::string dllPath = project.gameDllPath();
     auto loadGame = [&]() {
         std::string loadError;
-        if (host.load(dllPath, loadError)) {
+        editor.setGameTypes(nullptr); // 예전 DLL의 타입 설명은 내리면 무효
+        const bool loaded = host.load(dllPath, loadError);
+        if (host.loaded()) editor.setGameTypes(host.module()->objectTypes());
+        if (loaded) {
             editor.setGameCodeStatus(true, "게임 코드 #" + std::to_string(host.generation()));
         } else {
             MEALKIT_ERROR("%s", loadError.c_str());
@@ -243,6 +246,7 @@ int main(int argc, char** argv) {
 
     editor.saveBackupIfDirty();
     stopGame();
+    editor.setGameTypes(nullptr);
     host.unload();
     editor.shutdown();
     renderer.shutdown();

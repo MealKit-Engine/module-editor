@@ -42,6 +42,8 @@ public:
     bool takeGameCodeBuildFailed(); // 게임 코드 빌드가 실패했으면 한 번 true
     // 게임 DLL 상태: 플레이 버튼 활성화와 상태 표시줄 문구
     void setGameCodeStatus(bool loaded, const std::string& text);
+    // 게임 DLL이 선언한 오브젝트 종류 (DLL을 내리기 전에 nullptr로 되돌린다)
+    void setGameTypes(const scene::TypeList* types) { m_gameTypes = types; }
 
     // 매 프레임 pumpMessages 다음에 호출: UI를 만들고 편집 입력을 처리한다.
     void update(f64 dt);
@@ -88,7 +90,12 @@ private:
     void handlePicking();
 
     scene::Entity* selected();
-    void addEntity(scene::EntityKind kind);
+    void addEntity(const std::string& type);
+    const reflect::TypeInfo* entityType(const scene::Entity& e) const; // 모르는 종류(게임 코드 없음)면 nullptr
+    bool isMarker(const scene::Entity& e) const;
+    std::vector<const reflect::TypeInfo*> allTypes() const; // 기본 종류 + 게임 종류(라벨 순)
+    void drawTypeMenuItems();
+    void drawObjectFields(scene::Entity& e);
     void addModelEntity();
     std::string chooseModel(); // 파일 대화상자 → assets 기준 경로 (취소하면 빈 문자열)
     void duplicateSelected();
@@ -153,6 +160,8 @@ private:
     u32 m_nameBufferId = 0;
     std::string m_title;
     bool m_layoutReset = false;
+
+    const scene::TypeList* m_gameTypes = nullptr;
 
     ProjectInfo m_project;
     ChildProcess m_build;

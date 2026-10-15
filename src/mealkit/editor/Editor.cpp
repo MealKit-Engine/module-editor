@@ -2,6 +2,7 @@
 
 #include "mealkit/core/Log.h"
 #include "mealkit/core/Profile.h"
+#include "mealkit/editor/FieldEditor.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Window.h"
 
@@ -21,7 +22,6 @@ namespace mealkit::editor {
 namespace {
 
 using scene::Entity;
-using scene::EntityKind;
 
 constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
 constexpr const char* kHierarchyWindow = "씬 트리###Hierarchy";
@@ -246,7 +246,7 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
         render::InstanceData inst;
         inst.position = e.position;
         inst.rotation = e.rotation;
-        inst.scale = e.kind == EntityKind::SpawnPoint ? kSpawnSize : e.scale;
+        inst.scale = isMarker(e) ? kSpawnSize : e.scale;
         inst.color = e.color;
         inst.flags = e.flags;
         if (e.id == m_selected) inst.flags |= render::kInstanceHighlight;
@@ -329,9 +329,9 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("추가", editing)) {
-        if (ImGui::MenuItem("충돌 상자")) addEntity(EntityKind::Solid);
-        if (ImGui::MenuItem("장식 상자 (충돌 없음)")) addEntity(EntityKind::Decoration);
-        if (ImGui::MenuItem("스폰 지점")) addEntity(EntityKind::SpawnPoint);
+        drawTypeMenuItems();
+        ImGui::Separator();
+        if (ImGui::MenuItem("모델...")) addModelEntity();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("보기")) {
@@ -414,13 +414,17 @@ void Editor::drawHierarchy(bool editing) {
         return;
     }
     ImGui::BeginDisabled(!editing);
-    if (ImGui::Button("+ 상자")) addEntity(EntityKind::Solid);
+    if (ImGui::Button("+ 상자")) addEntity(scene::kTypeSolid);
     ImGui::SameLine();
     if (ImGui::Button("+ 모델")) addModelEntity();
     ImGui::SameLine();
-    if (ImGui::Button("+ 장식")) addEntity(EntityKind::Decoration);
+    if (ImGui::Button("+ 스폰")) addEntity(scene::kTypeSpawn);
     ImGui::SameLine();
-    if (ImGui::Button("+ 스폰")) addEntity(EntityKind::SpawnPoint);
+    if (ImGui::Button("+ 종류...")) ImGui::OpenPopup("##addType");
+    if (ImGui::BeginPopup("##addType")) {
+        drawTypeMenuItems();
+        ImGui::EndPopup();
+    }
     ImGui::Separator();
 
     if (ImGui::BeginChild("##entities")) {
@@ -434,8 +438,10 @@ void Editor::drawHierarchy(bool editing) {
                                ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(swatch, swatch));
             ImGui::SameLine();
             std::string label = e.name.empty() ? "(이름 없음)" : e.name;
-            if (e.kind == EntityKind::Decoration) label += "  · 장식";
-            else if (e.kind == EntityKind::SpawnPoint) label += "  · 스폰";
+            if (!e.is(scene::kTypeSolid)) {
+                const reflect::TypeInfo* type = entityType(e);
+                label += std::string("  · ") + (type ? type->label : e.type.c_str());
+            }
             const u32 id = e.id;
             if (ImGui::Selectable(label.c_str(), m_selected == id, ImGuiSelectableFlags_AllowDoubleClick)) {
                 m_selected = id;
@@ -483,14 +489,21 @@ void Editor::drawInspector(bool editing) {
             e->name = m_nameBuffer;
             markChanged();
         }
-        int kind = static_cast<int>(e->kind);
-        const char* kinds[] = {"충돌 상자", "장식 (충돌 없음)", "스폰 지점"};
-        if (ImGui::Combo("종류", &kind, kinds, 3)) {
-            e->kind = static_cast<EntityKind>(kind);
-            markChanged();
+        const reflect::TypeInfo* type = entityType(*e);
+        const std::string typeLabel = type ? type->label : e->type + " (게임 코드에 없음)";
+        if (ImGui::BeginCombo("종류", typeLabel.c_str())) {
+            for (const reflect::TypeInfo* t : allTypes()) {
+                if (ImGui::Selectable(t->label, t == type) && t != type) {
+                    e->type = t->name;
+                    e->fields = scene::defaultFields(*t);
+                    markChanged();
+                }
+            }
+            ImGui::EndCombo();
         }
+        drawObjectFields(*e);
 
-        if (e->kind != EntityKind::SpawnPoint) {
+        if (!isMarker(*e)) {
             ImGui::SeparatorText("모델");
             if (e->model.empty()) {
                 ImGui::TextDisabled("기본 상자");
@@ -522,7 +535,7 @@ void Editor::drawInspector(bool editing) {
         ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
         bool changed = ImGui::DragFloat3("위치", t, 0.05f, 0.0f, 0.0f, "%.2f");
         changed |= ImGui::DragFloat3("회전 (도)", r, 0.5f, 0.0f, 0.0f, "%.1f");
-        if (e->kind != EntityKind::SpawnPoint) changed |= ImGui::DragFloat3("크기", s, 0.02f, 0.01f, 10000.0f, "%.2f");
+        if (!isMarker(*e)) changed |= ImGui::DragFloat3("크기", s, 0.02f, 0.01f, 10000.0f, "%.2f");
         if (changed) {
             for (f32& v : s) v = std::max(v, 0.01f);
             ImGuizmo::RecomposeMatrixFromComponents(t, r, s, matrix);
@@ -588,7 +601,7 @@ void Editor::drawGizmo() {
 
     const ImGuizmo::OPERATION ops[3] = {ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE};
     ImGuizmo::OPERATION op = ops[m_gizmoOp];
-    if (e->kind == EntityKind::SpawnPoint && op == ImGuizmo::SCALE) op = ImGuizmo::TRANSLATE;
+    if (isMarker(*e) && op == ImGuizmo::SCALE) op = ImGuizmo::TRANSLATE;
     const ImGuizmo::MODE mode = (m_gizmoLocal || op == ImGuizmo::SCALE) ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
     const f32 step = op == ImGuizmo::TRANSLATE ? 0.5f : op == ImGuizmo::ROTATE ? 15.0f : 0.1f;
     const f32 snap[3] = {step, step, step};
@@ -696,7 +709,7 @@ void Editor::handlePicking() {
     u32 best = 0;
     f32 bestT = 1e30f;
     for (const Entity& e : m_scene.entities) {
-        Vec3 center{}, half = (e.kind == EntityKind::SpawnPoint ? kSpawnSize : e.scale) * 0.5f;
+        Vec3 center{}, half = (isMarker(e) ? kSpawnSize : e.scale) * 0.5f;
         if (const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model)) {
             const Vec3 c = (model->boundsMin + model->boundsMax) * 0.5f, h = (model->boundsMax - model->boundsMin) * 0.5f;
             center = {c.x * e.scale.x, c.y * e.scale.y, c.z * e.scale.z};
@@ -715,7 +728,68 @@ void Editor::handlePicking() {
 
 Entity* Editor::selected() { return m_selected ? m_scene.find(m_selected) : nullptr; }
 
-void Editor::addEntity(EntityKind kind) {
+const reflect::TypeInfo* Editor::entityType(const Entity& e) const { return scene::findType(e.type, m_gameTypes); }
+
+bool Editor::isMarker(const Entity& e) const {
+    const reflect::TypeInfo* type = entityType(e);
+    return type && (type->flags & reflect::kObjectMarker);
+}
+
+std::vector<const reflect::TypeInfo*> Editor::allTypes() const {
+    std::vector<const reflect::TypeInfo*> list = scene::builtinTypes();
+    if (m_gameTypes) {
+        std::vector<const reflect::TypeInfo*> game = *m_gameTypes;
+        std::sort(game.begin(), game.end(), [](const reflect::TypeInfo* a, const reflect::TypeInfo* b) {
+            return std::strcmp(a->label, b->label) < 0;
+        });
+        list.insert(list.end(), game.begin(), game.end());
+    }
+    return list;
+}
+
+void Editor::drawTypeMenuItems() {
+    const size_t builtins = scene::builtinTypes().size();
+    const std::vector<const reflect::TypeInfo*> types = allTypes();
+    for (size_t i = 0; i < types.size(); ++i) {
+        if (i == builtins) ImGui::SeparatorText("게임");
+        if (ImGui::MenuItem(types[i]->label)) addEntity(types[i]->name);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", types[i]->name);
+    }
+    if (!m_gameTypes) ImGui::TextDisabled("(게임 코드를 불러오면 게임 종류가 나옵니다)");
+}
+
+// 게임 종류의 필드: 텍스트 값을 선언된 타입의 인스턴스로 읽어 위젯으로 고치고, 다시 텍스트로 쓴다
+void Editor::drawObjectFields(Entity& e) {
+    const reflect::TypeInfo* type = entityType(e);
+    if (type && type->fields.empty()) return;
+    ImGui::SeparatorText("필드");
+    if (!type) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1.0f), "게임 코드에 '%s' 종류가 없습니다. 값은 그대로 보존됩니다.", e.type.c_str());
+        for (auto& [path, value] : e.fields) {
+            char buffer[256];
+            strncpy_s(buffer, value.c_str(), _TRUNCATE);
+            if (ImGui::InputText(path.c_str(), buffer, sizeof(buffer))) {
+                value = buffer;
+                markChanged();
+            }
+        }
+        return;
+    }
+    reflect::Instance instance(*type);
+    std::string warnings;
+    reflect::fromText(*type, instance.data(), e.fields, &warnings);
+    if (drawFields(*type, instance.data())) {
+        reflect::TextFields fields;
+        reflect::toText(*type, instance.data(), fields);
+        e.fields = std::move(fields);
+        markChanged();
+    }
+    if (!warnings.empty()) ImGui::TextDisabled("선언에 없는 필드: %s (저장하면 사라집니다)", warnings.c_str());
+}
+
+void Editor::addEntity(const std::string& typeName) {
+    const reflect::TypeInfo* type = scene::findType(typeName, m_gameTypes);
+    if (!type) return;
     pushUndo(capture());
     const Vec3 forward = cameraForward();
     Vec3 pos = m_cameraPos + forward * 12.0f;
@@ -723,24 +797,17 @@ void Editor::addEntity(EntityKind kind) {
         const f32 t = -m_cameraPos.y / forward.y;
         if (t > 0.0f && t < 80.0f) pos = m_cameraPos + forward * t;
     }
-    const char* base = kind == EntityKind::Solid ? "상자" : kind == EntityKind::Decoration ? "장식" : "스폰 지점";
-    Entity& e = m_scene.add(kind, base);
+    const bool solid = typeName == scene::kTypeSolid;
+    Entity& e = m_scene.add(type->name, solid ? "상자" : type->label);
     e.name += " " + std::to_string(e.id);
-    switch (kind) {
-    case EntityKind::Solid:
-        e.scale = {2, 2, 2};
-        e.position = {pos.x, std::max(pos.y, 0.0f) + 1.0f, pos.z};
-        e.color = 0xFFD2C8C8;
-        break;
-    case EntityKind::Decoration:
-        e.scale = {2, 2, 2};
-        e.position = {pos.x, std::max(pos.y, 0.0f) + 1.0f, pos.z};
-        e.color = 0xFFDCAA78;
-        break;
-    case EntityKind::SpawnPoint:
+    e.fields = scene::defaultFields(*type);
+    if (type->flags & reflect::kObjectMarker) {
         e.position = {pos.x, std::max(pos.y, 0.0f) + 0.9f, pos.z};
         e.color = 0xFF5ADCFF;
-        break;
+    } else {
+        e.scale = {2, 2, 2};
+        e.position = {pos.x, std::max(pos.y, 0.0f) + 1.0f, pos.z};
+        e.color = solid ? 0xFFD2C8C8 : typeName == scene::kTypeDecoration ? 0xFFDCAA78 : 0xFF8CD2F0;
     }
     m_selected = e.id;
     setStatus("추가: " + e.name);
@@ -771,7 +838,7 @@ void Editor::addModelEntity() {
         setStatus("모델을 불러오지 못했습니다: " + path);
         return;
     }
-    addEntity(EntityKind::Solid);
+    addEntity(scene::kTypeSolid);
     Entity* e = selected();
     e->model = path;
     e->scale = {1, 1, 1};
@@ -814,12 +881,12 @@ void Editor::focusSelected() {
 void Editor::newScene() {
     pushUndo(capture());
     scene::Scene fresh;
-    Entity& ground = fresh.add(EntityKind::Solid, "Ground");
+    Entity& ground = fresh.add(scene::kTypeSolid, "Ground");
     ground.position = {0, -0.5f, 0};
     ground.scale = {120, 1, 120};
     ground.color = 0xFF609676;
     ground.flags = render::kInstanceChecker;
-    Entity& spawn = fresh.add(EntityKind::SpawnPoint, "Spawn 1");
+    Entity& spawn = fresh.add(scene::kTypeSpawn, "Spawn 1");
     spawn.position = {0, 0.9f, 0};
     spawn.color = 0xFF5ADCFF;
     m_scene = std::move(fresh);
