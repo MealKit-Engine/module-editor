@@ -32,6 +32,7 @@ constexpr const char* kTuningWindow = "튜닝###Tuning";
 constexpr const char* kStateWindow = "상태###State";
 constexpr const char* kBuildLogWindow = "빌드 로그###BuildLog";
 constexpr size_t kUndoLimit = 100;
+constexpr f64 kAutosaveSeconds = 90.0; // 저장 안 된 변경이 있으면 이 간격으로 <씬>.autosave에 쓴다
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
 
 constexpr const char* kEntityPayload = "MEALKIT_ENTITY";
@@ -157,7 +158,7 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     m_window = &window;
     m_renderer = &renderer;
     m_models = &models;
-    m_focusPanel = kInspectorWindow; // 편집 모드로 시작: 인스펙터를 앞으로
+    focusPanel(kInspectorWindow); // 편집 모드로 시작: 인스펙터를 앞으로
     if (!m_imgui.init(window, renderer, executableDirectory() + "\\mealkit_editor.ini")) {
         MEALKIT_ERROR("Editor UI initialization failed");
         return false;
@@ -232,7 +233,75 @@ void Editor::update(f64 dt) {
     }
     if (m_editActive && !ImGui::IsAnyItemActive() && !ImGuizmo::IsUsing()) m_editActive = false;
 
+    drawPopups();
+    updateAutosave(dt);
     updateTitle();
+}
+
+void Editor::focusPanel(const char* window) {
+    m_focusPanel = window;
+    m_focusFrames = 3; // 도킹 노드가 아직 없는 첫 프레임에는 포커스가 안 먹으므로 몇 프레임 동안 요청한다
+}
+
+void Editor::focusPanelNow() {
+    ImGui::SetNextWindowFocus();
+    if (--m_focusFrames <= 0) m_focusPanel = nullptr;
+}
+
+void Editor::updateAutosave(f64 dt) {
+    if (m_changed) m_autosavePending = true;
+    if (m_mode != Mode::Edit) return;
+    m_autosaveTimer += dt;
+    if (m_autosaveTimer < kAutosaveSeconds) return;
+    m_autosaveTimer = 0.0;
+    if (m_dirty && m_autosavePending) {
+        saveBackupIfDirty();
+        m_autosavePending = false;
+    }
+}
+
+void Editor::drawPopups() {
+    if (!m_message.empty() && !ImGui::IsPopupOpen("알림###Message")) ImGui::OpenPopup("알림###Message");
+    if (ImGui::BeginPopupModal("알림###Message", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 36.0f);
+        ImGui::TextUnformatted(m_message.c_str());
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("확인", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+            m_message.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (!m_recoverPath.empty() && !ImGui::IsPopupOpen("자동 저장 복구###Recover")) ImGui::OpenPopup("자동 저장 복구###Recover");
+    if (ImGui::BeginPopupModal("자동 저장 복구###Recover", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("저장하지 않은 변경이 남아 있습니다 (자동 저장본이 씬 파일보다 새롭습니다).");
+        ImGui::TextDisabled("%s", m_recoverPath.c_str());
+        ImGui::Text("자동 저장본을 불러올까요? 씬 파일은 저장할 때까지 바뀌지 않습니다.");
+        if (ImGui::Button("복구", ImVec2(120, 0))) {
+            scene::Scene recovered;
+            std::string error;
+            if (scene::load(recovered, m_recoverPath, &error)) {
+                pushUndo(capture());
+                m_scene = std::move(recovered);
+                m_selected = 0;
+                m_nameBufferId = 0;
+                m_dirty = true;
+                setStatus("자동 저장본을 복구했습니다 - 저장하면 씬 파일에 반영됩니다");
+            } else {
+                setStatus("자동 저장본을 읽지 못했습니다: " + error);
+            }
+            m_recoverPath.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("버리기", ImVec2(120, 0))) {
+            removeFile(m_recoverPath);
+            m_recoverPath.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 void Editor::renderUi(bool frameActive) { m_imgui.render(*m_renderer, frameActive); }
@@ -269,7 +338,7 @@ void Editor::setMode(Mode mode) {
     m_looking = false;
     m_window->setCursorCaptured(false);
     if (mode == Mode::Edit) m_playStatus.clear();
-    m_focusPanel = mode == Mode::Play ? kStateWindow : kInspectorWindow; // 플레이 중에는 [상태] 탭을 앞으로
+    focusPanel(mode == Mode::Play ? kStateWindow : kInspectorWindow); // 플레이 중에는 [상태] 탭을 앞으로
 }
 
 bool Editor::takePlayRequest() {
@@ -390,6 +459,17 @@ void Editor::drawMenuBar() {
     ImGui::PopStyleColor(2);
     if (editing && !m_gameLoaded && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("%s", m_gameStatus.c_str());
+
+    // 플레이 인원 (여러 명이면 참가 창을 더 띄운다)
+    ImGui::BeginDisabled(!editing);
+    const char* counts[] = {"혼자", "2명", "3명", "4명"};
+    int players = static_cast<int>(m_playPlayers) - 1;
+    ImGui::SetNextItemWidth(ImGui::CalcTextSize("혼자").x + ImGui::GetFrameHeight() * 2.0f);
+    if (ImGui::Combo("##players", &players, counts, 4)) m_playPlayers = static_cast<u32>(players + 1);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("여러 명이면 에디터가 방장이 되고 참가 창을 더 띄웁니다 (현재 씬과 튜닝으로, 같은 PC)");
+    if (m_playPlayers > 1) ImGui::Checkbox("참가 창 봇", &m_playClientBots);
+    ImGui::EndDisabled();
     ImGui::EndMainMenuBar();
 }
 
@@ -545,10 +625,7 @@ void Editor::reparent(u32 entityId, u32 parentId) {
 }
 
 void Editor::drawInspector(bool editing) {
-    if (m_focusPanel == kInspectorWindow) {
-        ImGui::SetNextWindowFocus();
-        m_focusPanel = nullptr;
-    }
+    if (m_focusPanel == kInspectorWindow) focusPanelNow();
     if (!ImGui::Begin(kInspectorWindow)) {
         ImGui::End();
         return;
@@ -762,7 +839,10 @@ void Editor::drawTuning() {
         m_tuning = reflect::Instance(*type);
         m_tuningDirty = m_tuningChanged = true;
     }
-    if (m_mode == Mode::Play) ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "플레이 중: 바꾸면 바로 적용됩니다");
+    if (m_mode == Mode::Play && m_playPlayers == 1)
+        ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "플레이 중: 바꾸면 바로 적용됩니다");
+    else if (m_mode == Mode::Play)
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.4f, 1.0f), "여러 명 플레이 중에는 바꿔도 적용되지 않습니다 (다음 플레이부터)");
     ImGui::Separator();
     ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
     if (drawFields(*type, m_tuning.data())) m_tuningDirty = m_tuningChanged = true;
@@ -774,10 +854,7 @@ void Editor::drawTuning() {
 void Editor::drawState() {
     if (ImGuiWindow* inspector = ImGui::FindWindowByName(kInspectorWindow); inspector && inspector->DockId)
         ImGui::SetNextWindowDockID(inspector->DockId, ImGuiCond_FirstUseEver);
-    if (m_focusPanel == kStateWindow) {
-        ImGui::SetNextWindowFocus();
-        m_focusPanel = nullptr;
-    }
+    if (m_focusPanel == kStateWindow) focusPanelNow();
     if (!ImGui::Begin(kStateWindow)) {
         ImGui::End();
         return;
@@ -1138,6 +1215,10 @@ bool Editor::loadScene(const std::string& path) {
     m_scene = std::move(loaded);
     m_scenePath = path;
     m_dirty = false;
+    m_autosavePending = false;
+    // 지난번에 저장하지 않고 끝났거나 크래시가 났으면 자동 저장본이 더 새롭다
+    const std::string autosave = path + ".autosave";
+    m_recoverPath = fileExists(autosave) && fileWriteTime(autosave) > fileWriteTime(path) ? autosave : std::string();
     m_undo.clear();
     m_redo.clear();
     m_selected = 0;
@@ -1153,6 +1234,8 @@ bool Editor::saveScene() {
         return false;
     }
     m_dirty = false;
+    m_autosavePending = false;
+    removeFile(m_scenePath + ".autosave"); // 저장했으니 자동 저장본은 필요 없다
     setStatus("저장됨: " + fileName(m_scenePath));
     return true;
 }

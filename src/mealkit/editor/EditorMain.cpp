@@ -3,6 +3,8 @@
 //   MealKitEditor.exe                         프로젝트 관리자 (최근 프로젝트, 열기, 새 프로젝트)
 //   MealKitEditor.exe --project <폴더>        프로젝트 열기 (mealkit.project가 있는 폴더)
 //   MealKitEditor.exe --project <폴더> my.scene   다른 씬 열기
+//   MealKitEditor.exe --project <폴더> --player <주소:포트> --scene <파일> [--tuning <파일>] [--bot]
+//                                             참가 창 모드 (에디터 여러 명 플레이가 띄운다)
 //
 // 게임 코드: <프로젝트>\build\Editor\bin\<이름>_game.dll. 다시 빌드되면 편집 모드에서 자동으로 바꿔 끼운다(핫 리로드).
 // 에디터 조작: 오른쪽 드래그 + WASD/QE 카메라, 클릭 선택, W/E/R 이동·회전·크기, Ctrl+S 저장, Ctrl+Z 되돌리기, F5 플레이,
@@ -14,6 +16,7 @@
 #include "mealkit/core/Profile.h"
 #include "mealkit/editor/Editor.h"
 #include "mealkit/editor/GameModuleHost.h"
+#include "mealkit/editor/PlaySession.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/ProjectManager.h"
 #include "mealkit/game/GameInstance.h"
@@ -47,6 +50,11 @@ struct Options {
     bool bot = false;
     bool exportGame = false; // 시작하자마자 [출시 빌드]
     bool buildGame = false;  // 시작하자마자 [게임 코드 빌드]
+    u32 players = 0;         // 0 = 에디터 설정, 2~4 = 여러 명 플레이 (자동 테스트)
+    // 참가 창 모드
+    std::string playerAddress;
+    std::string tuningPath;
+    u32 playerIndex = 2;
 };
 
 bool parseArgs(int argc, char** argv, Options& o) {
@@ -68,10 +76,16 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--bot") o.bot = true;
         else if (a == "--export") o.exportGame = true;
         else if (a == "--build-game") o.buildGame = true;
+        else if (a == "--players" && next(v)) o.players = static_cast<u32>(std::atoi(v));
+        else if (a == "--player" && next(v)) o.playerAddress = v;
+        else if (a == "--player-index" && next(v)) o.playerIndex = static_cast<u32>(std::atoi(v));
+        else if (a == "--scene" && next(v)) o.scenePath = v;
+        else if (a == "--tuning" && next(v)) o.tuningPath = v;
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
             std::printf("Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
-                        "  automation: --frames n --capture png --select i --play --bot --export --build-game\n");
+                        "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game\n"
+                        "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>] [--bot]\n");
             return false;
         }
     }
@@ -93,6 +107,17 @@ int main(int argc, char** argv) {
     Options opt;
     if (!parseArgs(argc, argv, opt)) return 1;
     if (opt.frames) log::setDialogs(false);
+    if (!opt.playerAddress.empty()) { // 여러 명 플레이의 참가 창
+        editor::PlayerOptions player;
+        player.projectDir = opt.projectDir;
+        player.address = opt.playerAddress;
+        player.scenePath = opt.scenePath;
+        player.tuningPath = opt.tuningPath;
+        player.index = opt.playerIndex;
+        player.bot = opt.bot;
+        player.debugLayer = opt.debugLayer;
+        return editor::runPlayer(player);
+    }
 
     Window window;
     if (!window.create({"MealKit Editor", 1600, 900})) return 1;
@@ -122,6 +147,7 @@ int main(int argc, char** argv) {
     if (!editor.init(window, renderer, scenePath, models)) MEALKIT_FATAL("Editor initialization failed");
     editor.setProject(project);
     if (opt.select >= 0) editor.selectByIndex(opt.select);
+    if (opt.players > 1) editor.setPlayPlayers(opt.players);
     if (opt.play) editor.requestPlay();
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);
 
@@ -152,20 +178,15 @@ int main(int argc, char** argv) {
         loadGame();
     }
 
-    std::unique_ptr<net::LockstepSession> session;
-    game::GameInstance* game = nullptr;
+    editor::PlaySession play;
     auto stopGame = [&]() {
         editor.setStateView({});
-        host.destroy(game);
-        game = nullptr;
-        session.reset();
+        play.stop();
     };
-    game::PlayOptions playOptions;
-    playOptions.bot = opt.bot;
 
     render::DrawList drawList;
     f64 lastTime = nowSeconds();
-    f64 statusTimer = 0.0, reloadTimer = 0.0;
+    f64 reloadTimer = 0.0;
     u32 frame = 0;
 
     while (window.pumpMessages() && !editor.quitRequested()) {
@@ -196,45 +217,40 @@ int main(int argc, char** argv) {
         }
 
         if (editor.mode() == editor::Mode::Edit && host.loaded() && editor.takePlayRequest()) {
-            session = std::make_unique<net::LockstepSession>();
-            session->startOffline(static_cast<u64>(std::time(nullptr)), opt.bodies);
-            game = host.create();
-            game::GameContext ctx{window, renderer, models, *session, editor.viewport()};
-            playOptions.tuningPath = editor.writePlayTuning();
-            game->start(ctx, editor.scene(), playOptions);
-            editor.takeTuningChanged();
-            editor.setMode(editor::Mode::Play);
-            MEALKIT_INFO("Play mode: %u bodies", opt.bodies);
+            editor::PlayConfig config;
+            config.players = editor.playPlayers();
+            config.clientBots = editor.playClientBots();
+            config.bot = opt.bot;
+            config.bodies = opt.bodies;
+            config.projectDir = project.directory;
+            std::string playError;
+            if (play.start(config, editor, host, models, now, playError)) {
+                editor.setMode(editor::Mode::Play);
+            } else {
+                MEALKIT_ERROR("Play failed: %s", playError.c_str());
+                editor.showMessage("플레이를 시작하지 못했습니다: " + playError);
+            }
         }
         if (editor.takeStopRequest() && editor.mode() == editor::Mode::Play) {
             stopGame();
             editor.setMode(editor::Mode::Edit);
         }
 
-        const bool playing = editor.mode() == editor::Mode::Play && session && game;
+        const bool playing = editor.mode() == editor::Mode::Play && play.active();
         if (playing) {
-            game::GameContext ctx{window, renderer, models, *session, editor.viewport(), editor.gameKeyboardAllowed(),
-                                  editor.gameMouseAllowed()};
-            session->update(now);
-            if (editor.takeTuningChanged()) game->setTuning(editor.tuningData()); // 혼자 플레이: 바로 적용
-            game->update(ctx, dt);
-            editor.setStateView(game->stateView());
-            statusTimer += dt;
-            if (statusTimer >= 0.25) {
-                char text[200];
-                snprintf(text, sizeof(text),
-                         "플레이 중 | 틱 %u | 시뮬레이션 %.2f ms/틱 | 움직이는 물체 %u | WASD 이동 · Space 점프 · 클릭 밀치기 · Esc 정지",
-                         game->nextTick(), game->takeSimMsPerTick(), game->activeBodies());
-                editor.setPlayStatus(text);
-                statusTimer = 0.0;
+            play.update(now, dt, editor, window, renderer, models);
+            if (!play.failure().empty()) { // 참가 대기 시간 초과, 세션 종료
+                MEALKIT_ERROR("Play stopped: %s", play.failure().c_str());
+                editor.showMessage(play.failure());
+                stopGame();
+                editor.setMode(editor::Mode::Edit);
             }
         }
 
         render::FrameParams frameParams;
         drawList.clear();
-        if (playing) {
-            game::GameContext ctx{window, renderer, models, *session, editor.viewport()};
-            game->buildFrame(ctx, now, frameParams, drawList);
+        if (playing && play.active()) {
+            play.buildFrame(now, editor, window, renderer, models, frameParams, drawList);
         } else {
             editor.buildSceneView(frameParams, drawList);
         }

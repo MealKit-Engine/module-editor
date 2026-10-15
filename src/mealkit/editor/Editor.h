@@ -67,6 +67,12 @@ public:
     bool takePlayRequest();
     bool takeStopRequest();
     void requestPlay() { m_playRequest = true; } // 게임 DLL이 아직 없으면 불러올 때까지 기다린다 (자동 테스트용)
+    // 플레이 인원: 1 = 혼자, 2~4 = 에디터가 방장이 되고 참가 창을 더 띄운다
+    u32 playPlayers() const { return m_playPlayers; }
+    void setPlayPlayers(u32 players) { m_playPlayers = players < 1 ? 1 : players > 4 ? 4 : players; }
+    bool playClientBots() const { return m_playClientBots; }
+    // 화면 가운데 알림 창 (확인을 누르면 닫힌다)
+    void showMessage(const std::string& text) { m_message = text; }
     void setPlayStatus(const std::string& text) { m_playStatus = text; }
 
     const scene::Scene& scene() const { return m_scene; }
@@ -95,6 +101,10 @@ private:
     void drawEnvironment(bool editing);
     void drawTuning();
     void drawState();
+    void drawPopups();
+    void updateAutosave(f64 dt);
+    void focusPanel(const char* window);
+    void focusPanelNow(); // 그 창의 Begin 직전에 부른다
     std::string tuningPath() const;
     bool loadTuningFile();
     bool saveTuning();
@@ -192,7 +202,14 @@ private:
     bool m_tuningDirty = false;
     bool m_tuningChanged = false;
     reflect::View m_stateView;
-    const char* m_focusPanel = nullptr; // 다음 프레임에 앞으로 가져올 패널 (모드가 바뀔 때)
+    const char* m_focusPanel = nullptr; // 앞으로 가져올 패널 (모드가 바뀔 때)
+    int m_focusFrames = 0;
+    u32 m_playPlayers = 1;
+    bool m_playClientBots = true;
+    std::string m_message;     // 알림 창 내용
+    std::string m_recoverPath; // 복구할지 물어볼 자동 저장 파일
+    f64 m_autosaveTimer = 0.0;
+    bool m_autosavePending = false; // 마지막 자동 저장 뒤에 바뀐 것이 있다
 
     ProjectInfo m_project;
     ChildProcess m_build;

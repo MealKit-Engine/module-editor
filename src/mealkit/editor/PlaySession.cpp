@@ -1,0 +1,240 @@
+#include "mealkit/editor/PlaySession.h"
+
+#include "mealkit/asset/ModelCache.h"
+#include "mealkit/core/Clock.h"
+#include "mealkit/core/Log.h"
+#include "mealkit/editor/Editor.h"
+#include "mealkit/editor/GameModuleHost.h"
+#include "mealkit/editor/Project.h"
+#include "mealkit/game/GameData.h"
+#include "mealkit/net/Lockstep.h"
+#include "mealkit/net/Socket.h"
+#include "mealkit/platform/Paths.h"
+#include "mealkit/platform/Window.h"
+#include "mealkit/render/DrawList.h"
+#include "mealkit/render/Renderer.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <ctime>
+
+namespace mealkit::editor {
+namespace {
+
+constexpr u32 kInputDelay = 3;
+
+std::string playDirectory(const std::string& projectDir) { return projectDir + "\\build\\Editor\\play"; }
+
+} // namespace
+
+u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const game::GameModule& module,
+                    const std::string& tuningPath) {
+    const reflect::TypeInfo* tuningType = module.tuningType ? module.tuningType() : nullptr;
+    reflect::Instance tuning = tuningType ? reflect::Instance(*tuningType) : reflect::Instance();
+    if (tuningType) game::loadTuning(*tuningType, tuning.data(), tuningPath);
+    return game::contentHash(scene, models, module.objectTypes ? module.objectTypes() : nullptr, tuningType, tuning.data());
+}
+
+PlaySession::~PlaySession() { stop(); }
+
+bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost& host, asset::ModelCache& models, f64 now,
+                        std::string& error) {
+    stop();
+    m_config = config;
+    m_config.players = std::clamp(config.players, 1u, net::kMaxPlayers);
+    m_host = &host;
+    m_failure.clear();
+    m_startTime = now;
+    m_seed = static_cast<u64>(std::time(nullptr));
+    m_options = {};
+    m_options.bot = config.bot;
+    m_options.tuningPath = editor.writePlayTuning();
+
+    m_session = std::make_unique<net::LockstepSession>();
+    if (!multiplayer()) {
+        m_session->startOffline(m_seed, config.bodies);
+    } else {
+        // 참가 창이 읽을 씬 사본 (저장 안 된 편집 포함)
+        const std::string dir = playDirectory(config.projectDir);
+        createDirectories(dir);
+        const std::string scenePath = dir + "\\play.scene";
+        if (!scene::save(editor.scene(), scenePath)) {
+            error = "임시 씬을 쓰지 못했습니다: " + scenePath;
+            return false;
+        }
+        m_session->setContentHash(playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath));
+        if (!m_session->host(kEditorPlayPort, m_config.players, kInputDelay, true)) {
+            error = "포트 " + std::to_string(kEditorPlayPort) + "을 열지 못했습니다 (다른 플레이가 쓰고 있나요?)";
+            m_session.reset();
+            return false;
+        }
+        const std::string exe = executableDirectory() + "\\MealKitEditor.exe";
+        for (u32 i = 2; i <= m_config.players; ++i) {
+            std::string args = "--project \"" + config.projectDir + "\" --player 127.0.0.1:" + std::to_string(kEditorPlayPort) +
+                               " --player-index " + std::to_string(i) + " --scene \"" + scenePath + "\"";
+            if (!m_options.tuningPath.empty()) args += " --tuning \"" + m_options.tuningPath + "\"";
+            if (config.clientBots) args += " --bot";
+            const std::string log = dir + "\\player" + std::to_string(i) + ".log";
+            if (!m_clients.launch(exe, args, config.projectDir, log)) {
+                error = "참가 창을 띄우지 못했습니다";
+                stop();
+                return false;
+            }
+        }
+        MEALKIT_INFO("Editor play: hosting %u players on port %u", m_config.players, kEditorPlayPort);
+    }
+    m_game = host.create();
+    if (!m_game) {
+        error = "게임 인스턴스를 만들지 못했습니다";
+        stop();
+        return false;
+    }
+    editor.takeTuningChanged(); // 시작할 때 이미 임시 파일로 넘겼다
+    return true;
+}
+
+void PlaySession::stop() {
+    m_clients.terminateAll();
+    if (m_host && m_game) m_host->destroy(m_game);
+    m_game = nullptr;
+    m_session.reset();
+}
+
+void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render::Renderer& renderer,
+                         asset::ModelCache& models) {
+    if (!m_game || !m_session || !m_failure.empty()) return;
+    net::LockstepSession& session = *m_session;
+    session.update(now);
+
+    // 방장: 모두 들어오면 매치 시작
+    if (session.isHost() && session.state() == net::SessionState::Lobby && session.lobbyPlayerCount() >= m_config.players)
+        session.startMatch(m_seed, m_config.bodies);
+    if (session.state() == net::SessionState::Ended) {
+        m_failure = std::string("세션이 끝났습니다: ") + session.endReason();
+        return;
+    }
+    if (!m_game->started() && session.state() != net::SessionState::Running) {
+        if (now - m_startTime > kJoinTimeoutSeconds) {
+            m_failure = "참가 창이 " + std::to_string(static_cast<int>(kJoinTimeoutSeconds)) +
+                        "초 안에 접속하지 않았습니다 (build\\Editor\\play\\player*.log 확인)";
+            return;
+        }
+        char text[160];
+        snprintf(text, sizeof(text), "참가 창을 기다리는 중 (%u/%u) | Esc 정지", session.lobbyPlayerCount(), m_config.players);
+        editor.setPlayStatus(text);
+        return;
+    }
+
+    game::GameContext ctx{window, renderer, models, session, editor.viewport(), editor.gameKeyboardAllowed(),
+                          editor.gameMouseAllowed()};
+    if (!m_game->started()) {
+        m_game->start(ctx, editor.scene(), m_options);
+        MEALKIT_INFO("Play mode: %u bodies, %u player(s)", session.matchData(), session.playerCount());
+    }
+    // 혼자 플레이: 튜닝을 바꾸면 바로 적용. 여러 명이면 피어마다 달라져 디싱크가 나므로 적용하지 않는다.
+    if (editor.takeTuningChanged() && !multiplayer()) m_game->setTuning(editor.tuningData());
+    m_game->update(ctx, dt);
+    editor.setStateView(m_game->stateView());
+
+    m_statusTimer += dt;
+    if (m_statusTimer >= 0.25) {
+        char text[256];
+        const char* sync = !multiplayer() ? "" : session.desynced() ? " | 디싱크!" : " | 동기화됨";
+        snprintf(text, sizeof(text), "플레이 중%s | 틱 %u | 시뮬레이션 %.2f ms/틱 | 움직이는 물체 %u%s | Esc 정지",
+                 multiplayer() ? (" " + std::to_string(m_config.players) + "명").c_str() : "", m_game->nextTick(),
+                 m_game->takeSimMsPerTick(), m_game->activeBodies(), sync);
+        editor.setPlayStatus(text);
+        m_statusTimer = 0.0;
+    }
+}
+
+void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer, asset::ModelCache& models,
+                             render::FrameParams& frame, render::DrawList& out) {
+    if (!m_game || !m_session) return;
+    game::GameContext ctx{window, renderer, models, *m_session, editor.viewport()};
+    m_game->buildFrame(ctx, now, frame, out);
+}
+
+// ---------------------------------------------------------------- 참가 창
+
+int runPlayer(const PlayerOptions& o) {
+    log::setDialogs(false);
+    ProjectInfo project;
+    std::string error;
+    if (!loadProject(o.projectDir, project, &error)) {
+        MEALKIT_ERROR("Cannot open project: %s", error.c_str());
+        return 1;
+    }
+    setProjectRoot(project.directory);
+
+    const std::string title = "MealKit - " + project.name + " - 플레이어 " + std::to_string(o.index);
+    Window window;
+    if (!window.create({title.c_str(), 960, 540})) return 1;
+    render::Renderer renderer;
+    if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, o.debugLayer})) return 1;
+    asset::ModelCache models;
+    models.setRenderer(&renderer);
+
+    scene::Scene scene;
+    if (!scene::load(scene, o.scenePath, &error)) {
+        MEALKIT_ERROR("Cannot load scene %s: %s", o.scenePath.c_str(), error.c_str());
+        return 1;
+    }
+    GameModuleHost host;
+    if (!host.load(project.gameDllPath(), error)) {
+        MEALKIT_ERROR("%s", error.c_str());
+        return 1;
+    }
+
+    net::LockstepSession session;
+    session.setContentHash(playContentHash(scene, models, *host.module(), o.tuningPath));
+    net::Address address;
+    if (!net::startup() || !net::resolveAddress(o.address.c_str(), kEditorPlayPort, address)) {
+        MEALKIT_ERROR("Cannot resolve %s", o.address.c_str());
+        return 1;
+    }
+    net::cleanup();
+    if (!session.join(address)) return 1;
+
+    game::GameInstance* game = host.create();
+    game::PlayOptions options;
+    options.bot = o.bot;
+    options.tuningPath = o.tuningPath;
+    game::GameContext ctx{window, renderer, models, session};
+    render::DrawList drawList;
+    f64 lastTime = nowSeconds();
+    int exitCode = 0;
+    while (window.pumpMessages()) {
+        const f64 now = nowSeconds();
+        const f64 dt = std::min(now - lastTime, 0.25);
+        lastTime = now;
+        if (window.input().keyPressed(key::Escape)) break;
+        if (window.consumeResize()) renderer.resize(window.width(), window.height());
+        session.update(now);
+        if (session.state() == net::SessionState::Ended) {
+            MEALKIT_INFO("Session ended: %s", session.endReason());
+            exitCode = session.desynced() ? 2 : 0;
+            break;
+        }
+        ctx.viewport = {0.0f, 0.0f, static_cast<f32>(window.width()), static_cast<f32>(window.height())};
+        ctx.keyboardAllowed = ctx.mouseAllowed = window.focused();
+        if (!game->started() && session.state() == net::SessionState::Running) game->start(ctx, scene, options);
+        game->update(ctx, dt);
+        if (!window.minimized()) {
+            render::FrameParams frame;
+            drawList.clear();
+            game->buildFrame(ctx, now, frame, drawList);
+            if (renderer.beginFrame(frame)) {
+                drawList.submit(renderer);
+                renderer.endFrame();
+            }
+        }
+    }
+    host.destroy(game);
+    session.shutdown();
+    host.unload();
+    renderer.shutdown();
+    return exitCode;
+}
+
+} // namespace mealkit::editor
