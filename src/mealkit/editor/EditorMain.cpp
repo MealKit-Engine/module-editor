@@ -191,7 +191,8 @@ int main(int argc, char** argv) {
             session = std::make_unique<net::LockstepSession>();
             session->startOffline(static_cast<u64>(std::time(nullptr)), opt.bodies);
             game = host.create();
-            game->start(editor.scene(), *session, playOptions, models);
+            game::GameContext ctx{window, renderer, models, *session, editor.viewport()};
+            game->start(ctx, editor.scene(), playOptions);
             editor.setMode(editor::Mode::Play);
             MEALKIT_INFO("Play mode: %u bodies", opt.bodies);
         }
@@ -200,9 +201,12 @@ int main(int argc, char** argv) {
             editor.setMode(editor::Mode::Edit);
         }
 
-        if (editor.mode() == editor::Mode::Play && session && game) {
+        const bool playing = editor.mode() == editor::Mode::Play && session && game;
+        if (playing) {
+            game::GameContext ctx{window, renderer, models, *session, editor.viewport(), editor.gameKeyboardAllowed(),
+                                  editor.gameMouseAllowed()};
             session->update(now);
-            game->update(dt, *session, window, editor.gameKeyboardAllowed(), editor.gameMouseAllowed());
+            game->update(ctx, dt);
             statusTimer += dt;
             if (statusTimer >= 0.25) {
                 char text[200];
@@ -216,9 +220,12 @@ int main(int argc, char** argv) {
 
         render::FrameParams frameParams;
         drawList.clear();
-        if (editor.mode() == editor::Mode::Play && session && game)
-            game->buildFrame(now, session->localPlayer(), editor.viewport(), frameParams, drawList);
-        else editor.buildSceneView(frameParams, drawList);
+        if (playing) {
+            game::GameContext ctx{window, renderer, models, *session, editor.viewport()};
+            game->buildFrame(ctx, now, frameParams, drawList);
+        } else {
+            editor.buildSceneView(frameParams, drawList);
+        }
 
         // 자동 테스트: --frames는 빌드를 기다리는 동안 세지 않는다 (빌드 결과를 화면으로 확인할 수 있게)
         const bool last = opt.frames && frame + 1 >= opt.frames;
