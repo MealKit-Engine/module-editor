@@ -28,6 +28,7 @@ constexpr const char* kHierarchyWindow = "씬 트리###Hierarchy";
 constexpr const char* kInspectorWindow = "인스펙터###Inspector";
 constexpr const char* kEnvironmentWindow = "환경###Environment";
 constexpr const char* kTuningWindow = "튜닝###Tuning";
+constexpr const char* kStateWindow = "상태###State";
 constexpr const char* kBuildLogWindow = "빌드 로그###BuildLog";
 constexpr size_t kUndoLimit = 100;
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
@@ -208,6 +209,7 @@ void Editor::update(f64 dt) {
     drawInspector(editing);
     drawEnvironment(editing);
     drawTuning();
+    drawState();
     pollBuild();
     drawBuildLog();
 
@@ -262,6 +264,7 @@ void Editor::setMode(Mode mode) {
     m_looking = false;
     m_window->setCursorCaptured(false);
     if (mode == Mode::Edit) m_playStatus.clear();
+    m_focusPanel = mode == Mode::Play ? kStateWindow : kInspectorWindow; // 플레이 중에는 [상태] 탭을 앞으로
 }
 
 bool Editor::takePlayRequest() {
@@ -307,6 +310,7 @@ void Editor::setupDefaultLayout(u32 dockId) {
     ImGui::DockBuilderDockWindow(kInspectorWindow, right);
     ImGui::DockBuilderDockWindow(kEnvironmentWindow, rightBottom);
     ImGui::DockBuilderDockWindow(kTuningWindow, rightBottom);
+    ImGui::DockBuilderDockWindow(kStateWindow, right);
     ImGui::DockBuilderFinish(dockId);
 }
 
@@ -476,6 +480,10 @@ void Editor::drawHierarchy(bool editing) {
 }
 
 void Editor::drawInspector(bool editing) {
+    if (m_focusPanel == kInspectorWindow) {
+        ImGui::SetNextWindowFocus();
+        m_focusPanel = nullptr;
+    }
     if (!ImGui::Begin(kInspectorWindow)) {
         ImGui::End();
         return;
@@ -690,6 +698,28 @@ void Editor::drawTuning() {
     ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
     if (drawFields(*type, m_tuning.data())) m_tuningDirty = m_tuningChanged = true;
     ImGui::PopItemWidth();
+    ImGui::End();
+}
+
+// 플레이 중인 시뮬레이션 상태 (상태 필드 선언을 그대로 보여 준다)
+void Editor::drawState() {
+    if (ImGuiWindow* inspector = ImGui::FindWindowByName(kInspectorWindow); inspector && inspector->DockId)
+        ImGui::SetNextWindowDockID(inspector->DockId, ImGuiCond_FirstUseEver);
+    if (m_focusPanel == kStateWindow) {
+        ImGui::SetNextWindowFocus();
+        m_focusPanel = nullptr;
+    }
+    if (!ImGui::Begin(kStateWindow)) {
+        ImGui::End();
+        return;
+    }
+    if (m_mode != Mode::Play || !m_stateView.type || !m_stateView.data) {
+        ImGui::TextDisabled("플레이 중에 시뮬레이션 상태(MEALKIT_FIELD로 선언한 값)가 나옵니다.");
+        ImGui::End();
+        return;
+    }
+    ImGui::TextDisabled("%s (읽기 전용)", m_stateView.type->name);
+    drawFieldsReadOnly(*m_stateView.type, m_stateView.data);
     ImGui::End();
 }
 

@@ -51,6 +51,8 @@ public:
     // 튜닝이 바뀌었으면 한 번 true (혼자 플레이 중이면 앱이 게임에 바로 적용한다)
     bool takeTuningChanged();
     const void* tuningData() const { return m_tuning.data(); }
+    // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
+    void setStateView(reflect::View view) { m_stateView = view; }
 
     // 매 프레임 pumpMessages 다음에 호출: UI를 만들고 편집 입력을 처리한다.
     void update(f64 dt);
@@ -89,6 +91,7 @@ private:
     void drawInspector(bool editing);
     void drawEnvironment(bool editing);
     void drawTuning();
+    void drawState();
     std::string tuningPath() const;
     bool loadTuningFile();
     bool saveTuning();
@@ -178,6 +181,8 @@ private:
     bool m_tuningLoaded = false;
     bool m_tuningDirty = false;
     bool m_tuningChanged = false;
+    reflect::View m_stateView;
+    const char* m_focusPanel = nullptr; // 다음 프레임에 앞으로 가져올 패널 (모드가 바뀔 때)
 
     ProjectInfo m_project;
     ChildProcess m_build;

@@ -155,6 +155,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<net::LockstepSession> session;
     game::GameInstance* game = nullptr;
     auto stopGame = [&]() {
+        editor.setStateView({});
         host.destroy(game);
         game = nullptr;
         session.reset();
@@ -217,6 +218,7 @@ int main(int argc, char** argv) {
             session->update(now);
             if (editor.takeTuningChanged()) game->setTuning(editor.tuningData()); // 혼자 플레이: 바로 적용
             game->update(ctx, dt);
+            editor.setStateView(game->stateView());
             statusTimer += dt;
             if (statusTimer >= 0.25) {
                 char text[200];
