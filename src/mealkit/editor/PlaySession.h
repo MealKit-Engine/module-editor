@@ -37,6 +37,7 @@ struct PlayConfig {
     u32 players = 1;         // 1 = 혼자 (네트워크 없음)
     bool clientBots = true;  // 참가 창을 봇 입력으로 움직인다
     bool bot = false;        // 에디터 창도 봇 입력 (자동 테스트)
+    bool shadow = true;      // 그림자 시뮬레이션 (매 틱 결정론 검사)
     u32 bodies = 2000;       // 매치 데이터 (sandbox: 상자 수)
     std::string projectDir;
 };

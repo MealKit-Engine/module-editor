@@ -3,6 +3,7 @@
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
+#include "mealkit/game/SimDebug.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/render/DrawList.h"
 #include "mealkit/render/Renderer.h"
@@ -71,6 +72,9 @@ public:
     u32 playPlayers() const { return m_playPlayers; }
     void setPlayPlayers(u32 players) { m_playPlayers = players < 1 ? 1 : players > 4 ? 4 : players; }
     bool playClientBots() const { return m_playClientBots; }
+    bool shadowCheck() const { return m_shadowCheck; }
+    // 플레이 중인 시뮬레이션의 디버그 제어 (일시정지·되감기·그림자 시뮬레이션). 플레이가 끝나면 nullptr
+    void setSimDebug(game::SimDebug* debug, bool canPause);
     // 화면 가운데 알림 창 (확인을 누르면 닫힌다)
     void showMessage(const std::string& text) { m_message = text; }
     void setPlayStatus(const std::string& text) { m_playStatus = text; }
@@ -102,6 +106,8 @@ private:
     void drawTuning();
     void drawState();
     void drawPopups();
+    void drawPlayControls();
+    void reportSimProblems();
     void updateAutosave(f64 dt);
     void focusPanel(const char* window);
     void focusPanelNow(); // 그 창의 Begin 직전에 부른다
@@ -205,6 +211,11 @@ private:
     const char* m_focusPanel = nullptr; // 앞으로 가져올 패널 (모드가 바뀔 때)
     int m_focusFrames = 0;
     u32 m_playPlayers = 1;
+    bool m_shadowCheck = true;
+    game::SimDebug* m_simDebug = nullptr;
+    bool m_canPause = false;
+    bool m_shadowReported = false;
+    bool m_replayReported = false;
     bool m_playClientBots = true;
     std::string m_message;     // 알림 창 내용
     std::string m_recoverPath; // 복구할지 물어볼 자동 저장 파일

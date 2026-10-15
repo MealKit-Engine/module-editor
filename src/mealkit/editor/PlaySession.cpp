@@ -48,6 +48,8 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     m_seed = static_cast<u64>(std::time(nullptr));
     m_options = {};
     m_options.bot = config.bot;
+    m_options.shadow = config.shadow;
+    m_options.record = config.players <= 1; // 되감기는 혼자 플레이에서만 (여러 명이면 멈출 수 없다)
     m_options.tuningPath = editor.writePlayTuning();
 
     m_session = std::make_unique<net::LockstepSession>();
@@ -135,6 +137,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     if (editor.takeTuningChanged() && !multiplayer()) m_game->setTuning(editor.tuningData());
     m_game->update(ctx, dt);
     editor.setStateView(m_game->stateView());
+    editor.setSimDebug(m_game->debug(), !multiplayer());
 
     m_statusTimer += dt;
     if (m_statusTimer >= 0.25) {

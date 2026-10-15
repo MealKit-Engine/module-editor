@@ -224,7 +224,11 @@ void Editor::update(f64 dt) {
         handleShortcuts();
     } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
         m_stopRequest = true;
+    } else if (m_simDebug && m_canPause && m_simDebug->timeline().recording) {
+        if (ImGui::IsKeyPressed(ImGuiKey_F6, false)) m_simDebug->setPaused(!m_simDebug->timeline().paused);
+        if (ImGui::IsKeyPressed(ImGuiKey_F7)) m_simDebug->stepOnce();
     }
+    reportSimProblems();
 
     // 되돌리기: 편집이 시작된 순간의 상태(프레임 시작 시 캡처)를 한 번만 쌓는다. 드래그 중에는 쌓지 않는다.
     if (m_changed && !m_editActive) {
@@ -236,6 +240,56 @@ void Editor::update(f64 dt) {
     drawPopups();
     updateAutosave(dt);
     updateTitle();
+}
+
+void Editor::setSimDebug(game::SimDebug* debug, bool canPause) {
+    if (!debug) m_shadowReported = m_replayReported = false;
+    m_simDebug = debug;
+    m_canPause = canPause;
+}
+
+// 플레이 중 메뉴 막대: 일시정지, 한 틱, 타임라인(기록된 범위), 그림자 시뮬레이션 상태
+void Editor::drawPlayControls() {
+    if (!m_simDebug) return;
+    const game::Timeline t = m_simDebug->timeline();
+    ImGui::TextDisabled("|");
+    if (t.recording && m_canPause) {
+        if (ImGui::Button(t.paused ? "계속 (F6)" : "일시정지 (F6)")) m_simDebug->setPaused(!t.paused);
+        ImGui::BeginDisabled(!t.paused);
+        if (ImGui::Button("한 틱 (F7)")) m_simDebug->stepOnce();
+        int view = static_cast<int>(t.view);
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        if (ImGui::SliderInt("##timeline", &view, static_cast<int>(t.first), static_cast<int>(t.live),
+                             t.viewingPast ? "과거 틱 %d" : "틱 %d"))
+            m_simDebug->seek(static_cast<u32>(view));
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("일시정지 중에 끌면 그 틱으로 되감습니다 (틱 %u~%u, 기록 %.1f MB).\n계속을 누르면 현재로 돌아갑니다.",
+                              t.first, t.live, static_cast<f64>(t.memoryBytes) / (1024.0 * 1024.0));
+    }
+    const game::ShadowStatus& shadow = m_simDebug->shadow();
+    if (shadow.enabled) {
+        if (shadow.desynced) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "그림자: 틱 %u에서 갈라짐", shadow.tick);
+        else ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "그림자: 일치");
+    }
+}
+
+void Editor::reportSimProblems() {
+    if (!m_simDebug) return;
+    const game::ShadowStatus& shadow = m_simDebug->shadow();
+    if (shadow.desynced && !m_shadowReported) {
+        m_shadowReported = true;
+        std::string text = "그림자 시뮬레이션이 틱 " + std::to_string(shadow.tick) +
+                           "에서 갈라졌습니다. 같은 입력인데 결과가 다릅니다 (초기화 안 된 값, 전역 상태, 포인터 순서, 실제 시간 읽기 등).\n\n";
+        if (shadow.diff.empty()) text += "상태 필드는 같고 물리 상태만 다릅니다.";
+        for (const std::string& line : shadow.diff) text += line + "\n";
+        text += "\n시뮬레이션은 그 틱에서 멈췄습니다. [상태] 패널에서 값을 볼 수 있습니다.";
+        showMessage(text);
+    }
+    if (!m_simDebug->replayError().empty() && !m_replayReported) {
+        m_replayReported = true;
+        showMessage(m_simDebug->replayError());
+    }
 }
 
 void Editor::focusPanel(const char* window) {
@@ -469,7 +523,14 @@ void Editor::drawMenuBar() {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("여러 명이면 에디터가 방장이 되고 참가 창을 더 띄웁니다 (현재 씬과 튜닝으로, 같은 PC)");
     if (m_playPlayers > 1) ImGui::Checkbox("참가 창 봇", &m_playClientBots);
+    if (editing) {
+        ImGui::Checkbox("그림자 검사", &m_shadowCheck);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("플레이 중 같은 입력으로 시뮬레이션을 하나 더 돌려 매 틱 비교합니다.\n"
+                              "다르면 멈추고 처음 갈라진 틱과 다른 상태 필드를 보여 줍니다 (시뮬레이션 CPU 2배)");
+    }
     ImGui::EndDisabled();
+    if (!editing) drawPlayControls();
     ImGui::EndMainMenuBar();
 }
 

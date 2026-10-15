@@ -181,6 +181,7 @@ int main(int argc, char** argv) {
     editor::PlaySession play;
     auto stopGame = [&]() {
         editor.setStateView({});
+        editor.setSimDebug(nullptr, false);
         play.stop();
     };
 
@@ -221,6 +222,7 @@ int main(int argc, char** argv) {
             config.players = editor.playPlayers();
             config.clientBots = editor.playClientBots();
             config.bot = opt.bot;
+            config.shadow = editor.shadowCheck();
             config.bodies = opt.bodies;
             config.projectDir = project.directory;
             std::string playError;
