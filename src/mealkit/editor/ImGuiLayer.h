@@ -1,20 +1,20 @@
 #pragma once
 
-#include "aster/core/Types.h"
+#include "mealkit/core/Types.h"
 
 #include <string>
 #include <vector>
 
-namespace aster {
+namespace mealkit {
 class Window;
 namespace render {
 class Renderer;
 }
-} // namespace aster
+} // namespace mealkit
 
-namespace aster::editor {
+namespace mealkit::editor {
 
-// Dear ImGui를 Aster 창/렌더러에 연결한다 (Win32 + DX12 백엔드). 에디터 빌드 전용.
+// Dear ImGui를 MealKit 창/렌더러에 연결한다 (Win32 + DX12 백엔드). 에디터 빌드 전용.
 class ImGuiLayer {
 public:
     ImGuiLayer() = default;
@@ -43,4 +43,4 @@ private:
     friend struct ImGuiLayerAccess;
 };
 
-} // namespace aster::editor
+} // namespace mealkit::editor

@@ -1,13 +1,13 @@
 #pragma once
 
-#include "aster/core/Types.h"
-#include "aster/game/GameInstance.h"
+#include "mealkit/core/Types.h"
+#include "mealkit/game/GameInstance.h"
 
 #include <string>
 
 // 범용 에디터가 프로젝트의 게임 DLL을 불러오고 바꿔 끼운다 (핫 리로드).
 // 원본 DLL은 그대로 두고 hot\ 폴더의 복사본을 불러온다 → 에디터가 켜져 있어도 원본을 다시 빌드할 수 있다.
-namespace aster::editor {
+namespace mealkit::editor {
 
 class GameModuleHost {
 public:
@@ -33,7 +33,7 @@ public:
     // 원본 DLL이 불러온 뒤 바뀌었고, 쓰기가 끝난 것 같은가 (같은 수정 시각을 두 번 연속 보면 true).
     // 0.5초 정도 간격으로 부른다.
     bool sourceChangedAndStable();
-    // 원본 DLL이 엔진(aster.dll)보다 오래되었는가 → 엔진이 바뀌었으니 게임 코드를 다시 빌드해야 한다
+    // 원본 DLL이 엔진(mealkit.dll)보다 오래되었는가 → 엔진이 바뀌었으니 게임 코드를 다시 빌드해야 한다
     static bool olderThanEngine(const std::string& dllPath);
 
 private:
@@ -46,4 +46,4 @@ private:
     u32 m_generation = 0;
 };
 
-} // namespace aster::editor
+} // namespace mealkit::editor

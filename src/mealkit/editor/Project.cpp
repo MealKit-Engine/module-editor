@@ -1,6 +1,6 @@
-#include "aster/editor/Project.h"
+#include "mealkit/editor/Project.h"
 
-#include "aster/platform/Paths.h"
+#include "mealkit/platform/Paths.h"
 
 #include <algorithm>
 #include <cctype>
@@ -9,7 +9,7 @@
 #include <system_error>
 #include <windows.h>
 
-namespace aster::editor {
+namespace mealkit::editor {
 namespace fs = std::filesystem;
 
 namespace {
@@ -47,7 +47,7 @@ fs::path recentFile() {
     wchar_t buffer[MAX_PATH];
     const DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
     const fs::path base = (len > 0 && len < MAX_PATH) ? fs::path(buffer) : fromUtf8(executableDirectory());
-    return base / "Aster" / "recent_projects.txt";
+    return base / "MealKit" / "recent_projects.txt";
 }
 
 void saveRecent(const std::vector<std::string>& list) {
@@ -94,7 +94,7 @@ bool loadProject(const std::string& directory, ProjectInfo& out, std::string* er
         else if (key == "scene") out.startScene = value;
     }
     if (out.name.empty()) {
-        if (error) *error = "aster.project has no name=";
+        if (error) *error = "mealkit.project has no name=";
         return false;
     }
     return true;
@@ -129,4 +129,4 @@ void removeRecentProject(const std::string& directory) {
     saveRecent(list);
 }
 
-} // namespace aster::editor
+} // namespace mealkit::editor

@@ -2,14 +2,14 @@
 
 #include <string>
 
-namespace aster {
+namespace mealkit {
 class Window;
 namespace render {
 class Renderer;
 }
-} // namespace aster
+} // namespace mealkit
 
-namespace aster::editor {
+namespace mealkit::editor {
 
 // 프로젝트 관리자: 에디터를 프로젝트 없이 실행하면 뜬다 (최근 프로젝트, 열기, 새 프로젝트).
 // 고른 프로젝트 폴더를 돌려준다. 창을 닫으면 빈 문자열.
@@ -18,4 +18,4 @@ namespace aster::editor {
 std::string runProjectManager(Window& window, render::Renderer& renderer, const std::string& engineDirectory,
                               unsigned maxFrames = 0, const std::string& capturePath = {});
 
-} // namespace aster::editor
+} // namespace mealkit::editor

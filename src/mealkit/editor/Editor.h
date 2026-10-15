@@ -1,24 +1,24 @@
 #pragma once
 
-#include "aster/asset/ModelCache.h"
-#include "aster/editor/ImGuiLayer.h"
-#include "aster/editor/Project.h"
-#include "aster/platform/Process.h"
-#include "aster/render/DrawList.h"
-#include "aster/render/Renderer.h"
-#include "aster/scene/Scene.h"
+#include "mealkit/asset/ModelCache.h"
+#include "mealkit/editor/ImGuiLayer.h"
+#include "mealkit/editor/Project.h"
+#include "mealkit/platform/Process.h"
+#include "mealkit/render/DrawList.h"
+#include "mealkit/render/Renderer.h"
+#include "mealkit/scene/Scene.h"
 
 #include <string>
 #include <vector>
 
-namespace aster {
+namespace mealkit {
 class Window;
 }
 
-// 범용 에디터(AsterEditor)의 씬 편집 화면.
+// 범용 에디터(MealKitEditor)의 씬 편집 화면.
 // 씬 편집(씬 트리, 인스펙터, 기즈모, 되돌리기, 저장), 플레이 모드 전환, 프로젝트 빌드(게임 코드, 출시본)를 맡는다.
 // 게임 로직은 들어 있지 않다: 플레이를 누르면 앱이 게임 DLL의 GameInstance로 scene()을 실행한다.
-namespace aster::editor {
+namespace mealkit::editor {
 
 enum class Mode { Edit, Play };
 
@@ -167,4 +167,4 @@ private:
     f64 m_buildStart = 0.0;
 };
 
-} // namespace aster::editor
+} // namespace mealkit::editor

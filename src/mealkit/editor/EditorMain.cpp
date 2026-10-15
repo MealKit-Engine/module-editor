@@ -1,27 +1,27 @@
-// AsterEditor: 범용 에디터. 프로젝트 폴더를 열고, 그 프로젝트의 게임 DLL을 불러와 플레이한다.
+// MealKitEditor: 범용 에디터. 프로젝트 폴더를 열고, 그 프로젝트의 게임 DLL을 불러와 플레이한다.
 //
-//   AsterEditor.exe                         프로젝트 관리자 (최근 프로젝트, 열기, 새 프로젝트)
-//   AsterEditor.exe --project <폴더>        프로젝트 열기 (aster.project가 있는 폴더)
-//   AsterEditor.exe --project <폴더> my.scene   다른 씬 열기
+//   MealKitEditor.exe                         프로젝트 관리자 (최근 프로젝트, 열기, 새 프로젝트)
+//   MealKitEditor.exe --project <폴더>        프로젝트 열기 (mealkit.project가 있는 폴더)
+//   MealKitEditor.exe --project <폴더> my.scene   다른 씬 열기
 //
 // 게임 코드: <프로젝트>\build\Editor\bin\<이름>_game.dll. 다시 빌드되면 편집 모드에서 자동으로 바꿔 끼운다(핫 리로드).
 // 에디터 조작: 오른쪽 드래그 + WASD/QE 카메라, 클릭 선택, W/E/R 이동·회전·크기, Ctrl+S 저장, Ctrl+Z 되돌리기, F5 플레이,
 //              Ctrl+R 게임 코드 빌드, Ctrl+B 출시 빌드
 
-#include "aster/asset/ModelCache.h"
-#include "aster/core/Clock.h"
-#include "aster/core/Log.h"
-#include "aster/core/Profile.h"
-#include "aster/editor/Editor.h"
-#include "aster/editor/GameModuleHost.h"
-#include "aster/editor/Project.h"
-#include "aster/editor/ProjectManager.h"
-#include "aster/game/GameInstance.h"
-#include "aster/net/Lockstep.h"
-#include "aster/platform/Paths.h"
-#include "aster/platform/Process.h"
-#include "aster/platform/Window.h"
-#include "aster/render/Renderer.h"
+#include "mealkit/asset/ModelCache.h"
+#include "mealkit/core/Clock.h"
+#include "mealkit/core/Log.h"
+#include "mealkit/core/Profile.h"
+#include "mealkit/editor/Editor.h"
+#include "mealkit/editor/GameModuleHost.h"
+#include "mealkit/editor/Project.h"
+#include "mealkit/editor/ProjectManager.h"
+#include "mealkit/game/GameInstance.h"
+#include "mealkit/net/Lockstep.h"
+#include "mealkit/platform/Paths.h"
+#include "mealkit/platform/Process.h"
+#include "mealkit/platform/Window.h"
+#include "mealkit/render/Renderer.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -30,7 +30,7 @@
 #include <memory>
 #include <string>
 
-using namespace aster;
+using namespace mealkit;
 
 namespace {
 
@@ -70,12 +70,12 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--build-game") o.buildGame = true;
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
-            std::printf("Usage: AsterEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
+            std::printf("Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                         "  automation: --frames n --capture png --select i --play --bot --export --build-game\n");
             return false;
         }
     }
-#if defined(ASTER_DEBUG)
+#if defined(MEALKIT_DEBUG)
     o.debugLayer = true;
 #endif
     return true;
@@ -83,7 +83,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
 
 // 프로젝트 관리자에서 고른 프로젝트는 새 프로세스로 연다 (에디터 상태를 깨끗하게 시작)
 bool relaunchWithProject(const std::string& directory) {
-    std::string exe = executableDirectory() + "\\AsterEditor.exe";
+    std::string exe = executableDirectory() + "\\MealKitEditor.exe";
     return launchDetached(exe, "--project \"" + directory + "\"", directory);
 }
 
@@ -95,31 +95,31 @@ int main(int argc, char** argv) {
     if (opt.frames) log::setDialogs(false);
 
     Window window;
-    if (!window.create({"Aster Editor", 1600, 900})) return 1;
+    if (!window.create({"MealKit Editor", 1600, 900})) return 1;
     render::Renderer renderer;
     if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer}))
-        ASTER_FATAL("Renderer initialization failed. A Direct3D 12 GPU with Shader Model 6.0 is required.");
+        MEALKIT_FATAL("Renderer initialization failed. A Direct3D 12 GPU with Shader Model 6.0 is required.");
 
     // ---- 프로젝트 고르기
     if (opt.projectDir.empty()) {
-        const std::string chosen = editor::runProjectManager(window, renderer, ASTER_ENGINE_DIR, opt.frames, opt.capturePath);
-        if (!chosen.empty() && !relaunchWithProject(chosen)) ASTER_ERROR("Could not start the editor for %s", chosen.c_str());
+        const std::string chosen = editor::runProjectManager(window, renderer, MEALKIT_ENGINE_DIR, opt.frames, opt.capturePath);
+        if (!chosen.empty() && !relaunchWithProject(chosen)) MEALKIT_ERROR("Could not start the editor for %s", chosen.c_str());
         renderer.shutdown();
         return 0;
     }
     editor::ProjectInfo project;
     std::string error;
-    if (!editor::loadProject(opt.projectDir, project, &error)) ASTER_FATAL("Cannot open project: %s", error.c_str());
+    if (!editor::loadProject(opt.projectDir, project, &error)) MEALKIT_FATAL("Cannot open project: %s", error.c_str());
     setProjectRoot(project.directory);
     editor::addRecentProject(project.directory);
-    ASTER_INFO("Project '%s': %s", project.name.c_str(), project.directory.c_str());
+    MEALKIT_INFO("Project '%s': %s", project.name.c_str(), project.directory.c_str());
 
     asset::ModelCache models;
     models.setRenderer(&renderer);
 
     editor::Editor editor;
     const std::string scenePath = opt.scenePath.empty() ? project.startScenePath() : opt.scenePath;
-    if (!editor.init(window, renderer, scenePath, models)) ASTER_FATAL("Editor initialization failed");
+    if (!editor.init(window, renderer, scenePath, models)) MEALKIT_FATAL("Editor initialization failed");
     editor.setProject(project);
     if (opt.select >= 0) editor.selectByIndex(opt.select);
     if (opt.play) editor.requestPlay();
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
         if (host.load(dllPath, loadError)) {
             editor.setGameCodeStatus(true, "게임 코드 #" + std::to_string(host.generation()));
         } else {
-            ASTER_ERROR("%s", loadError.c_str());
+            MEALKIT_ERROR("%s", loadError.c_str());
             editor.setGameCodeStatus(host.loaded(), host.loaded() ? "새 게임 코드를 불러오지 못했습니다 (이전 코드 사용 중)"
                                                                   : "게임 코드를 불러오지 못했습니다: " + loadError);
         }
@@ -193,7 +193,7 @@ int main(int argc, char** argv) {
             game = host.create();
             game->start(editor.scene(), *session, playOptions, models);
             editor.setMode(editor::Mode::Play);
-            ASTER_INFO("Play mode: %u bodies", opt.bodies);
+            MEALKIT_INFO("Play mode: %u bodies", opt.bodies);
         }
         if (editor.takeStopRequest() && editor.mode() == editor::Mode::Play) {
             stopGame();
@@ -230,7 +230,7 @@ int main(int argc, char** argv) {
         if (active) renderer.endFrame();
 
         if (!editor.building()) ++frame;
-        ASTER_FRAME_MARK();
+        MEALKIT_FRAME_MARK();
         if (last) break;
     }
 

@@ -1,12 +1,12 @@
-#include "aster/editor/ProjectManager.h"
+#include "mealkit/editor/ProjectManager.h"
 
-#include "aster/core/Log.h"
-#include "aster/editor/ImGuiLayer.h"
-#include "aster/editor/Project.h"
-#include "aster/platform/Paths.h"
-#include "aster/platform/Process.h"
-#include "aster/platform/Window.h"
-#include "aster/render/Renderer.h"
+#include "mealkit/core/Log.h"
+#include "mealkit/editor/ImGuiLayer.h"
+#include "mealkit/editor/Project.h"
+#include "mealkit/platform/Paths.h"
+#include "mealkit/platform/Process.h"
+#include "mealkit/platform/Window.h"
+#include "mealkit/render/Renderer.h"
 
 #include <imgui.h>
 
@@ -19,7 +19,7 @@
 #include <windows.h>
 #include <shobjidl.h>
 
-namespace aster::editor {
+namespace mealkit::editor {
 namespace {
 
 std::wstring widen(const std::string& s) {
@@ -104,8 +104,8 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
     std::string engineDir = engineDirectory;
     std::replace(engineDir.begin(), engineDir.end(), '/', '\\'); // CMake 경로 → 윈도우 표기
     ImGuiLayer imgui;
-    if (!imgui.init(window, renderer, executableDirectory() + "\\aster_projects.ini")) return {};
-    window.setTitle("Aster - 프로젝트");
+    if (!imgui.init(window, renderer, executableDirectory() + "\\mealkit_projects.ini")) return {};
+    window.setTitle("MealKit - 프로젝트");
 
     std::vector<RecentEntry> recent = readRecent();
     std::string chosen;
@@ -115,13 +115,13 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
     char newName[64] = "MyGame";
     char newLocation[512] = {};
     {
-        // 새 프로젝트 기본 위치: 최근 프로젝트가 있는 폴더, 없으면 문서\AsterProjects
+        // 새 프로젝트 기본 위치: 최근 프로젝트가 있는 폴더, 없으면 문서\MealKitProjects
         std::string location;
         if (!recent.empty()) location = parentDirectory(recent.front().directory);
         if (location.empty()) {
             wchar_t profile[MAX_PATH];
             const DWORD n = GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH);
-            if (n > 0 && n < MAX_PATH) location = narrow(profile) + "\\Documents\\AsterProjects";
+            if (n > 0 && n < MAX_PATH) location = narrow(profile) + "\\Documents\\MealKitProjects";
         }
         strncpy_s(newLocation, location.c_str(), _TRUNCATE);
     }
@@ -131,7 +131,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
 
     auto openProject = [&](const std::string& dir) {
         if (!isProjectDirectory(dir)) {
-            message = "프로젝트 폴더가 아닙니다 (aster.project 없음): " + dir;
+            message = "프로젝트 폴더가 아닙니다 (mealkit.project 없음): " + dir;
             messageIsError = true;
             return;
         }
@@ -161,7 +161,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
                          ImGuiWindowFlags_NoBringToFrontOnFocus);
 
         ImGui::SetWindowFontScale(1.4f);
-        ImGui::TextUnformatted("Aster 프로젝트");
+        ImGui::TextUnformatted("MealKit 프로젝트");
         ImGui::SetWindowFontScale(1.0f);
         ImGui::TextDisabled("엔진: %s", engineDir.c_str());
         ImGui::Separator();
@@ -278,4 +278,4 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
     return chosen;
 }
 
-} // namespace aster::editor
+} // namespace mealkit::editor

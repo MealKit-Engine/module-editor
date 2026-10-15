@@ -3,13 +3,13 @@
 #include <string>
 #include <vector>
 
-// 게임 프로젝트 폴더: 최상위에 aster.project(key=value 텍스트)가 있다.
+// 게임 프로젝트 폴더: 최상위에 mealkit.project(key=value 텍스트)가 있다.
 //   name=MyGame                  게임 이름 = 실행 파일·게임 DLL 이름
-//   engine=D:\Aster              엔진 폴더 (build.bat, editor.bat이 읽는다. 엔진 저장소 자신은 없음)
+//   engine=D:\MealKit              엔진 폴더 (build.bat, editor.bat이 읽는다. 엔진 저장소 자신은 없음)
 //   scene=scenes/arena.scene     에디터가 처음 여는 씬 (assets 기준)
-namespace aster::editor {
+namespace mealkit::editor {
 
-inline constexpr const char* kProjectFileName = "aster.project";
+inline constexpr const char* kProjectFileName = "mealkit.project";
 
 struct ProjectInfo {
     std::string name;       // 게임 이름
@@ -21,13 +21,13 @@ struct ProjectInfo {
     std::string exportDirectory() const; // export\<name>
 };
 
-// directory\aster.project를 읽는다. 실패하면 false와 이유.
+// directory\mealkit.project를 읽는다. 실패하면 false와 이유.
 bool loadProject(const std::string& directory, ProjectInfo& out, std::string* error = nullptr);
 bool isProjectDirectory(const std::string& directory);
 
-// 최근 프로젝트 (%LOCALAPPDATA%\Aster\recent_projects.txt). 최근 것이 먼저.
+// 최근 프로젝트 (%LOCALAPPDATA%\MealKit\recent_projects.txt). 최근 것이 먼저.
 std::vector<std::string> loadRecentProjects();
 void addRecentProject(const std::string& directory);
 void removeRecentProject(const std::string& directory);
 
-} // namespace aster::editor
+} // namespace mealkit::editor

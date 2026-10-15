@@ -1,9 +1,9 @@
-#include "aster/editor/Editor.h"
+#include "mealkit/editor/Editor.h"
 
-#include "aster/core/Log.h"
-#include "aster/core/Profile.h"
-#include "aster/platform/Paths.h"
-#include "aster/platform/Window.h"
+#include "mealkit/core/Log.h"
+#include "mealkit/core/Profile.h"
+#include "mealkit/platform/Paths.h"
+#include "mealkit/platform/Window.h"
 
 #include <algorithm>
 #include <cctype>
@@ -17,7 +17,7 @@
 #include <windows.h>
 #include <commdlg.h>
 
-namespace aster::editor {
+namespace mealkit::editor {
 namespace {
 
 using scene::Entity;
@@ -116,7 +116,7 @@ std::string narrow(const wchar_t* w) {
     return out;
 }
 
-constexpr const wchar_t* kSceneFilter = L"Aster 씬 (*.scene)\0*.scene\0모든 파일 (*.*)\0*.*\0";
+constexpr const wchar_t* kSceneFilter = L"MealKit 씬 (*.scene)\0*.scene\0모든 파일 (*.*)\0*.*\0";
 constexpr const wchar_t* kModelFilter = L"glTF 모델 (*.glb, *.gltf)\0*.glb;*.gltf\0모든 파일 (*.*)\0*.*\0";
 
 std::string fileDialog(void* owner, bool save, const std::string& current, const wchar_t* filter = kSceneFilter,
@@ -152,8 +152,8 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     m_window = &window;
     m_renderer = &renderer;
     m_models = &models;
-    if (!m_imgui.init(window, renderer, executableDirectory() + "\\aster_editor.ini")) {
-        ASTER_ERROR("Editor UI initialization failed");
+    if (!m_imgui.init(window, renderer, executableDirectory() + "\\mealkit_editor.ini")) {
+        MEALKIT_ERROR("Editor UI initialization failed");
         return false;
     }
     if (fileExists(scenePath)) {
@@ -172,7 +172,7 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
 void Editor::shutdown() { m_imgui.shutdown(); }
 
 void Editor::update(f64 dt) {
-    ASTER_ZONE("Editor UI");
+    MEALKIT_ZONE("Editor UI");
     m_time += dt;
     if (dt > 0.0) m_fps = m_fps == 0.0 ? 1.0 / dt : m_fps * 0.95 + (1.0 / dt) * 0.05;
 
@@ -184,7 +184,7 @@ void Editor::update(f64 dt) {
     drawMenuBar();
     drawStatusBar();
 
-    const ImGuiID dockId = ImGui::GetID("AsterDockSpace");
+    const ImGuiID dockId = ImGui::GetID("MealKitDockSpace");
     if (m_layoutReset || !ImGui::DockBuilderGetNode(dockId)) {
         setupDefaultLayout(dockId);
         m_layoutReset = false;
@@ -282,7 +282,7 @@ void Editor::saveBackupIfDirty() {
     if (!m_dirty) return;
     const std::string base = m_scenePath.empty() ? executableDirectory() + "\\untitled.scene" : m_scenePath;
     const std::string path = base + ".autosave";
-    if (scene::save(m_scene, path)) ASTER_INFO("Unsaved scene changes written to %s", path.c_str());
+    if (scene::save(m_scene, path)) MEALKIT_INFO("Unsaved scene changes written to %s", path.c_str());
 }
 
 void Editor::selectByIndex(int index) {
@@ -839,7 +839,7 @@ bool Editor::loadScene(const std::string& path) {
     scene::Scene loaded;
     std::string error;
     if (!scene::load(loaded, path, &error)) {
-        ASTER_ERROR("Cannot open scene %s: %s", path.c_str(), error.c_str());
+        MEALKIT_ERROR("Cannot open scene %s: %s", path.c_str(), error.c_str());
         setStatus("열기 실패: " + error);
         return false;
     }
@@ -914,7 +914,7 @@ void Editor::setStatus(const std::string& text) {
 }
 
 void Editor::updateTitle() {
-    std::string title = "Aster Editor - ";
+    std::string title = "MealKit Editor - ";
     if (!m_project.name.empty()) title += m_project.name + " - ";
     title += m_scenePath.empty() ? std::string("제목 없음") : fileName(m_scenePath);
     if (m_dirty) title += " *";
@@ -947,7 +947,7 @@ bool Editor::takeGameCodeBuildFailed() {
 }
 
 // 프로젝트의 build.bat을 창 없이 실행한다.
-//   GameCode: build.bat Editor → build\Editor\bin\<이름>_game.dll (엔진 aster.dll은 이미 빌드되어 있으면 건드리지 않는다)
+//   GameCode: build.bat Editor → build\Editor\bin\<이름>_game.dll (엔진 mealkit.dll은 이미 빌드되어 있으면 건드리지 않는다)
 //   Export:   build.bat Export → 출시용 exe만 다시 빌드하고 export\<이름>에 모은다
 void Editor::startBuild(BuildKind kind) {
     if (m_build.running() || m_project.directory.empty()) return;
@@ -970,7 +970,7 @@ void Editor::startBuild(BuildKind kind) {
         return;
     }
     m_buildStart = m_time;
-    ASTER_INFO("Build started: %s %s", script.c_str(), arg);
+    MEALKIT_INFO("Build started: %s %s", script.c_str(), arg);
 }
 
 void Editor::pollBuild() {
@@ -999,15 +999,15 @@ void Editor::pollBuild() {
             m_gameCodeFailed = true;
             if (!m_gameLoaded) m_gameStatus = "게임 코드 빌드 실패 - 고친 뒤 Ctrl+R";
         }
-        ASTER_ERROR("Build failed with exit code %d", m_build.exitCode());
+        MEALKIT_ERROR("Build failed with exit code %d", m_build.exitCode());
     } else if (m_buildKind == BuildKind::GameCode) {
         m_buildLog += "\n완료 (" + seconds + "초): 게임 코드\n";
         m_gameCodeBuilt = true;
-        ASTER_INFO("Game code build finished");
+        MEALKIT_INFO("Game code build finished");
     } else {
         m_buildLog += "\n완료 (" + seconds + "초): " + m_project.exportDirectory() + "\n";
         setStatus("출시 빌드 완료: export\\" + m_project.name);
-        ASTER_INFO("Export finished: %s", m_project.exportDirectory().c_str());
+        MEALKIT_INFO("Export finished: %s", m_project.exportDirectory().c_str());
     }
 }
 
@@ -1042,4 +1042,4 @@ void Editor::drawBuildLog() {
     ImGui::End();
 }
 
-} // namespace aster::editor
+} // namespace mealkit::editor

@@ -1,13 +1,13 @@
-#include "aster/editor/GameModuleHost.h"
+#include "mealkit/editor/GameModuleHost.h"
 
-#include "aster/core/Log.h"
-#include "aster/platform/Paths.h"
+#include "mealkit/core/Log.h"
+#include "mealkit/platform/Paths.h"
 
 #include <filesystem>
 #include <system_error>
 #include <windows.h>
 
-namespace aster::editor {
+namespace mealkit::editor {
 namespace fs = std::filesystem;
 
 namespace {
@@ -57,7 +57,7 @@ bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
     auto get = reinterpret_cast<game::GetGameModuleFn>(GetProcAddress(dll, game::kGetGameModuleSymbol));
     const game::GameModule* module = get ? get() : nullptr;
     if (!module || !module->create || !module->destroy) {
-        error = "the DLL does not export asterGetGameModule (ASTER_GAME_MODULE missing?)";
+        error = "the DLL does not export mealkitGetGameModule (MEALKIT_GAME_MODULE missing?)";
         FreeLibrary(dll);
         fs::remove(copy, ec);
         return false;
@@ -77,7 +77,7 @@ bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
     m_loadedCopy = toUtf8(copy);
     m_loadedWriteTime = m_seenWriteTime = stamp;
     m_generation = next;
-    ASTER_INFO("Game module '%s' loaded (#%u): %s", module->name, m_generation, dllPath.c_str());
+    MEALKIT_INFO("Game module '%s' loaded (#%u): %s", module->name, m_generation, dllPath.c_str());
     return true;
 }
 
@@ -102,8 +102,8 @@ bool GameModuleHost::sourceChangedAndStable() {
 
 bool GameModuleHost::olderThanEngine(const std::string& dllPath) {
     const u64 game = writeTime(dllPath);
-    const u64 engine = writeTime(executableDirectory() + "\\aster.dll");
+    const u64 engine = writeTime(executableDirectory() + "\\mealkit.dll");
     return game != 0 && engine != 0 && game < engine;
 }
 
-} // namespace aster::editor
+} // namespace mealkit::editor
