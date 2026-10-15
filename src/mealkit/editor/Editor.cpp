@@ -2,6 +2,7 @@
 
 #include "mealkit/core/Log.h"
 #include "mealkit/core/Profile.h"
+#include "mealkit/core/Version.h"
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Window.h"
@@ -331,6 +332,31 @@ void Editor::drawPopups() {
         ImGui::EndPopup();
     }
 
+    if (m_upgradeOffer && m_message.empty() && !ImGui::IsPopupOpen("프로젝트 업그레이드###Upgrade"))
+        ImGui::OpenPopup("프로젝트 업그레이드###Upgrade");
+    if (ImGui::BeginPopupModal("프로젝트 업그레이드###Upgrade", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("이 프로젝트의 빌드 파일은 엔진 %s 템플릿으로 만들어졌습니다 (지금 엔진 %s).",
+                    m_project.engineVersion.empty() ? "0.3 이하" : m_project.engineVersion.c_str(), kEngineVersion);
+        ImGui::Text("템플릿 파일(build.bat, CMakeLists.txt, CLAUDE.md, .vscode, .clang-format 등)을 새 버전으로 바꿀까요?");
+        ImGui::TextDisabled("직접 고친 파일은 덮어쓰지 않고 <파일>.new로 새 내용을 남깁니다. 바꾸기 전 파일은 .upgrade_backup에 백업합니다.");
+        ImGui::TextDisabled("source/와 assets/는 그대로입니다. 게임 코드가 새 엔진 API에 맞지 않으면 빌드 로그를 보고 고칩니다.");
+        if (ImGui::Button("업그레이드", ImVec2(140, 0))) {
+            m_upgradeRequested = true;
+            m_upgradeOffer = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("나중에", ImVec2(140, 0))) {
+            m_upgradeOffer = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    if (m_upgradeRequested && !m_build.running()) {
+        m_upgradeRequested = false;
+        startBuild(BuildKind::Upgrade);
+    }
+
     if (!m_recoverPath.empty() && !ImGui::IsPopupOpen("자동 저장 복구###Recover"))
         ImGui::OpenPopup("자동 저장 복구###Recover");
     if (ImGui::BeginPopupModal("자동 저장 복구###Recover", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -553,7 +579,9 @@ void Editor::drawStatusBar() {
             ImGui::TextDisabled("|");
             if (m_build.running()) {
                 ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), "%s 중... %.0f초",
-                                   m_buildKind == BuildKind::GameCode ? "게임 코드 빌드" : "출시 빌드",
+                                   m_buildKind == BuildKind::GameCode  ? "게임 코드 빌드"
+                                   : m_buildKind == BuildKind::Upgrade ? "프로젝트 업그레이드"
+                                                                       : "출시 빌드",
                                    m_time - m_buildStart);
                 ImGui::TextDisabled("|");
             } else if (!m_gameStatus.empty()) {
@@ -1374,7 +1402,7 @@ void Editor::setStatus(const std::string& text) {
 }
 
 void Editor::updateTitle() {
-    std::string title = "MealKit Editor - ";
+    std::string title = std::string("MealKit Editor ") + kEngineVersion + " - ";
     if (!m_project.name.empty()) title += m_project.name + " - ";
     title += m_scenePath.empty() ? std::string("제목 없음") : fileName(m_scenePath);
     if (m_dirty) title += " *";
@@ -1388,7 +1416,14 @@ void Editor::updateTitle() {
 
 // ---------------------------------------------------------------- 프로젝트 빌드
 
-void Editor::setProject(const ProjectInfo& project) { m_project = project; }
+void Editor::setProject(const ProjectInfo& project) {
+    m_project = project;
+    // 엔진 저장소 자신(engine= 없음)은 묻지 않는다
+    m_upgradeOffer = !project.engineDirectory.empty() && project.engineVersion != kEngineVersion;
+    if (m_upgradeOffer)
+        MEALKIT_WARN("Project template is from engine %s, this engine is %s - tools\\upgrade_project.ps1 can update it",
+                     project.engineVersion.empty() ? "(unknown)" : project.engineVersion.c_str(), kEngineVersion);
+}
 
 void Editor::setGameCodeStatus(bool loaded, const std::string& text) {
     m_gameLoaded = loaded;
@@ -1415,23 +1450,35 @@ void Editor::startBuild(BuildKind kind) {
     // 출시본은 디스크의 assets를 복사하므로 저장 안 된 씬을 먼저 저장한다
     if (kind == BuildKind::Export && m_dirty && !m_scenePath.empty() && !saveScene()) return;
 
-    const std::string script = m_project.directory + "\\build.bat";
-    if (!fileExists(script)) {
-        setStatus("build.bat이 없습니다: " + script);
-        return;
+    std::string command;
+    if (kind == BuildKind::Upgrade) {
+        const std::string script = m_engineDirectory + "\\tools\\upgrade_project.ps1";
+        if (!fileExists(script)) {
+            setStatus("업그레이드 스크립트가 없습니다: " + script);
+            return;
+        }
+        command = "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Project \"" + m_project.directory + "\"";
+        m_buildLog = "> upgrade_project.ps1\n";
+    } else {
+        const std::string script = m_project.directory + "\\build.bat";
+        if (!fileExists(script)) {
+            setStatus("build.bat이 없습니다: " + script);
+            return;
+        }
+        const char* arg = kind == BuildKind::GameCode ? "Editor" : "Export";
+        command = "\"" + script + "\" " + arg;
+        m_buildLog = std::string("> build.bat ") + arg + "\n";
     }
-    const char* arg = kind == BuildKind::GameCode ? "Editor" : "Export";
     m_buildKind = kind;
-    m_buildLog = std::string("> build.bat ") + arg + "\n";
     m_buildLogScroll = true;
-    if (kind == BuildKind::Export) m_buildLogOpen = true; // 게임 코드 빌드는 실패할 때만 연다
-    if (!m_build.start("\"" + script + "\" " + arg, m_project.directory)) {
+    if (kind != BuildKind::GameCode) m_buildLogOpen = true; // 게임 코드 빌드는 실패할 때만 연다
+    if (!m_build.start(command, m_project.directory)) {
         m_buildLog += "빌드를 시작하지 못했습니다.\n";
         m_buildLogOpen = true;
         return;
     }
     m_buildStart = m_time;
-    MEALKIT_INFO("Build started: %s %s", script.c_str(), arg);
+    MEALKIT_INFO("Build started: %s", command.c_str());
 }
 
 void Editor::pollBuild() {
@@ -1456,12 +1503,18 @@ void Editor::pollBuild() {
         m_buildLog += "\n실패 (종료 코드 " + std::to_string(m_build.exitCode()) + ")\n";
         m_buildLogOpen = true;
         setStatus(m_buildKind == BuildKind::GameCode ? "게임 코드 빌드 실패 - 빌드 로그를 확인하세요"
-                                                     : "출시 빌드 실패 - 빌드 로그를 확인하세요");
+                  : m_buildKind == BuildKind::Upgrade ? "업그레이드 실패 - 빌드 로그를 확인하세요"
+                                                      : "출시 빌드 실패 - 빌드 로그를 확인하세요");
         if (m_buildKind == BuildKind::GameCode) {
             m_gameCodeFailed = true;
             if (!m_gameLoaded) m_gameStatus = "게임 코드 빌드 실패 - 고친 뒤 Ctrl+R";
         }
         MEALKIT_ERROR("Build failed with exit code %d", m_build.exitCode());
+    } else if (m_buildKind == BuildKind::Upgrade) {
+        m_buildLog += "\n업그레이드 완료 - 게임 코드를 다시 빌드합니다\n";
+        m_project.engineVersion = kEngineVersion;
+        MEALKIT_INFO("Project upgraded to engine %s", kEngineVersion);
+        startBuild(BuildKind::GameCode); // 템플릿(CMakeLists 등)이 바뀌었으니 다시 빌드
     } else if (m_buildKind == BuildKind::GameCode) {
         m_buildLog += "\n완료 (" + seconds + "초): 게임 코드\n";
         m_gameCodeBuilt = true;

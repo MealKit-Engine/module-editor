@@ -92,6 +92,8 @@ bool loadProject(const std::string& directory, ProjectInfo& out, std::string* er
         const std::string value = trim(line.substr(eq + 1));
         if (key == "name") out.name = value;
         else if (key == "scene") out.startScene = value;
+        else if (key == "engine") out.engineDirectory = value;
+        else if (key == "engineVersion") out.engineVersion = value;
     }
     if (out.name.empty()) {
         if (error) *error = "mealkit.project has no name=";

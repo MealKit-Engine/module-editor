@@ -27,6 +27,7 @@ enum class Mode { Edit, Play };
 enum class BuildKind {
     GameCode, // build.bat Editor: 게임 DLL (끝나면 앱이 바꿔 끼운다)
     Export,   // build.bat Export: 출시용 exe + assets → export\<이름>
+    Upgrade,  // 엔진의 tools\upgrade_project.ps1: 프로젝트 템플릿 파일을 지금 엔진 버전으로 (끝나면 게임 코드 빌드)
 };
 
 class Editor {
@@ -35,6 +36,12 @@ public:
     void shutdown();
     // 열린 프로젝트: [빌드] 메뉴, 창 제목.
     void setProject(const ProjectInfo& project);
+    void setEngineDirectory(const std::string& directory) { m_engineDirectory = directory; }
+    // [업그레이드]를 누른 것과 같다 (자동 테스트용)
+    void requestUpgrade() {
+        m_upgradeRequested = true;
+        m_upgradeOffer = false;
+    }
     const ProjectInfo& project() const { return m_project; }
     // 프로젝트의 build.bat을 백그라운드로 실행한다 (이미 빌드 중이면 무시).
     void startBuild(BuildKind kind);
@@ -223,6 +230,9 @@ private:
     bool m_autosavePending = false; // 마지막 자동 저장 뒤에 바뀐 것이 있다
 
     ProjectInfo m_project;
+    std::string m_engineDirectory;
+    bool m_upgradeOffer = false;     // 프로젝트 템플릿이 엔진 버전과 다르다 (한 번 묻는다)
+    bool m_upgradeRequested = false; // 빌드가 끝나면 업그레이드를 시작한다
     ChildProcess m_build;
     BuildKind m_buildKind = BuildKind::GameCode;
     bool m_gameCodeBuilt = false;

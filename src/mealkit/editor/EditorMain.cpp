@@ -51,6 +51,7 @@ struct Options {
     bool exportGame = false; // 시작하자마자 [출시 빌드]
     bool buildGame = false;  // 시작하자마자 [게임 코드 빌드]
     u32 players = 0;         // 0 = 에디터 설정, 2~4 = 여러 명 플레이 (자동 테스트)
+    bool upgrade = false;    // 시작하자마자 프로젝트 업그레이드
     // 참가 창 모드
     std::string playerAddress;
     std::string tuningPath;
@@ -77,6 +78,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--export") o.exportGame = true;
         else if (a == "--build-game") o.buildGame = true;
         else if (a == "--players" && next(v)) o.players = static_cast<u32>(std::atoi(v));
+        else if (a == "--upgrade") o.upgrade = true;
         else if (a == "--player" && next(v)) o.playerAddress = v;
         else if (a == "--player-index" && next(v)) o.playerIndex = static_cast<u32>(std::atoi(v));
         else if (a == "--scene" && next(v)) o.scenePath = v;
@@ -85,7 +87,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
-                "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game\n"
+                "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
                 "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>] [--bot]\n");
             return false;
         }
@@ -94,6 +96,13 @@ bool parseArgs(int argc, char** argv, Options& o) {
     o.debugLayer = true;
 #endif
     return true;
+}
+
+// 이 에디터를 빌드한 엔진 저장소 (CMake 경로 → 윈도우 표기)
+std::string engineDirectory() {
+    std::string dir = MEALKIT_ENGINE_DIR;
+    std::replace(dir.begin(), dir.end(), '/', '\\');
+    return dir;
 }
 
 // 프로젝트 관리자에서 고른 프로젝트는 새 프로세스로 연다 (에디터 상태를 깨끗하게 시작)
@@ -148,9 +157,11 @@ int main(int argc, char** argv) {
     editor::Editor editor;
     const std::string scenePath = opt.scenePath.empty() ? project.startScenePath() : opt.scenePath;
     if (!editor.init(window, renderer, scenePath, models)) MEALKIT_FATAL("Editor initialization failed");
+    editor.setEngineDirectory(engineDirectory());
     editor.setProject(project);
     if (opt.select >= 0) editor.selectByIndex(opt.select);
     if (opt.players > 1) editor.setPlayPlayers(opt.players);
+    if (opt.upgrade) editor.requestUpgrade();
     if (opt.play) editor.requestPlay();
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);
 

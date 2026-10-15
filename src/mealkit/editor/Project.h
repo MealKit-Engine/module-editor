@@ -6,6 +6,7 @@
 // 게임 프로젝트 폴더: 최상위에 mealkit.project(key=value 텍스트)가 있다.
 //   name=MyGame                  게임 이름 = 실행 파일·게임 DLL 이름
 //   engine=D:\MealKit              엔진 폴더 (build.bat, editor.bat이 읽는다. 엔진 저장소 자신은 없음)
+//   engineVersion=0.4.0          프로젝트 템플릿을 만든(업그레이드한) 엔진 버전 (다르면 에디터가 업그레이드를 권한다)
 //   scene=scenes/arena.scene     에디터가 처음 여는 씬 (assets 기준)
 namespace mealkit::editor {
 
@@ -15,6 +16,8 @@ struct ProjectInfo {
     std::string name;      // 게임 이름
     std::string directory; // 프로젝트 폴더 (끝에 구분자 없음, 역슬래시)
     std::string startScene = "scenes/arena.scene";
+    std::string engineDirectory; // engine= (엔진 저장소 자신은 비어 있다)
+    std::string engineVersion;   // engineVersion= (예전 프로젝트는 비어 있다)
 
     std::string gameDllPath() const;     // build\Editor\bin\<name>_game.dll
     std::string startScenePath() const;  // assets\<startScene>

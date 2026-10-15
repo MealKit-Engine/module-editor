@@ -2,6 +2,7 @@
 
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/ImGuiLayer.h"
+#include "mealkit/core/Version.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Process.h"
@@ -163,7 +164,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
         ImGui::SetWindowFontScale(1.4f);
         ImGui::TextUnformatted("MealKit 프로젝트");
         ImGui::SetWindowFontScale(1.0f);
-        ImGui::TextDisabled("엔진: %s", engineDir.c_str());
+        ImGui::TextDisabled("엔진 %s: %s", kEngineVersion, engineDir.c_str());
         ImGui::Separator();
 
         const f32 rightWidth =
