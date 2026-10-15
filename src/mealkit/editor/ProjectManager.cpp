@@ -166,11 +166,13 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
         ImGui::TextDisabled("엔진: %s", engineDir.c_str());
         ImGui::Separator();
 
-        const f32 rightWidth = std::min(420.0f * ImGui::GetStyle().FontScaleDpi, ImGui::GetContentRegionAvail().x * 0.45f);
+        const f32 rightWidth =
+            std::min(420.0f * ImGui::GetStyle().FontScaleDpi, ImGui::GetContentRegionAvail().x * 0.45f);
         const f32 bottom = message.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing();
 
         // ---- 최근 프로젝트
-        ImGui::BeginChild("##recent", ImVec2(-rightWidth - ImGui::GetStyle().ItemSpacing.x, -bottom), ImGuiChildFlags_Borders);
+        ImGui::BeginChild("##recent", ImVec2(-rightWidth - ImGui::GetStyle().ItemSpacing.x, -bottom),
+                          ImGuiChildFlags_Borders);
         ImGui::TextUnformatted("최근 프로젝트");
         ImGui::Separator();
         if (recent.empty()) ImGui::TextDisabled("아직 없습니다. 오른쪽에서 프로젝트를 열거나 새로 만드세요.");
@@ -239,8 +241,8 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             creatorLog.clear();
             message.clear();
             const std::string script = engineDir + "\\tools\\new_project.ps1";
-            const std::string command = "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Name " +
-                                        newName + " -Path \"" + newLocation + "\"";
+            const std::string command = "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + script +
+                                        "\" -Name " + newName + " -Path \"" + newLocation + "\"";
             if (!creator.start(command, engineDir)) {
                 message = "new_project.ps1을 실행하지 못했습니다";
                 messageIsError = true;

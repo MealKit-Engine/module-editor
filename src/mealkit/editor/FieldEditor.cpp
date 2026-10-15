@@ -90,7 +90,8 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
             while (clipper.Step()) {
                 for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
                     const u32 slot = slots[static_cast<size_t>(row)];
-                    const std::string item = "#" + std::to_string(slot) + " (세대 " + std::to_string(v.ops->generation(data, slot)) + ")";
+                    const std::string item =
+                        "#" + std::to_string(slot) + " (세대 " + std::to_string(v.ops->generation(data, slot)) + ")";
                     ImGui::PushID(static_cast<int>(slot));
                     drawReadOnlyValue(item.c_str(), name, *v.element, v.ops->item(data, slot));
                     ImGui::PopID();
@@ -103,7 +104,8 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
     default: {
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanFullWidth);
+        ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                     ImGuiTreeNodeFlags_SpanFullWidth);
         nameTooltip(name);
         ImGui::TableNextColumn();
         const std::string text = reflect::formatScalar(v, data);

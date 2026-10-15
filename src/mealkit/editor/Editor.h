@@ -202,7 +202,7 @@ private:
     bool m_layoutReset = false;
 
     const scene::TypeList* m_gameTypes = nullptr;
-    reflect::Instance m_tuning;    // 게임 DLL의 튜닝 타입 인스턴스
+    reflect::Instance m_tuning;       // 게임 DLL의 튜닝 타입 인스턴스
     reflect::TextFields m_tuningText; // DLL을 바꿔 끼울 때 값을 보존한다
     bool m_tuningLoaded = false;
     bool m_tuningDirty = false;

@@ -43,9 +43,9 @@ struct Options {
     u32 bodies = 2000;
     bool debugLayer = false;
     // 자동 테스트/스크린샷용
-    u32 frames = 0;   // 이 프레임 수만큼 돌고 종료
+    u32 frames = 0; // 이 프레임 수만큼 돌고 종료
     std::string capturePath;
-    int select = -1;  // 시작할 때 선택할 엔티티 번호
+    int select = -1; // 시작할 때 선택할 엔티티 번호
     bool play = false;
     bool bot = false;
     bool exportGame = false; // 시작하자마자 [출시 빌드]
@@ -83,9 +83,10 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--tuning" && next(v)) o.tuningPath = v;
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
-            std::printf("Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
-                        "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game\n"
-                        "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>] [--bot]\n");
+            std::printf(
+                "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
+                "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game\n"
+                "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>] [--bot]\n");
             return false;
         }
     }
@@ -127,8 +128,10 @@ int main(int argc, char** argv) {
 
     // ---- 프로젝트 고르기
     if (opt.projectDir.empty()) {
-        const std::string chosen = editor::runProjectManager(window, renderer, MEALKIT_ENGINE_DIR, opt.frames, opt.capturePath);
-        if (!chosen.empty() && !relaunchWithProject(chosen)) MEALKIT_ERROR("Could not start the editor for %s", chosen.c_str());
+        const std::string chosen =
+            editor::runProjectManager(window, renderer, MEALKIT_ENGINE_DIR, opt.frames, opt.capturePath);
+        if (!chosen.empty() && !relaunchWithProject(chosen))
+            MEALKIT_ERROR("Could not start the editor for %s", chosen.c_str());
         renderer.shutdown();
         return 0;
     }
@@ -167,8 +170,9 @@ int main(int argc, char** argv) {
             editor.setGameCodeStatus(true, "게임 코드 #" + std::to_string(host.generation()));
         } else {
             MEALKIT_ERROR("%s", loadError.c_str());
-            editor.setGameCodeStatus(host.loaded(), host.loaded() ? "새 게임 코드를 불러오지 못했습니다 (이전 코드 사용 중)"
-                                                                  : "게임 코드를 불러오지 못했습니다: " + loadError);
+            editor.setGameCodeStatus(host.loaded(), host.loaded()
+                                                        ? "새 게임 코드를 불러오지 못했습니다 (이전 코드 사용 중)"
+                                                        : "게임 코드를 불러오지 못했습니다: " + loadError);
         }
     };
     if (opt.buildGame || !fileExists(dllPath) || editor::GameModuleHost::olderThanEngine(dllPath)) {

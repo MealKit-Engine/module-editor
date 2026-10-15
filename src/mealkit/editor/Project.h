@@ -12,12 +12,12 @@ namespace mealkit::editor {
 inline constexpr const char* kProjectFileName = "mealkit.project";
 
 struct ProjectInfo {
-    std::string name;       // 게임 이름
-    std::string directory;  // 프로젝트 폴더 (끝에 구분자 없음, 역슬래시)
+    std::string name;      // 게임 이름
+    std::string directory; // 프로젝트 폴더 (끝에 구분자 없음, 역슬래시)
     std::string startScene = "scenes/arena.scene";
 
-    std::string gameDllPath() const;   // build\Editor\bin\<name>_game.dll
-    std::string startScenePath() const; // assets\<startScene>
+    std::string gameDllPath() const;     // build\Editor\bin\<name>_game.dll
+    std::string startScenePath() const;  // assets\<startScene>
     std::string exportDirectory() const; // export\<name>
 };
 

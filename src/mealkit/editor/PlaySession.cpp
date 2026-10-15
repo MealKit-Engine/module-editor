@@ -32,13 +32,14 @@ u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const 
     const reflect::TypeInfo* tuningType = module.tuningType ? module.tuningType() : nullptr;
     reflect::Instance tuning = tuningType ? reflect::Instance(*tuningType) : reflect::Instance();
     if (tuningType) game::loadTuning(*tuningType, tuning.data(), tuningPath);
-    return game::contentHash(scene, models, module.objectTypes ? module.objectTypes() : nullptr, tuningType, tuning.data());
+    return game::contentHash(scene, models, module.objectTypes ? module.objectTypes() : nullptr, tuningType,
+                             tuning.data());
 }
 
 PlaySession::~PlaySession() { stop(); }
 
-bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost& host, asset::ModelCache& models, f64 now,
-                        std::string& error) {
+bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost& host, asset::ModelCache& models,
+                        f64 now, std::string& error) {
     stop();
     m_config = config;
     m_config.players = std::clamp(config.players, 1u, net::kMaxPlayers);
@@ -72,8 +73,9 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         }
         const std::string exe = executableDirectory() + "\\MealKitEditor.exe";
         for (u32 i = 2; i <= m_config.players; ++i) {
-            std::string args = "--project \"" + config.projectDir + "\" --player 127.0.0.1:" + std::to_string(kEditorPlayPort) +
-                               " --player-index " + std::to_string(i) + " --scene \"" + scenePath + "\"";
+            std::string args = "--project \"" + config.projectDir +
+                               "\" --player 127.0.0.1:" + std::to_string(kEditorPlayPort) + " --player-index " +
+                               std::to_string(i) + " --scene \"" + scenePath + "\"";
             if (!m_options.tuningPath.empty()) args += " --tuning \"" + m_options.tuningPath + "\"";
             if (config.clientBots) args += " --bot";
             const std::string log = dir + "\\player" + std::to_string(i) + ".log";
@@ -109,7 +111,8 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     session.update(now);
 
     // 방장: 모두 들어오면 매치 시작
-    if (session.isHost() && session.state() == net::SessionState::Lobby && session.lobbyPlayerCount() >= m_config.players)
+    if (session.isHost() && session.state() == net::SessionState::Lobby &&
+        session.lobbyPlayerCount() >= m_config.players)
         session.startMatch(m_seed, m_config.bodies);
     if (session.state() == net::SessionState::Ended) {
         m_failure = std::string("세션이 끝났습니다: ") + session.endReason();
@@ -122,13 +125,14 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
             return;
         }
         char text[160];
-        snprintf(text, sizeof(text), "참가 창을 기다리는 중 (%u/%u) | Esc 정지", session.lobbyPlayerCount(), m_config.players);
+        snprintf(text, sizeof(text), "참가 창을 기다리는 중 (%u/%u) | Esc 정지", session.lobbyPlayerCount(),
+                 m_config.players);
         editor.setPlayStatus(text);
         return;
     }
 
-    game::GameContext ctx{window, renderer, models, session, editor.viewport(), editor.gameKeyboardAllowed(),
-                          editor.gameMouseAllowed()};
+    game::GameContext ctx{
+        window, renderer, models, session, editor.viewport(), editor.gameKeyboardAllowed(), editor.gameMouseAllowed()};
     if (!m_game->started()) {
         m_game->start(ctx, editor.scene(), m_options);
         MEALKIT_INFO("Play mode: %u bodies, %u player(s)", session.matchData(), session.playerCount());
@@ -151,8 +155,8 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     }
 }
 
-void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer, asset::ModelCache& models,
-                             render::FrameParams& frame, render::DrawList& out) {
+void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer,
+                             asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
     if (!m_game || !m_session) return;
     game::GameContext ctx{window, renderer, models, *m_session, editor.viewport()};
     m_game->buildFrame(ctx, now, frame, out);
