@@ -27,6 +27,7 @@ constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
 constexpr const char* kHierarchyWindow = "씬 트리###Hierarchy";
 constexpr const char* kInspectorWindow = "인스펙터###Inspector";
 constexpr const char* kEnvironmentWindow = "환경###Environment";
+constexpr const char* kTuningWindow = "튜닝###Tuning";
 constexpr const char* kBuildLogWindow = "빌드 로그###BuildLog";
 constexpr size_t kUndoLimit = 100;
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
@@ -206,6 +207,7 @@ void Editor::update(f64 dt) {
     drawHierarchy(editing);
     drawInspector(editing);
     drawEnvironment(editing);
+    drawTuning();
     pollBuild();
     drawBuildLog();
 
@@ -304,6 +306,7 @@ void Editor::setupDefaultLayout(u32 dockId) {
     ImGui::DockBuilderDockWindow(kHierarchyWindow, left);
     ImGui::DockBuilderDockWindow(kInspectorWindow, right);
     ImGui::DockBuilderDockWindow(kEnvironmentWindow, rightBottom);
+    ImGui::DockBuilderDockWindow(kTuningWindow, rightBottom);
     ImGui::DockBuilderFinish(dockId);
 }
 
@@ -314,7 +317,10 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu("파일", editing)) {
         if (ImGui::MenuItem("새 씬", "Ctrl+N")) newScene();
         if (ImGui::MenuItem("열기...", "Ctrl+O")) openSceneDialog();
-        if (ImGui::MenuItem("저장", "Ctrl+S")) saveScene();
+        if (ImGui::MenuItem("저장", "Ctrl+S")) {
+            saveScene();
+            if (m_tuningDirty) saveTuning();
+        }
         if (ImGui::MenuItem("다른 이름으로 저장...")) saveSceneAs();
         ImGui::Separator();
         if (ImGui::MenuItem("종료")) m_quit = true;
@@ -590,6 +596,103 @@ void Editor::drawEnvironment(bool editing) {
     ImGui::End();
 }
 
+// ---------------------------------------------------------------- 튜닝 (assets/game.tuning)
+
+std::string Editor::tuningPath() const {
+    return m_project.directory.empty() ? std::string() : m_project.directory + "\\assets\\game.tuning";
+}
+
+void Editor::setTuningType(const reflect::TypeInfo* type) {
+    if (m_tuning.type()) { // 지금 값을 텍스트로 보존
+        m_tuningText.clear();
+        reflect::toText(*m_tuning.type(), m_tuning.data(), m_tuningText);
+    }
+    m_tuning = type ? reflect::Instance(*type) : reflect::Instance();
+    if (!type) return;
+    if (!m_tuningLoaded) {
+        loadTuningFile();
+        m_tuningLoaded = true;
+    } else {
+        std::string unknown;
+        reflect::fromText(*type, m_tuning.data(), m_tuningText, &unknown);
+        if (!unknown.empty()) MEALKIT_WARN("Tuning fields no longer declared: %s", unknown.c_str());
+    }
+}
+
+bool Editor::loadTuningFile() {
+    if (!m_tuning.type()) return false;
+    m_tuning = reflect::Instance(*m_tuning.type()); // 기본값부터
+    const std::string path = tuningPath();
+    m_tuningDirty = false;
+    m_tuningChanged = true;
+    if (path.empty() || !fileExists(path)) return false;
+    std::string error;
+    if (!reflect::loadTextFile(*m_tuning.type(), m_tuning.data(), path, &error)) {
+        setStatus("튜닝 파일을 읽지 못했습니다: " + error);
+        return false;
+    }
+    return true;
+}
+
+bool Editor::saveTuning() {
+    if (!m_tuning.type() || tuningPath().empty()) return false;
+    if (!reflect::saveTextFile(*m_tuning.type(), m_tuning.data(), tuningPath(),
+                               (std::string("MealKit tuning (") + m_tuning.type()->name + "). 에디터 [튜닝] 패널에서 고친다.").c_str())) {
+        setStatus("튜닝 저장 실패: " + tuningPath());
+        return false;
+    }
+    m_tuningDirty = false;
+    setStatus("튜닝 저장됨: assets\\game.tuning");
+    return true;
+}
+
+std::string Editor::writePlayTuning() {
+    if (!m_tuning.type() || m_project.directory.empty()) return {};
+    const std::string dir = m_project.directory + "\\build\\Editor\\play";
+    createDirectories(dir);
+    const std::string path = dir + "\\play.tuning";
+    return reflect::saveTextFile(*m_tuning.type(), m_tuning.data(), path, "editor play (unsaved values)") ? path : std::string();
+}
+
+bool Editor::takeTuningChanged() {
+    const bool changed = m_tuningChanged;
+    m_tuningChanged = false;
+    return changed;
+}
+
+void Editor::drawTuning() {
+    // 예전 레이아웃 파일에는 이 창이 없다: 처음 열 때 [환경] 창과 같은 자리에 탭으로 붙인다
+    if (ImGuiWindow* env = ImGui::FindWindowByName(kEnvironmentWindow); env && env->DockId)
+        ImGui::SetNextWindowDockID(env->DockId, ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin(kTuningWindow)) {
+        ImGui::End();
+        return;
+    }
+    const reflect::TypeInfo* type = m_tuning.type();
+    if (!type) {
+        ImGui::TextDisabled("게임 코드를 불러오면 튜닝 값이 나옵니다.");
+        ImGui::End();
+        return;
+    }
+    ImGui::TextDisabled("assets\\game.tuning (%s)%s", type->name, m_tuningDirty ? " *" : "");
+    ImGui::BeginDisabled(!m_tuningDirty);
+    if (ImGui::Button("저장")) saveTuning();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("파일에서 다시 읽기")) loadTuningFile();
+    ImGui::SameLine();
+    if (ImGui::Button("기본값")) {
+        m_tuning = reflect::Instance(*type);
+        m_tuningDirty = m_tuningChanged = true;
+    }
+    if (m_mode == Mode::Play) ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "플레이 중: 바꾸면 바로 적용됩니다");
+    ImGui::Separator();
+    ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
+    if (drawFields(*type, m_tuning.data())) m_tuningDirty = m_tuningChanged = true;
+    ImGui::PopItemWidth();
+    ImGui::End();
+}
+
 void Editor::drawGizmo() {
     Entity* e = selected();
     if (!e || m_viewport.width < 1.0f || m_viewport.height < 1.0f) return;
@@ -669,7 +772,10 @@ void Editor::handleShortcuts() {
     if (io.WantTextInput || m_looking) return;
     auto pressed = [](ImGuiKey key) { return ImGui::IsKeyPressed(key, false); };
     if (io.KeyCtrl) {
-        if (pressed(ImGuiKey_S)) saveScene();
+        if (pressed(ImGuiKey_S)) {
+            saveScene();
+            if (m_tuningDirty) saveTuning();
+        }
         if (pressed(ImGuiKey_Z)) io.KeyShift ? redo() : undo();
         if (pressed(ImGuiKey_Y)) redo();
         if (pressed(ImGuiKey_D)) duplicateSelected();
@@ -985,6 +1091,7 @@ void Editor::updateTitle() {
     if (!m_project.name.empty()) title += m_project.name + " - ";
     title += m_scenePath.empty() ? std::string("제목 없음") : fileName(m_scenePath);
     if (m_dirty) title += " *";
+    if (m_tuningDirty) title += "  (튜닝 *)";
     if (m_mode == Mode::Play) title += "  [플레이 중]";
     if (title != m_title) {
         m_window->setTitle(title.c_str());

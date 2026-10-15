@@ -44,6 +44,13 @@ public:
     void setGameCodeStatus(bool loaded, const std::string& text);
     // 게임 DLL이 선언한 오브젝트 종류 (DLL을 내리기 전에 nullptr로 되돌린다)
     void setGameTypes(const scene::TypeList* types) { m_gameTypes = types; }
+    // 게임 튜닝 타입 (DLL을 내리기 전에 nullptr). 편집 중인 값은 텍스트로 보존했다가 새 타입에 다시 넣는다.
+    void setTuningType(const reflect::TypeInfo* type);
+    // 플레이를 시작할 때: 저장 안 된 튜닝 값을 임시 파일로 써서 경로를 돌려준다 (타입이 없으면 빈 문자열 = 기본 파일)
+    std::string writePlayTuning();
+    // 튜닝이 바뀌었으면 한 번 true (혼자 플레이 중이면 앱이 게임에 바로 적용한다)
+    bool takeTuningChanged();
+    const void* tuningData() const { return m_tuning.data(); }
 
     // 매 프레임 pumpMessages 다음에 호출: UI를 만들고 편집 입력을 처리한다.
     void update(f64 dt);
@@ -81,6 +88,10 @@ private:
     void drawHierarchy(bool editing);
     void drawInspector(bool editing);
     void drawEnvironment(bool editing);
+    void drawTuning();
+    std::string tuningPath() const;
+    bool loadTuningFile();
+    bool saveTuning();
     void drawGizmo();
     void drawBuildLog();
     void setupDefaultLayout(u32 dockId);
@@ -162,6 +173,11 @@ private:
     bool m_layoutReset = false;
 
     const scene::TypeList* m_gameTypes = nullptr;
+    reflect::Instance m_tuning;    // 게임 DLL의 튜닝 타입 인스턴스
+    reflect::TextFields m_tuningText; // DLL을 바꿔 끼울 때 값을 보존한다
+    bool m_tuningLoaded = false;
+    bool m_tuningDirty = false;
+    bool m_tuningChanged = false;
 
     ProjectInfo m_project;
     ChildProcess m_build;

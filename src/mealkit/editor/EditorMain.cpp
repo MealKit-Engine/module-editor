@@ -131,8 +131,12 @@ int main(int argc, char** argv) {
     auto loadGame = [&]() {
         std::string loadError;
         editor.setGameTypes(nullptr); // 예전 DLL의 타입 설명은 내리면 무효
+        editor.setTuningType(nullptr);
         const bool loaded = host.load(dllPath, loadError);
-        if (host.loaded()) editor.setGameTypes(host.module()->objectTypes());
+        if (host.loaded()) {
+            editor.setGameTypes(host.module()->objectTypes());
+            editor.setTuningType(host.module()->tuningType());
+        }
         if (loaded) {
             editor.setGameCodeStatus(true, "게임 코드 #" + std::to_string(host.generation()));
         } else {
@@ -195,7 +199,9 @@ int main(int argc, char** argv) {
             session->startOffline(static_cast<u64>(std::time(nullptr)), opt.bodies);
             game = host.create();
             game::GameContext ctx{window, renderer, models, *session, editor.viewport()};
+            playOptions.tuningPath = editor.writePlayTuning();
             game->start(ctx, editor.scene(), playOptions);
+            editor.takeTuningChanged();
             editor.setMode(editor::Mode::Play);
             MEALKIT_INFO("Play mode: %u bodies", opt.bodies);
         }
@@ -209,6 +215,7 @@ int main(int argc, char** argv) {
             game::GameContext ctx{window, renderer, models, *session, editor.viewport(), editor.gameKeyboardAllowed(),
                                   editor.gameMouseAllowed()};
             session->update(now);
+            if (editor.takeTuningChanged()) game->setTuning(editor.tuningData()); // 혼자 플레이: 바로 적용
             game->update(ctx, dt);
             statusTimer += dt;
             if (statusTimer >= 0.25) {
@@ -247,6 +254,7 @@ int main(int argc, char** argv) {
     editor.saveBackupIfDirty();
     stopGame();
     editor.setGameTypes(nullptr);
+    editor.setTuningType(nullptr);
     host.unload();
     editor.shutdown();
     renderer.shutdown();
