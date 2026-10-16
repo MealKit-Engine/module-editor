@@ -2,6 +2,7 @@
 
 #include "mealkit/core/Types.h"
 #include "mealkit/game/GameInstance.h"
+#include "mealkit/game/ProjectSettings.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/scene/Scene.h"
 
@@ -42,9 +43,9 @@ struct PlayConfig {
     std::string projectDir;
 };
 
-// 방장과 참가 창이 같은 값으로 만드는 콘텐츠 해시 (씬 + 모델 + 튜닝 파일)
+// 방장과 참가 창이 같은 값으로 만드는 콘텐츠 해시 (씬 + 모델 + 튜닝 파일 + 저장된 프로젝트 설정)
 u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const game::GameModule& module,
-                    const std::string& tuningPath);
+                    const std::string& tuningPath, const game::ProjectFile& project);
 
 class PlaySession {
 public:

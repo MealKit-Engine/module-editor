@@ -43,32 +43,51 @@ bool sameDirectory(const std::string& a, const std::string& b) {
            });
 }
 
-fs::path recentFile() {
-    wchar_t buffer[MAX_PATH];
-    const DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
-    const fs::path base = (len > 0 && len < MAX_PATH) ? fs::path(buffer) : fromUtf8(executableDirectory());
-    return base / "MealKit" / "recent_projects.txt";
+constexpr const char* kRecentFile = "recent_projects.txt";
+constexpr const char* kFavoriteFile = "favorite_projects.txt";
+constexpr size_t kMaxRecent = 100;
+
+// 사용자 폴더의 목록 파일 (한 줄에 폴더 하나)
+std::vector<std::string> loadList(const char* name) {
+    std::vector<std::string> list;
+    std::ifstream in(fromUtf8(editorUserDirectory()) / name, std::ios::binary);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (list.empty() && line.rfind("\xEF\xBB\xBF", 0) == 0) line.erase(0, 3); // 메모장·PowerShell이 붙인 BOM
+        line = trim(line);
+        if (!line.empty()) list.push_back(line);
+    }
+    return list;
 }
 
-void saveRecent(const std::vector<std::string>& list) {
+void saveList(const char* name, const std::vector<std::string>& list) {
     std::error_code ec;
-    const fs::path file = recentFile();
-    fs::create_directories(file.parent_path(), ec);
-    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    const fs::path dir = fromUtf8(editorUserDirectory());
+    fs::create_directories(dir, ec);
+    std::ofstream out(dir / name, std::ios::binary | std::ios::trunc);
     for (const std::string& d : list) out << d << '\n';
+}
+
+void eraseDirectory(std::vector<std::string>& list, const std::string& dir) {
+    list.erase(std::remove_if(list.begin(), list.end(), [&](const std::string& d) { return sameDirectory(d, dir); }),
+               list.end());
 }
 
 } // namespace
 
-std::string ProjectInfo::gameDllPath() const { return directory + "\\build\\Editor\\bin\\" + name + "_game.dll"; }
+std::string ProjectInfo::filePath() const { return directory + "\\" + kProjectFileName; }
+
+std::string ProjectInfo::gameDllPath() const {
+    return directory + "\\build\\Editor\\bin\\" + settings.name + "_game.dll";
+}
 
 std::string ProjectInfo::startScenePath() const {
-    std::string relative = startScene;
+    std::string relative = settings.scene;
     std::replace(relative.begin(), relative.end(), '/', '\\');
     return directory + "\\assets\\" + relative;
 }
 
-std::string ProjectInfo::exportDirectory() const { return directory + "\\export\\" + name; }
+std::string ProjectInfo::exportDirectory() const { return directory + "\\export\\" + settings.name; }
 
 bool isProjectDirectory(const std::string& directory) {
     return !directory.empty() && fileExists(directory + "\\" + kProjectFileName);
@@ -76,59 +95,67 @@ bool isProjectDirectory(const std::string& directory) {
 
 bool loadProject(const std::string& directory, ProjectInfo& out, std::string* error) {
     out = ProjectInfo{};
-    out.directory = normalizeDirectory(directory);
-    std::ifstream in(fromUtf8(out.directory) / kProjectFileName, std::ios::binary);
-    if (!in) {
-        if (error) *error = std::string(kProjectFileName) + " not found in " + out.directory;
+    const std::string normalized = normalizeDirectory(directory);
+    if (!game::loadProjectFile(normalized + "\\" + kProjectFileName, out)) {
+        if (error) *error = std::string(kProjectFileName) + " not found in " + normalized;
         return false;
     }
-    std::string line;
-    while (std::getline(in, line)) {
-        line = trim(line);
-        if (line.empty() || line[0] == '#') continue;
-        const size_t eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        const std::string key = trim(line.substr(0, eq));
-        const std::string value = trim(line.substr(eq + 1));
-        if (key == "name") out.name = value;
-        else if (key == "scene") out.startScene = value;
-        else if (key == "engine") out.engineDirectory = value;
-        else if (key == "engineVersion") out.engineVersion = value;
-    }
-    if (out.name.empty()) {
-        if (error) *error = "mealkit.project has no name=";
+    out.directory = normalized;
+    if (out.settings.name.empty()) {
+        if (error) *error = "mealkit.project has no name";
         return false;
     }
     return true;
 }
 
-std::vector<std::string> loadRecentProjects() {
-    std::vector<std::string> list;
-    std::ifstream in(recentFile(), std::ios::binary);
-    std::string line;
-    while (std::getline(in, line)) {
-        line = trim(line);
-        if (!line.empty()) list.push_back(line);
-    }
-    return list;
+std::string editorUserDirectory() {
+    wchar_t buffer[MAX_PATH];
+    const DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
+    const fs::path base = (len > 0 && len < MAX_PATH) ? fs::path(buffer) : fromUtf8(executableDirectory());
+    return toUtf8(base / "MealKit");
 }
+
+bool sameProjectDirectory(const std::string& a, const std::string& b) {
+    return sameDirectory(normalizeDirectory(a), normalizeDirectory(b));
+}
+
+std::vector<std::string> loadRecentProjects() { return loadList(kRecentFile); }
 
 void addRecentProject(const std::string& directory) {
     const std::string dir = normalizeDirectory(directory);
     std::vector<std::string> list = loadRecentProjects();
-    list.erase(std::remove_if(list.begin(), list.end(), [&](const std::string& d) { return sameDirectory(d, dir); }),
-               list.end());
+    eraseDirectory(list, dir);
     list.insert(list.begin(), dir);
-    if (list.size() > 20) list.resize(20);
-    saveRecent(list);
+    if (list.size() > kMaxRecent) list.resize(kMaxRecent);
+    saveList(kRecentFile, list);
 }
 
 void removeRecentProject(const std::string& directory) {
     const std::string dir = normalizeDirectory(directory);
     std::vector<std::string> list = loadRecentProjects();
-    list.erase(std::remove_if(list.begin(), list.end(), [&](const std::string& d) { return sameDirectory(d, dir); }),
-               list.end());
-    saveRecent(list);
+    eraseDirectory(list, dir);
+    saveList(kRecentFile, list);
+    setFavoriteProject(dir, false);
+}
+
+std::vector<std::string> loadFavoriteProjects() { return loadList(kFavoriteFile); }
+
+void setFavoriteProject(const std::string& directory, bool favorite) {
+    const std::string dir = normalizeDirectory(directory);
+    std::vector<std::string> list = loadFavoriteProjects();
+    eraseDirectory(list, dir);
+    if (favorite) list.push_back(dir);
+    saveList(kFavoriteFile, list);
+}
+
+void replaceProjectDirectory(const std::string& from, const std::string& to) {
+    const std::string a = normalizeDirectory(from), b = normalizeDirectory(to);
+    for (const char* name : {kRecentFile, kFavoriteFile}) {
+        std::vector<std::string> list = loadList(name);
+        for (std::string& d : list)
+            if (sameDirectory(d, a)) d = b;
+        saveList(name, list);
+    }
 }
 
 } // namespace mealkit::editor

@@ -4,6 +4,7 @@
 #include "mealkit/core/Profile.h"
 #include "mealkit/core/Version.h"
 #include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Window.h"
 
@@ -26,12 +27,12 @@ namespace {
 using scene::Entity;
 
 constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
-constexpr const char* kHierarchyWindow = "씬 트리###Hierarchy";
-constexpr const char* kInspectorWindow = "인스펙터###Inspector";
-constexpr const char* kEnvironmentWindow = "환경###Environment";
-constexpr const char* kTuningWindow = "튜닝###Tuning";
-constexpr const char* kStateWindow = "상태###State";
-constexpr const char* kBuildLogWindow = "빌드 로그###BuildLog";
+constexpr const char* kHierarchyWindow = "Scene Tree###Hierarchy";
+constexpr const char* kInspectorWindow = "Inspector###Inspector";
+constexpr const char* kEnvironmentWindow = "Environment###Environment";
+constexpr const char* kTuningWindow = "Tuning###Tuning";
+constexpr const char* kStateWindow = "State###State";
+constexpr const char* kBuildLogWindow = "Build Log###BuildLog";
 constexpr size_t kUndoLimit = 100;
 constexpr f64 kAutosaveSeconds = 90.0; // 저장 안 된 변경이 있으면 이 간격으로 <씬>.autosave에 쓴다
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
@@ -124,8 +125,8 @@ std::string narrow(const wchar_t* w) {
     return out;
 }
 
-constexpr const wchar_t* kSceneFilter = L"MealKit 씬 (*.scene)\0*.scene\0모든 파일 (*.*)\0*.*\0";
-constexpr const wchar_t* kModelFilter = L"glTF 모델 (*.glb, *.gltf)\0*.glb;*.gltf\0모든 파일 (*.*)\0*.*\0";
+constexpr const wchar_t* kSceneFilter = L"MealKit scene (*.scene)\0*.scene\0All files (*.*)\0*.*\0";
+constexpr const wchar_t* kModelFilter = L"glTF model (*.glb, *.gltf)\0*.glb;*.gltf\0All files (*.*)\0*.*\0";
 
 std::string fileDialog(void* owner, bool save, const std::string& current, const wchar_t* filter = kSceneFilter,
                        const wchar_t* defaultExt = L"scene", const std::string& folder = {}) {
@@ -154,6 +155,20 @@ bool toolButton(const char* label, bool active) {
     return pressed;
 }
 
+// root 폴더 안의 파일이면 root 기준 상대 경로('/' 구분), 밖이면 빈 문자열
+std::string relativeTo(const std::string& root, const std::string& path) {
+    auto lower = [](std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+        return s;
+    };
+    const std::string prefix = root + "\\";
+    if (lower(path).rfind(lower(prefix), 0) != 0) return {};
+    std::string relative = path.substr(prefix.size());
+    std::replace(relative.begin(), relative.end(), '\\', '/');
+    return relative;
+}
+
 } // namespace
 
 bool Editor::init(Window& window, render::Renderer& renderer, const std::string& scenePath, asset::ModelCache& models) {
@@ -173,7 +188,7 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     } else {
         m_scene = scene::makeDefault();
         m_scenePath = scenePath;
-        if (scene::save(m_scene, m_scenePath)) setStatus("기본 씬을 만들었습니다: " + fileName(m_scenePath));
+        if (scene::save(m_scene, m_scenePath)) setStatus(trf("Created a default scene: %s", fileName(m_scenePath).c_str()));
     }
     return true;
 }
@@ -216,6 +231,7 @@ void Editor::update(f64 dt) {
     drawInspector(editing);
     drawEnvironment(editing);
     drawTuning();
+    drawProjectSettings();
     drawState();
     pollBuild();
     drawBuildLog();
@@ -256,25 +272,25 @@ void Editor::drawPlayControls() {
     const game::Timeline t = m_simDebug->timeline();
     ImGui::TextDisabled("|");
     if (t.recording && m_canPause) {
-        if (ImGui::Button(t.paused ? "계속 (F6)" : "일시정지 (F6)")) m_simDebug->setPaused(!t.paused);
+        if (ImGui::Button(t.paused ? tr("Resume (F6)") : tr("Pause (F6)"))) m_simDebug->setPaused(!t.paused);
         ImGui::BeginDisabled(!t.paused);
-        if (ImGui::Button("한 틱 (F7)")) m_simDebug->stepOnce();
+        if (ImGui::Button(tr("Step (F7)"))) m_simDebug->stepOnce();
         int view = static_cast<int>(t.view);
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
         if (ImGui::SliderInt("##timeline", &view, static_cast<int>(t.first), static_cast<int>(t.live),
-                             t.viewingPast ? "과거 틱 %d" : "틱 %d"))
+                             t.viewingPast ? tr("Past tick %d") : tr("Tick %d")))
             m_simDebug->seek(static_cast<u32>(view));
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip(
-                "일시정지 중에 끌면 그 틱으로 되감습니다 (틱 %u~%u, 기록 %.1f MB).\n계속을 누르면 현재로 돌아갑니다.",
+                tr("Drag while paused to rewind to that tick (ticks %u-%u, record %.1f MB).\nResume returns to the present."),
                 t.first, t.live, static_cast<f64>(t.memoryBytes) / (1024.0 * 1024.0));
     }
     const game::ShadowStatus& shadow = m_simDebug->shadow();
     if (shadow.enabled) {
         if (shadow.desynced)
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "그림자: 틱 %u에서 갈라짐", shadow.tick);
-        else ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "그림자: 일치");
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), tr("Shadow: diverged at tick %u"), shadow.tick);
+        else ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", tr("Shadow: in sync"));
     }
 }
 
@@ -283,12 +299,13 @@ void Editor::reportSimProblems() {
     const game::ShadowStatus& shadow = m_simDebug->shadow();
     if (shadow.desynced && !m_shadowReported) {
         m_shadowReported = true;
-        std::string text = "그림자 시뮬레이션이 틱 " + std::to_string(shadow.tick) +
-                           "에서 갈라졌습니다. 같은 입력인데 결과가 다릅니다 (초기화 안 된 값, 전역 상태, 포인터 순서, "
-                           "실제 시간 읽기 등).\n\n";
-        if (shadow.diff.empty()) text += "상태 필드는 같고 물리 상태만 다릅니다.";
+        std::string text = trf("The shadow simulation diverged at tick %u. Same inputs gave different results "
+                               "(uninitialized values, global state, pointer order, reading real time, ...).",
+                               shadow.tick) +
+                           "\n\n";
+        if (shadow.diff.empty()) text += tr("State fields match; only the physics state differs.");
         for (const std::string& line : shadow.diff) text += line + "\n";
-        text += "\n시뮬레이션은 그 틱에서 멈췄습니다. [상태] 패널에서 값을 볼 수 있습니다.";
+        text += std::string("\n") + tr("The simulation stopped at that tick. See the values in the [State] panel.");
         showMessage(text);
     }
     if (!m_simDebug->replayError().empty() && !m_replayReported) {
@@ -320,33 +337,34 @@ void Editor::updateAutosave(f64 dt) {
 }
 
 void Editor::drawPopups() {
-    if (!m_message.empty() && !ImGui::IsPopupOpen("알림###Message")) ImGui::OpenPopup("알림###Message");
-    if (ImGui::BeginPopupModal("알림###Message", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (!m_message.empty() && !ImGui::IsPopupOpen(trl("Notice###Message"))) ImGui::OpenPopup(trl("Notice###Message"));
+    if (ImGui::BeginPopupModal(trl("Notice###Message"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 36.0f);
         ImGui::TextUnformatted(m_message.c_str());
         ImGui::PopTextWrapPos();
-        if (ImGui::Button("확인", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+        if (ImGui::Button(tr("OK"), ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
             m_message.clear();
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
     }
 
-    if (m_upgradeOffer && m_message.empty() && !ImGui::IsPopupOpen("프로젝트 업그레이드###Upgrade"))
-        ImGui::OpenPopup("프로젝트 업그레이드###Upgrade");
-    if (ImGui::BeginPopupModal("프로젝트 업그레이드###Upgrade", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("이 프로젝트의 빌드 파일은 엔진 %s 템플릿으로 만들어졌습니다 (지금 엔진 %s).",
-                    m_project.engineVersion.empty() ? "0.3 이하" : m_project.engineVersion.c_str(), kEngineVersion);
-        ImGui::Text("템플릿 파일(build.bat, CMakeLists.txt, CLAUDE.md, .vscode, .clang-format 등)을 새 버전으로 바꿀까요?");
-        ImGui::TextDisabled("직접 고친 파일은 덮어쓰지 않고 <파일>.new로 새 내용을 남깁니다. 바꾸기 전 파일은 .upgrade_backup에 백업합니다.");
-        ImGui::TextDisabled("source/와 assets/는 그대로입니다. 게임 코드가 새 엔진 API에 맞지 않으면 빌드 로그를 보고 고칩니다.");
-        if (ImGui::Button("업그레이드", ImVec2(140, 0))) {
+    if (m_upgradeOffer && m_message.empty() && !ImGui::IsPopupOpen(trl("Project Upgrade###Upgrade")))
+        ImGui::OpenPopup(trl("Project Upgrade###Upgrade"));
+    if (ImGui::BeginPopupModal(trl("Project Upgrade###Upgrade"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text(tr("This project's build files were made from the engine %s template (engine is now %s)."),
+                    m_project.settings.engineVersion.empty() ? tr("0.3 or older") : m_project.settings.engineVersion.c_str(),
+                    kEngineVersion);
+        ImGui::TextUnformatted(tr("Replace the template files (build.bat, CMakeLists.txt, CLAUDE.md, .vscode, .clang-format, ...) with the new version?"));
+        ImGui::TextDisabled("%s", tr("Files you edited are not overwritten; the new content is left as <file>.new. Old files are backed up in .upgrade_backup."));
+        ImGui::TextDisabled("%s", tr("source/ and assets/ are unchanged. If the game code no longer fits the engine API, fix it using the build log."));
+        if (ImGui::Button(tr("Upgrade"), ImVec2(140, 0))) {
             m_upgradeRequested = true;
             m_upgradeOffer = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("나중에", ImVec2(140, 0))) {
+        if (ImGui::Button(tr("Later"), ImVec2(140, 0))) {
             m_upgradeOffer = false;
             ImGui::CloseCurrentPopup();
         }
@@ -357,13 +375,13 @@ void Editor::drawPopups() {
         startBuild(BuildKind::Upgrade);
     }
 
-    if (!m_recoverPath.empty() && !ImGui::IsPopupOpen("자동 저장 복구###Recover"))
-        ImGui::OpenPopup("자동 저장 복구###Recover");
-    if (ImGui::BeginPopupModal("자동 저장 복구###Recover", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("저장하지 않은 변경이 남아 있습니다 (자동 저장본이 씬 파일보다 새롭습니다).");
+    if (!m_recoverPath.empty() && !ImGui::IsPopupOpen(trl("Recover Autosave###Recover")))
+        ImGui::OpenPopup(trl("Recover Autosave###Recover"));
+    if (ImGui::BeginPopupModal(trl("Recover Autosave###Recover"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(tr("There are unsaved changes (the autosave is newer than the scene file)."));
         ImGui::TextDisabled("%s", m_recoverPath.c_str());
-        ImGui::Text("자동 저장본을 불러올까요? 씬 파일은 저장할 때까지 바뀌지 않습니다.");
-        if (ImGui::Button("복구", ImVec2(120, 0))) {
+        ImGui::TextUnformatted(tr("Load the autosave? The scene file does not change until you save."));
+        if (ImGui::Button(tr("Recover"), ImVec2(120, 0))) {
             scene::Scene recovered;
             std::string error;
             if (scene::load(recovered, m_recoverPath, &error)) {
@@ -372,15 +390,15 @@ void Editor::drawPopups() {
                 m_selected = 0;
                 m_nameBufferId = 0;
                 m_dirty = true;
-                setStatus("자동 저장본을 복구했습니다 - 저장하면 씬 파일에 반영됩니다");
+                setStatus(tr("Autosave recovered - save to write it to the scene file"));
             } else {
-                setStatus("자동 저장본을 읽지 못했습니다: " + error);
+                setStatus(trf("Could not read the autosave: %s", error.c_str()));
             }
             m_recoverPath.clear();
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("버리기", ImVec2(120, 0))) {
+        if (ImGui::Button(tr("Discard"), ImVec2(120, 0))) {
             removeFile(m_recoverPath);
             m_recoverPath.clear();
             ImGui::CloseCurrentPopup();
@@ -477,67 +495,71 @@ void Editor::drawMenuBar() {
     if (!ImGui::BeginMainMenuBar()) return;
     const bool editing = m_mode == Mode::Edit;
 
-    if (ImGui::BeginMenu("파일", editing)) {
-        if (ImGui::MenuItem("새 씬", "Ctrl+N")) newScene();
-        if (ImGui::MenuItem("열기...", "Ctrl+O")) openSceneDialog();
-        if (ImGui::MenuItem("저장", "Ctrl+S")) {
+    if (ImGui::BeginMenu(tr("File"), editing)) {
+        if (ImGui::MenuItem(tr("New Scene"), "Ctrl+N")) newScene();
+        if (ImGui::MenuItem(tr("Open..."), "Ctrl+O")) openSceneDialog();
+        if (ImGui::MenuItem(tr("Save"), "Ctrl+S")) {
             saveScene();
             if (m_tuningDirty) saveTuning();
+            if (m_projectDirty) saveProjectSettings();
         }
-        if (ImGui::MenuItem("다른 이름으로 저장...")) saveSceneAs();
+        if (ImGui::MenuItem(tr("Save As..."))) saveSceneAs();
         ImGui::Separator();
-        if (ImGui::MenuItem("종료")) m_quit = true;
+        if (ImGui::MenuItem(tr("Project Settings..."), nullptr, false, !m_project.directory.empty()))
+            m_projectWindowOpen = true;
+        ImGui::Separator();
+        if (ImGui::MenuItem(tr("Exit"))) m_quit = true;
         ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("편집", editing)) {
-        if (ImGui::MenuItem("실행 취소", "Ctrl+Z", false, !m_undo.empty())) undo();
-        if (ImGui::MenuItem("다시 실행", "Ctrl+Y", false, !m_redo.empty())) redo();
+    if (ImGui::BeginMenu(tr("Edit"), editing)) {
+        if (ImGui::MenuItem(tr("Undo"), "Ctrl+Z", false, !m_undo.empty())) undo();
+        if (ImGui::MenuItem(tr("Redo"), "Ctrl+Y", false, !m_redo.empty())) redo();
         ImGui::Separator();
-        if (ImGui::MenuItem("복제", "Ctrl+D", false, m_selected != 0)) duplicateSelected();
-        if (ImGui::MenuItem("삭제", "Delete", false, m_selected != 0)) deleteSelected();
+        if (ImGui::MenuItem(tr("Duplicate"), "Ctrl+D", false, m_selected != 0)) duplicateSelected();
+        if (ImGui::MenuItem(tr("Delete"), "Delete", false, m_selected != 0)) deleteSelected();
         ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("추가", editing)) {
+    if (ImGui::BeginMenu(tr("Add"), editing)) {
         drawTypeMenuItems();
         ImGui::Separator();
-        if (ImGui::MenuItem("모델...")) addModelEntity();
+        if (ImGui::MenuItem(tr("Model..."))) addModelEntity();
         ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("보기")) {
-        if (ImGui::MenuItem("선택한 물체로 이동", "F", false, editing && m_selected != 0)) focusSelected();
-        if (ImGui::MenuItem("레이아웃 초기화")) m_layoutReset = true;
+    if (ImGui::BeginMenu(tr("View"))) {
+        if (ImGui::MenuItem(tr("Focus Selected"), "F", false, editing && m_selected != 0)) focusSelected();
+        if (ImGui::MenuItem(tr("Reset Layout"))) m_layoutReset = true;
         ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("빌드", !m_project.directory.empty())) {
+    if (ImGui::BeginMenu(tr("Build"), !m_project.directory.empty())) {
         const bool idle = !m_build.running();
-        if (ImGui::MenuItem("게임 코드 빌드 (핫 리로드)", "Ctrl+R", false, idle && editing))
+        if (ImGui::MenuItem(tr("Build Game Code (Hot Reload)"), "Ctrl+R", false, idle && editing))
             startBuild(BuildKind::GameCode);
-        if (ImGui::MenuItem("출시 빌드", "Ctrl+B", false, idle)) startBuild(BuildKind::Export);
+        if (ImGui::MenuItem(tr("Release Build"), "Ctrl+B", false, idle)) startBuild(BuildKind::Export);
         ImGui::Separator();
-        if (ImGui::MenuItem("출시 폴더 열기", nullptr, false, directoryExists(m_project.exportDirectory())))
+        if (ImGui::MenuItem(tr("Open Release Folder"), nullptr, false, directoryExists(m_project.exportDirectory())))
             openInExplorer(m_project.exportDirectory());
-        if (ImGui::MenuItem("프로젝트 폴더 열기")) openInExplorer(m_project.directory);
+        if (ImGui::MenuItem(tr("Open Project Folder"))) openInExplorer(m_project.directory);
         ImGui::Separator();
-        ImGui::MenuItem("빌드 로그", nullptr, &m_buildLogOpen);
+        ImGui::MenuItem(tr("Build Log"), nullptr, &m_buildLogOpen);
         ImGui::EndMenu();
     }
 
     if (editing) {
         ImGui::TextDisabled("|");
-        if (toolButton("이동 W", m_gizmoOp == 0)) m_gizmoOp = 0;
-        if (toolButton("회전 E", m_gizmoOp == 1)) m_gizmoOp = 1;
-        if (toolButton("크기 R", m_gizmoOp == 2)) m_gizmoOp = 2;
-        if (toolButton(m_gizmoLocal ? "로컬 축" : "월드 축", false)) m_gizmoLocal = !m_gizmoLocal;
+        if (toolButton(tr("Move W"), m_gizmoOp == 0)) m_gizmoOp = 0;
+        if (toolButton(tr("Rotate E"), m_gizmoOp == 1)) m_gizmoOp = 1;
+        if (toolButton(tr("Scale R"), m_gizmoOp == 2)) m_gizmoOp = 2;
+        if (toolButton(m_gizmoLocal ? tr("Local Axes") : tr("World Axes"), false)) m_gizmoLocal = !m_gizmoLocal;
     }
 
-    const char* playLabel = editing ? "  ▶ 플레이 (F5)  " : "  ■ 정지 (Esc)  ";
-    const f32 width = ImGui::CalcTextSize(playLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    const std::string playLabel = editing ? std::string("  ▶ ") + tr("Play (F5)") + "  " : std::string("  ■ ") + tr("Stop (Esc)") + "  ";
+    const f32 width = ImGui::CalcTextSize(playLabel.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX() + 8.0f, (ImGui::GetWindowWidth() - width) * 0.5f));
     const ImVec4 color = editing ? ImVec4(0.18f, 0.48f, 0.26f, 1.0f) : ImVec4(0.62f, 0.20f, 0.18f, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Button, color);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x * 1.25f, color.y * 1.25f, color.z * 1.25f, 1.0f));
     ImGui::BeginDisabled(editing && !m_gameLoaded); // 게임 DLL이 없으면 플레이할 수 없다
-    if (ImGui::Button(playLabel)) {
+    if (ImGui::Button(playLabel.c_str())) {
         if (editing) m_playRequest = true;
         else m_stopRequest = true;
     }
@@ -548,18 +570,18 @@ void Editor::drawMenuBar() {
 
     // 플레이 인원 (여러 명이면 참가 창을 더 띄운다)
     ImGui::BeginDisabled(!editing);
-    const char* counts[] = {"혼자", "2명", "3명", "4명"};
+    const char* counts[] = {tr("Solo"), tr("2 players"), tr("3 players"), tr("4 players")};
     int players = static_cast<int>(m_playPlayers) - 1;
-    ImGui::SetNextItemWidth(ImGui::CalcTextSize("혼자").x + ImGui::GetFrameHeight() * 2.0f);
+    ImGui::SetNextItemWidth(ImGui::CalcTextSize(counts[1]).x + ImGui::GetFrameHeight() * 2.0f);
     if (ImGui::Combo("##players", &players, counts, 4)) m_playPlayers = static_cast<u32>(players + 1);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("여러 명이면 에디터가 방장이 되고 참가 창을 더 띄웁니다 (현재 씬과 튜닝으로, 같은 PC)");
-    if (m_playPlayers > 1) ImGui::Checkbox("참가 창 봇", &m_playClientBots);
+        ImGui::SetTooltip("%s", tr("With several players the editor hosts and opens more player windows (current scene and tuning, same PC)"));
+    if (m_playPlayers > 1) ImGui::Checkbox(tr("Bots in player windows"), &m_playClientBots);
     if (editing) {
-        ImGui::Checkbox("그림자 검사", &m_shadowCheck);
+        ImGui::Checkbox(tr("Shadow check"), &m_shadowCheck);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-            ImGui::SetTooltip("플레이 중 같은 입력으로 시뮬레이션을 하나 더 돌려 매 틱 비교합니다.\n"
-                              "다르면 멈추고 처음 갈라진 틱과 다른 상태 필드를 보여 줍니다 (시뮬레이션 CPU 2배)");
+            ImGui::SetTooltip("%s", tr("Runs a second simulation with the same inputs during play and compares every tick.\n"
+                                    "On a mismatch it stops and shows the first diverging tick and state fields (2x simulation CPU)"));
     }
     ImGui::EndDisabled();
     if (!editing) drawPlayControls();
@@ -572,16 +594,16 @@ void Editor::drawStatusBar() {
     if (ImGui::BeginViewportSideBar("##StatusBar", ImGui::GetMainViewport(), ImGuiDir_Down, ImGui::GetFrameHeight(),
                                     flags)) {
         if (ImGui::BeginMenuBar()) {
-            const std::string name = m_scenePath.empty() ? "제목 없음" : fileName(m_scenePath);
+            const std::string name = m_scenePath.empty() ? tr("Untitled") : fileName(m_scenePath);
             ImGui::Text("%s%s", name.c_str(), m_dirty ? " *" : "");
             ImGui::TextDisabled("|");
-            ImGui::Text("물체 %zu개", m_scene.entities.size());
+            ImGui::Text(tr("%zu objects"), m_scene.entities.size());
             ImGui::TextDisabled("|");
             if (m_build.running()) {
-                ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), "%s 중... %.0f초",
-                                   m_buildKind == BuildKind::GameCode  ? "게임 코드 빌드"
-                                   : m_buildKind == BuildKind::Upgrade ? "프로젝트 업그레이드"
-                                                                       : "출시 빌드",
+                ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f),
+                                   m_buildKind == BuildKind::GameCode  ? tr("Building game code... %.0fs")
+                                   : m_buildKind == BuildKind::Upgrade ? tr("Upgrading project... %.0fs")
+                                                                       : tr("Release build... %.0fs"),
                                    m_time - m_buildStart);
                 ImGui::TextDisabled("|");
             } else if (!m_gameStatus.empty()) {
@@ -594,7 +616,7 @@ void Editor::drawStatusBar() {
                 ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", m_status.c_str());
             else
                 ImGui::TextDisabled(
-                    "카메라: 오른쪽 드래그 + WASD/QE, 휠로 속도 | 선택: 클릭 | Ctrl 누르고 기즈모 = 스냅");
+                    "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));
             const char* fps = "0000 fps";
             ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - 16.0f);
             ImGui::TextDisabled("%.0f fps", m_fps);
@@ -605,18 +627,18 @@ void Editor::drawStatusBar() {
 }
 
 void Editor::drawHierarchy(bool editing) {
-    if (!ImGui::Begin(kHierarchyWindow)) {
+    if (!ImGui::Begin(trl(kHierarchyWindow))) {
         ImGui::End();
         return;
     }
     ImGui::BeginDisabled(!editing);
-    if (ImGui::Button("+ 상자")) addEntity(scene::kTypeSolid);
+    if (ImGui::Button(tr("+ Box"))) addEntity(scene::kTypeSolid);
     ImGui::SameLine();
-    if (ImGui::Button("+ 모델")) addModelEntity();
+    if (ImGui::Button(tr("+ Model"))) addModelEntity();
     ImGui::SameLine();
-    if (ImGui::Button("+ 스폰")) addEntity(scene::kTypeSpawn);
+    if (ImGui::Button(tr("+ Spawn"))) addEntity(scene::kTypeSpawn);
     ImGui::SameLine();
-    if (ImGui::Button("+ 종류...")) ImGui::OpenPopup("##addType");
+    if (ImGui::Button(tr("+ Type..."))) ImGui::OpenPopup("##addType");
     if (ImGui::BeginPopup("##addType")) {
         drawTypeMenuItems();
         ImGui::EndPopup();
@@ -664,10 +686,10 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     const f32 swatch = ImGui::GetTextLineHeight() * 0.8f;
     f32 rgb[3];
     unpackColor(e.color, rgb);
-    std::string label = e.name.empty() ? "(이름 없음)" : e.name;
+    std::string label = e.name.empty() ? tr("(no name)") : e.name;
     if (!e.is(scene::kTypeSolid)) {
         const reflect::TypeInfo* type = entityType(e);
-        label += std::string("  · ") + (type ? type->label : e.type.c_str());
+        label += std::string("  · ") + (type ? trData(type->label) : e.type.c_str());
     }
     ImGuiTreeNodeFlags flags =
         ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
@@ -690,7 +712,7 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     }
     if (ImGui::BeginDragDropSource()) {
         ImGui::SetDragDropPayload(kEntityPayload, &id, sizeof(id));
-        ImGui::Text("%s → (놓을 물체의 자식으로)", label.c_str());
+        ImGui::Text(tr("%s -> (child of the drop target)"), label.c_str());
         ImGui::EndDragDropSource();
     }
     if (ImGui::BeginDragDropTarget()) {
@@ -700,9 +722,9 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     }
     if (ImGui::BeginPopupContextItem()) {
         m_selected = id;
-        if (ImGui::MenuItem("복제", "Ctrl+D")) m_treeAction = {TreeAction::Duplicate, id, 0};
-        if (ImGui::MenuItem("삭제", "Delete")) m_treeAction = {TreeAction::Delete, id, 0};
-        if (ImGui::MenuItem("최상위로 꺼내기", nullptr, false, e.parent != 0))
+        if (ImGui::MenuItem(tr("Duplicate"), "Ctrl+D")) m_treeAction = {TreeAction::Duplicate, id, 0};
+        if (ImGui::MenuItem(tr("Delete"), "Delete")) m_treeAction = {TreeAction::Delete, id, 0};
+        if (ImGui::MenuItem(tr("Move to Top Level"), nullptr, false, e.parent != 0))
             m_treeAction = {TreeAction::Reparent, id, 0};
         ImGui::EndPopup();
     }
@@ -717,7 +739,7 @@ void Editor::reparent(u32 entityId, u32 parentId) {
     Entity* e = m_scene.find(entityId);
     if (!e || e->parent == parentId) return;
     if (parentId && scene::isDescendant(m_scene, parentId, entityId)) {
-        setStatus("자기 자신이나 자식 아래로는 옮길 수 없습니다");
+        setStatus(tr("Cannot move an object under itself or its children"));
         return;
     }
     pushUndo(capture());
@@ -725,35 +747,35 @@ void Editor::reparent(u32 entityId, u32 parentId) {
     e->parent = parentId;
     scene::setWorldTransform(m_scene, *e, world);
     const Entity* parent = parentId ? m_scene.find(parentId) : nullptr;
-    setStatus(parent ? e->name + " → " + parent->name + "의 자식" : e->name + " → 최상위");
+    setStatus(parent ? trf("%s -> child of %s", e->name.c_str(), parent->name.c_str()) : trf("%s -> top level", e->name.c_str()));
 }
 
 void Editor::drawInspector(bool editing) {
     if (m_focusPanel == kInspectorWindow) focusPanelNow();
-    if (!ImGui::Begin(kInspectorWindow)) {
+    if (!ImGui::Begin(trl(kInspectorWindow))) {
         ImGui::End();
         return;
     }
     ImGui::BeginDisabled(!editing);
     Entity* e = selected();
     if (!e) {
-        ImGui::TextDisabled("선택한 물체가 없습니다.");
-        ImGui::TextDisabled("뷰포트를 클릭하거나 씬 트리에서 고르세요.");
+        ImGui::TextDisabled("%s", tr("Nothing selected."));
+        ImGui::TextDisabled("%s", tr("Click in the viewport or pick from the scene tree."));
     } else {
-        ImGui::PushItemWidth(-ImGui::CalcTextSize("회전 (도)").x - 12.0f);
+        ImGui::PushItemWidth(-ImGui::CalcTextSize(tr("Rotation (deg)")).x - 12.0f);
         if (m_nameBufferId != e->id) {
             strncpy_s(m_nameBuffer, e->name.c_str(), _TRUNCATE);
             m_nameBufferId = e->id;
         }
-        if (ImGui::InputText("이름", m_nameBuffer, sizeof(m_nameBuffer))) {
+        if (ImGui::InputText(tr("Name"), m_nameBuffer, sizeof(m_nameBuffer))) {
             e->name = m_nameBuffer;
             markChanged();
         }
         const reflect::TypeInfo* type = entityType(*e);
-        const std::string typeLabel = type ? type->label : e->type + " (게임 코드에 없음)";
-        if (ImGui::BeginCombo("종류", typeLabel.c_str())) {
+        const std::string typeLabel = type ? trData(type->label) : trf("%s (not in game code)", e->type.c_str());
+        if (ImGui::BeginCombo(tr("Type"), typeLabel.c_str())) {
             for (const reflect::TypeInfo* t : allTypes()) {
-                if (ImGui::Selectable(t->label, t == type) && t != type) {
+                if (ImGui::Selectable(trData(t->label), t == type) && t != type) {
                     e->type = t->name;
                     e->fields = scene::defaultFields(*t);
                     markChanged();
@@ -764,16 +786,16 @@ void Editor::drawInspector(bool editing) {
         drawObjectFields(*e);
 
         if (!isMarker(*e)) {
-            ImGui::SeparatorText("모델");
+            ImGui::SeparatorText(tr("Model"));
             if (e->model.empty()) {
-                ImGui::TextDisabled("기본 상자");
+                ImGui::TextDisabled("%s", tr("Default box"));
             } else {
                 ImGui::TextUnformatted(e->model.c_str());
                 if (const asset::Model* model = m_models->get(e->model))
-                    ImGui::TextDisabled("삼각형 %u개 · LOD %u단계", model->triangles[0], model->lodCount);
-                else ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "불러오지 못했습니다 (로그 확인)");
+                    ImGui::TextDisabled(tr("%u triangles · %u LODs"), model->triangles[0], model->lodCount);
+                else ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", tr("Could not load (see the log)"));
             }
-            if (ImGui::Button("모델 선택...")) {
+            if (ImGui::Button(tr("Choose Model..."))) {
                 const std::string path = chooseModel();
                 if (!path.empty()) {
                     e->model = path;
@@ -782,20 +804,20 @@ void Editor::drawInspector(bool editing) {
             }
             if (!e->model.empty()) {
                 ImGui::SameLine();
-                if (ImGui::Button("상자로 되돌리기")) {
+                if (ImGui::Button(tr("Back to Box"))) {
                     e->model.clear();
                     markChanged();
                 }
             }
         }
 
-        ImGui::SeparatorText(e->parent ? "변환 (부모 기준)" : "변환");
+        ImGui::SeparatorText(e->parent ? tr("Transform (relative to parent)") : tr("Transform"));
         f32 matrix[16], t[3], r[3], s[3];
         compose(scene::localTransform(*e), matrix);
         ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
-        bool changed = ImGui::DragFloat3("위치", t, 0.05f, 0.0f, 0.0f, "%.2f");
-        changed |= ImGui::DragFloat3("회전 (도)", r, 0.5f, 0.0f, 0.0f, "%.1f");
-        if (!isMarker(*e)) changed |= ImGui::DragFloat3("크기", s, 0.02f, 0.01f, 10000.0f, "%.2f");
+        bool changed = ImGui::DragFloat3(tr("Position"), t, 0.05f, 0.0f, 0.0f, "%.2f");
+        changed |= ImGui::DragFloat3(tr("Rotation (deg)"), r, 0.5f, 0.0f, 0.0f, "%.1f");
+        if (!isMarker(*e)) changed |= ImGui::DragFloat3(tr("Scale"), s, 0.02f, 0.01f, 10000.0f, "%.2f");
         if (changed) {
             for (f32& v : s) v = std::max(v, 0.01f);
             ImGuizmo::RecomposeMatrixFromComponents(t, r, s, matrix);
@@ -807,15 +829,15 @@ void Editor::drawInspector(bool editing) {
             markChanged();
         }
 
-        ImGui::SeparatorText("모양");
+        ImGui::SeparatorText(tr("Look"));
         f32 rgb[3];
         unpackColor(e->color, rgb);
-        if (ImGui::ColorEdit3("색상", rgb)) {
+        if (ImGui::ColorEdit3(tr("Color"), rgb)) {
             e->color = packColor(rgb, e->color);
             markChanged();
         }
         bool checker = (e->flags & render::kInstanceChecker) != 0;
-        if (ImGui::Checkbox("체커 무늬", &checker)) {
+        if (ImGui::Checkbox(tr("Checker pattern"), &checker)) {
             e->flags = checker ? (e->flags | render::kInstanceChecker) : (e->flags & ~render::kInstanceChecker);
             markChanged();
         }
@@ -823,16 +845,16 @@ void Editor::drawInspector(bool editing) {
         ImGui::TextDisabled("ID %u", e->id);
 
         ImGui::Spacing();
-        if (ImGui::Button("복제 (Ctrl+D)")) duplicateSelected();
+        if (ImGui::Button(tr("Duplicate (Ctrl+D)"))) duplicateSelected();
         ImGui::SameLine();
-        if (ImGui::Button("삭제 (Del)")) deleteSelected(); // 이후 e를 쓰지 않는다
+        if (ImGui::Button(tr("Delete (Del)"))) deleteSelected(); // 이후 e를 쓰지 않는다
     }
     ImGui::EndDisabled();
     ImGui::End();
 }
 
 void Editor::drawEnvironment(bool editing) {
-    if (!ImGui::Begin(kEnvironmentWindow)) {
+    if (!ImGui::Begin(trl(kEnvironmentWindow))) {
         ImGui::End();
         return;
     }
@@ -840,16 +862,16 @@ void Editor::drawEnvironment(bool editing) {
     scene::Environment& env = m_scene.environment;
     const ImGuiColorEditFlags hdr = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR;
     bool c = false;
-    ImGui::PushItemWidth(-ImGui::CalcTextSize("지면 반사광").x - 12.0f);
-    c |= ImGui::DragFloat3("태양 방향", &env.sunDirection.x, 0.01f, -1.0f, 1.0f, "%.2f");
-    c |= ImGui::ColorEdit3("태양 빛", &env.sunColor.x, hdr);
-    c |= ImGui::ColorEdit3("하늘 환경광", &env.skyColor.x, hdr);
-    c |= ImGui::ColorEdit3("지면 반사광", &env.groundColor.x, hdr);
-    c |= ImGui::ColorEdit3("안개·배경", &env.fogColor.x, hdr);
-    c |= ImGui::DragFloat("안개 밀도", &env.fogDensity, 0.0002f, 0.0f, 0.1f, "%.4f");
+    ImGui::PushItemWidth(-ImGui::CalcTextSize(tr("Ground bounce")).x - 12.0f);
+    c |= ImGui::DragFloat3(tr("Sun direction"), &env.sunDirection.x, 0.01f, -1.0f, 1.0f, "%.2f");
+    c |= ImGui::ColorEdit3(tr("Sun light"), &env.sunColor.x, hdr);
+    c |= ImGui::ColorEdit3(tr("Sky ambient"), &env.skyColor.x, hdr);
+    c |= ImGui::ColorEdit3(tr("Ground bounce"), &env.groundColor.x, hdr);
+    c |= ImGui::ColorEdit3(tr("Fog / background"), &env.fogColor.x, hdr);
+    c |= ImGui::DragFloat(tr("Fog density"), &env.fogDensity, 0.0002f, 0.0f, 0.1f, "%.4f");
     ImGui::PopItemWidth();
     if (c) markChanged();
-    ImGui::TextDisabled("색은 선형(linear) 값입니다.");
+    ImGui::TextDisabled("%s", tr("Colors are linear values."));
     ImGui::EndDisabled();
     ImGui::End();
 }
@@ -886,7 +908,7 @@ bool Editor::loadTuningFile() {
     if (path.empty() || !fileExists(path)) return false;
     std::string error;
     if (!reflect::loadTextFile(*m_tuning.type(), m_tuning.data(), path, &error)) {
-        setStatus("튜닝 파일을 읽지 못했습니다: " + error);
+        setStatus(trf("Could not read the tuning file: %s", error.c_str()));
         return false;
     }
     return true;
@@ -896,12 +918,12 @@ bool Editor::saveTuning() {
     if (!m_tuning.type() || tuningPath().empty()) return false;
     if (!reflect::saveTextFile(
             *m_tuning.type(), m_tuning.data(), tuningPath(),
-            (std::string("MealKit tuning (") + m_tuning.type()->name + "). 에디터 [튜닝] 패널에서 고친다.").c_str())) {
-        setStatus("튜닝 저장 실패: " + tuningPath());
+            (std::string("MealKit tuning (") + m_tuning.type()->name + "). Edit it in the editor's [Tuning] panel.").c_str())) {
+        setStatus(trf("Could not save tuning: %s", tuningPath().c_str()));
         return false;
     }
     m_tuningDirty = false;
-    setStatus("튜닝 저장됨: assets\\game.tuning");
+    setStatus(trf("Tuning saved: %s", "assets\\game.tuning"));
     return true;
 }
 
@@ -925,35 +947,118 @@ void Editor::drawTuning() {
     // 예전 레이아웃 파일에는 이 창이 없다: 처음 열 때 [환경] 창과 같은 자리에 탭으로 붙인다
     if (ImGuiWindow* env = ImGui::FindWindowByName(kEnvironmentWindow); env && env->DockId)
         ImGui::SetNextWindowDockID(env->DockId, ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(kTuningWindow)) {
+    if (!ImGui::Begin(trl(kTuningWindow))) {
         ImGui::End();
         return;
     }
     const reflect::TypeInfo* type = m_tuning.type();
     if (!type) {
-        ImGui::TextDisabled("게임 코드를 불러오면 튜닝 값이 나옵니다.");
+        ImGui::TextDisabled("%s", tr("Tuning values appear when the game code is loaded."));
         ImGui::End();
         return;
     }
     ImGui::TextDisabled("assets\\game.tuning (%s)%s", type->name, m_tuningDirty ? " *" : "");
     ImGui::BeginDisabled(!m_tuningDirty);
-    if (ImGui::Button("저장")) saveTuning();
+    if (ImGui::Button(tr("Save"))) saveTuning();
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("파일에서 다시 읽기")) loadTuningFile();
+    if (ImGui::Button(tr("Reload from File"))) loadTuningFile();
     ImGui::SameLine();
-    if (ImGui::Button("기본값")) {
+    if (ImGui::Button(tr("Defaults"))) {
         m_tuning = reflect::Instance(*type);
         m_tuningDirty = m_tuningChanged = true;
     }
     if (m_mode == Mode::Play && m_playPlayers == 1)
-        ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "플레이 중: 바꾸면 바로 적용됩니다");
+        ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", tr("Playing: changes apply immediately"));
     else if (m_mode == Mode::Play)
-        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.4f, 1.0f),
-                           "여러 명 플레이 중에는 바꿔도 적용되지 않습니다 (다음 플레이부터)");
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.4f, 1.0f), "%s",
+                           tr("Changes do not apply during multiplayer play (from the next play)"));
     ImGui::Separator();
     ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
     if (drawFields(*type, m_tuning.data())) m_tuningDirty = m_tuningChanged = true;
+    ImGui::PopItemWidth();
+    ImGui::End();
+}
+
+// ---------------------------------------------------------------- 프로젝트 설정 (mealkit.project)
+
+void Editor::setProjectSettingsType(const reflect::TypeInfo* type) {
+    if (m_gameProject.type()) { // 지금 값을 텍스트로 보존
+        m_gameProjectText.clear();
+        reflect::toText(*m_gameProject.type(), m_gameProject.data(), m_gameProjectText);
+    }
+    m_gameProject = type ? reflect::Instance(*type) : reflect::Instance();
+    if (type) {
+        std::string unknown;
+        reflect::fromText(*type, m_gameProject.data(), m_gameProjectText, &unknown);
+        if (!unknown.empty()) MEALKIT_WARN("Project settings not declared in %s: %s", type->name, unknown.c_str());
+    }
+}
+
+void Editor::revertProjectSettings() {
+    m_projectEdit = m_project.settings;
+    m_gameProjectText = m_project.gameFields;
+    if (m_gameProject.type()) {
+        m_gameProject = reflect::Instance(*m_gameProject.type());
+        reflect::fromText(*m_gameProject.type(), m_gameProject.data(), m_gameProjectText);
+    }
+    m_projectDirty = false;
+}
+
+bool Editor::saveProjectSettings() {
+    if (m_project.directory.empty()) return false;
+    ProjectInfo next = m_project;
+    next.settings = m_projectEdit;
+    if (m_gameProject.type()) {
+        next.gameFields.clear();
+        reflect::toText(*m_gameProject.type(), m_gameProject.data(), next.gameFields);
+    } else {
+        next.gameFields = m_gameProjectText;
+    }
+    if (!game::saveProjectFile(next.filePath(), next)) {
+        setStatus(trf("Could not save project settings: %s", next.filePath().c_str()));
+        return false;
+    }
+    m_project = next;
+    m_projectDirty = false;
+    setStatus(trf("Project settings saved: %s", "mealkit.project"));
+    return true;
+}
+
+void Editor::drawProjectSettings() {
+    if (!m_projectWindowOpen || m_project.directory.empty()) return;
+    ImGui::SetNextWindowSize(ImVec2(600, 480), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin(trl("Project Settings###ProjectSettings"), &m_projectWindowOpen)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextDisabled("%s%s", m_project.filePath().c_str(), m_projectDirty ? " *" : "");
+    ImGui::BeginDisabled(!m_projectDirty);
+    if (ImGui::Button(tr("Save"))) saveProjectSettings();
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Revert"))) revertProjectSettings();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    const std::string current = relativeTo(m_project.directory + "\\assets", m_scenePath);
+    ImGui::BeginDisabled(current.empty() || current == m_projectEdit.scene);
+    if (ImGui::Button(tr("Use Current Scene as Start Scene"))) {
+        m_projectEdit.scene = current;
+        m_projectDirty = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::TextDisabled("%s", tr("The game and the editor use these values from the next run. Gray items are managed by the tools."));
+
+    ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.4f);
+    ImGui::SeparatorText(tr("Engine"));
+    if (drawFields(reflect::typeOf<game::ProjectSettings>(), &m_projectEdit)) m_projectDirty = true;
+    ImGui::SeparatorText(tr("Game"));
+    if (!m_gameProject.type()) {
+        ImGui::TextDisabled(tr("Game items appear when the game code is loaded (%zu lines kept)."), m_gameProjectText.size());
+    } else if (m_gameProject.type()->fields.empty()) {
+        ImGui::TextDisabled(tr("The game declares no items (%s)."), m_gameProject.type()->name);
+    } else if (drawFields(*m_gameProject.type(), m_gameProject.data())) {
+        m_projectDirty = true;
+    }
     ImGui::PopItemWidth();
     ImGui::End();
 }
@@ -963,16 +1068,16 @@ void Editor::drawState() {
     if (ImGuiWindow* inspector = ImGui::FindWindowByName(kInspectorWindow); inspector && inspector->DockId)
         ImGui::SetNextWindowDockID(inspector->DockId, ImGuiCond_FirstUseEver);
     if (m_focusPanel == kStateWindow) focusPanelNow();
-    if (!ImGui::Begin(kStateWindow)) {
+    if (!ImGui::Begin(trl(kStateWindow))) {
         ImGui::End();
         return;
     }
     if (m_mode != Mode::Play || !m_stateView.type || !m_stateView.data) {
-        ImGui::TextDisabled("플레이 중에 시뮬레이션 상태(MEALKIT_FIELD로 선언한 값)가 나옵니다.");
+        ImGui::TextDisabled("%s", tr("The simulation state (values declared with MEALKIT_FIELD) appears during play."));
         ImGui::End();
         return;
     }
-    ImGui::TextDisabled("%s (읽기 전용)", m_stateView.type->name);
+    ImGui::TextDisabled(tr("%s (read-only)"), m_stateView.type->name);
     drawFieldsReadOnly(*m_stateView.type, m_stateView.data);
     ImGui::End();
 }
@@ -1062,6 +1167,7 @@ void Editor::handleShortcuts() {
         if (pressed(ImGuiKey_S)) {
             saveScene();
             if (m_tuningDirty) saveTuning();
+            if (m_projectDirty) saveProjectSettings();
         }
         if (pressed(ImGuiKey_Z)) io.KeyShift ? redo() : undo();
         if (pressed(ImGuiKey_Y)) redo();
@@ -1147,20 +1253,20 @@ void Editor::drawTypeMenuItems() {
     const size_t builtins = scene::builtinTypes().size();
     const std::vector<const reflect::TypeInfo*> types = allTypes();
     for (size_t i = 0; i < types.size(); ++i) {
-        if (i == builtins) ImGui::SeparatorText("게임");
-        if (ImGui::MenuItem(types[i]->label)) addEntity(types[i]->name);
+        if (i == builtins) ImGui::SeparatorText(tr("Game"));
+        if (ImGui::MenuItem(trData(types[i]->label))) addEntity(types[i]->name);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", types[i]->name);
     }
-    if (!m_gameTypes) ImGui::TextDisabled("(게임 코드를 불러오면 게임 종류가 나옵니다)");
+    if (!m_gameTypes) ImGui::TextDisabled("%s", tr("(game types appear when the game code is loaded)"));
 }
 
 // 게임 종류의 필드: 텍스트 값을 선언된 타입의 인스턴스로 읽어 위젯으로 고치고, 다시 텍스트로 쓴다
 void Editor::drawObjectFields(Entity& e) {
     const reflect::TypeInfo* type = entityType(e);
     if (type && type->fields.empty()) return;
-    ImGui::SeparatorText("필드");
+    ImGui::SeparatorText(tr("Fields"));
     if (!type) {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1.0f), "게임 코드에 '%s' 종류가 없습니다. 값은 그대로 보존됩니다.",
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1.0f), tr("The game code has no '%s' type. The values are kept as they are."),
                            e.type.c_str());
         for (auto& [path, value] : e.fields) {
             char buffer[256];
@@ -1181,7 +1287,7 @@ void Editor::drawObjectFields(Entity& e) {
         e.fields = std::move(fields);
         markChanged();
     }
-    if (!warnings.empty()) ImGui::TextDisabled("선언에 없는 필드: %s (저장하면 사라집니다)", warnings.c_str());
+    if (!warnings.empty()) ImGui::TextDisabled(tr("Undeclared fields: %s (removed on save)"), warnings.c_str());
 }
 
 void Editor::addEntity(const std::string& typeName) {
@@ -1195,7 +1301,7 @@ void Editor::addEntity(const std::string& typeName) {
         if (t > 0.0f && t < 80.0f) pos = m_cameraPos + forward * t;
     }
     const bool solid = typeName == scene::kTypeSolid;
-    Entity& e = m_scene.add(type->name, solid ? "상자" : type->label);
+    Entity& e = m_scene.add(type->name, solid ? tr("Box") : trData(type->label));
     e.name += " " + std::to_string(e.id);
     e.fields = scene::defaultFields(*type);
     if (type->flags & reflect::kObjectMarker) {
@@ -1207,7 +1313,7 @@ void Editor::addEntity(const std::string& typeName) {
         e.color = solid ? 0xFFD2C8C8 : typeName == scene::kTypeDecoration ? 0xFFDCAA78 : 0xFF8CD2F0;
     }
     m_selected = e.id;
-    setStatus("추가: " + e.name);
+    setStatus(trf("Added: %s", e.name.c_str()));
 }
 
 std::string Editor::chooseModel() {
@@ -1215,17 +1321,9 @@ std::string Editor::chooseModel() {
     const std::string path = fileDialog(m_window->nativeHandle(), false, "", kModelFilter, L"glb", root + "\\models");
     if (path.empty()) return {};
     // assets 폴더 안이면 상대 경로로 저장한다 (다른 PC에서도 같은 씬 파일이 동작하도록)
-    std::string lowerPath = path, lowerRoot = root + "\\";
-    std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(),
-                   [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
-    std::transform(lowerRoot.begin(), lowerRoot.end(), lowerRoot.begin(),
-                   [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
-    if (lowerPath.rfind(lowerRoot, 0) == 0) {
-        std::string relative = path.substr(lowerRoot.size());
-        std::replace(relative.begin(), relative.end(), '\\', '/');
-        return relative;
-    }
-    setStatus("assets 폴더 밖의 파일입니다. 멀티플레이에서는 모두 같은 경로에 있어야 합니다");
+    const std::string relative = relativeTo(root, path);
+    if (!relative.empty()) return relative;
+    setStatus(tr("The file is outside the assets folder. In multiplayer everyone needs it at the same path"));
     return path;
 }
 
@@ -1234,7 +1332,7 @@ void Editor::addModelEntity() {
     if (path.empty()) return;
     const asset::Model* model = m_models->get(path);
     if (!model) {
-        setStatus("모델을 불러오지 못했습니다: " + path);
+        setStatus(trf("Could not load the model: %s", path.c_str()));
         return;
     }
     addEntity(scene::kTypeSolid);
@@ -1245,7 +1343,7 @@ void Editor::addModelEntity() {
     e->position.y += -1.0f - model->boundsMin.y; // 바닥에 닿게 (addEntity가 1만큼 띄워 둔다)
     const std::string file = fileName(path);
     e->name = file.substr(0, file.find_last_of('.'));
-    setStatus("모델 추가: " + path);
+    setStatus(trf("Model added: %s", path.c_str()));
 }
 
 // 선택한 물체와 그 자식들을 같은 구조로 복사한다
@@ -1263,7 +1361,7 @@ void Editor::duplicateSelected() {
         copy.id = remap[id];
         copy.parent = top ? copy.parent : remap[copy.parent];
         if (top) {
-            copy.name += " 복사";
+            copy.name += std::string(" ") + tr("copy");
             copy.position.x += 1.0f;
         }
         copies.push_back(std::move(copy));
@@ -1272,7 +1370,7 @@ void Editor::duplicateSelected() {
     const u32 newId = copies.front().id;
     m_scene.entities.insert(m_scene.entities.end(), copies.begin(), copies.end());
     m_selected = newId;
-    setStatus("복제: " + name + (ids.size() > 1 ? " (자식 " + std::to_string(ids.size() - 1) + "개 포함)" : ""));
+    setStatus(ids.size() > 1 ? trf("Duplicated: %s (with %zu children)", name.c_str(), ids.size() - 1) : trf("Duplicated: %s", name.c_str()));
 }
 
 // 선택한 물체와 그 자식들을 지운다
@@ -1281,7 +1379,7 @@ void Editor::deleteSelected() {
     if (!e) return;
     pushUndo(capture());
     const std::vector<u32> ids = scene::subtree(m_scene, e->id);
-    setStatus("삭제: " + e->name + (ids.size() > 1 ? " (자식 " + std::to_string(ids.size() - 1) + "개 포함)" : ""));
+    setStatus(ids.size() > 1 ? trf("Deleted: %s (with %zu children)", e->name.c_str(), ids.size() - 1) : trf("Deleted: %s", e->name.c_str()));
     std::erase_if(m_scene.entities,
                   [&](const Entity& x) { return std::find(ids.begin(), ids.end(), x.id) != ids.end(); });
     m_selected = 0;
@@ -1309,7 +1407,7 @@ void Editor::newScene() {
     m_scene = std::move(fresh);
     m_scenePath.clear();
     m_selected = 0;
-    setStatus("새 씬 (Ctrl+Z로 되돌릴 수 있습니다)");
+    setStatus(tr("New scene (Ctrl+Z to undo)"));
 }
 
 void Editor::openSceneDialog() {
@@ -1324,7 +1422,7 @@ bool Editor::loadScene(const std::string& path) {
     std::string error;
     if (!scene::load(loaded, path, &error)) {
         MEALKIT_ERROR("Cannot open scene %s: %s", path.c_str(), error.c_str());
-        setStatus("열기 실패: " + error);
+        setStatus(trf("Could not open: %s", error.c_str()));
         return false;
     }
     m_scene = std::move(loaded);
@@ -1338,20 +1436,20 @@ bool Editor::loadScene(const std::string& path) {
     m_redo.clear();
     m_selected = 0;
     m_nameBufferId = 0;
-    setStatus("열림: " + fileName(path));
+    setStatus(trf("Opened: %s", fileName(path).c_str()));
     return true;
 }
 
 bool Editor::saveScene() {
     if (m_scenePath.empty()) return saveSceneAs();
     if (!scene::save(m_scene, m_scenePath)) {
-        setStatus("저장 실패: " + m_scenePath);
+        setStatus(trf("Could not save: %s", m_scenePath.c_str()));
         return false;
     }
     m_dirty = false;
     m_autosavePending = false;
     removeFile(m_scenePath + ".autosave"); // 저장했으니 자동 저장본은 필요 없다
-    setStatus("저장됨: " + fileName(m_scenePath));
+    setStatus(trf("Saved: %s", fileName(m_scenePath).c_str()));
     return true;
 }
 
@@ -1385,7 +1483,7 @@ void Editor::undo() {
     m_redo.push_back(capture());
     restore(m_undo.back());
     m_undo.pop_back();
-    setStatus("실행 취소");
+    setStatus(tr("Undo"));
 }
 
 void Editor::redo() {
@@ -1393,7 +1491,7 @@ void Editor::redo() {
     m_undo.push_back(capture());
     restore(m_redo.back());
     m_redo.pop_back();
-    setStatus("다시 실행");
+    setStatus(tr("Redo"));
 }
 
 void Editor::setStatus(const std::string& text) {
@@ -1403,11 +1501,12 @@ void Editor::setStatus(const std::string& text) {
 
 void Editor::updateTitle() {
     std::string title = std::string("MealKit Editor ") + kEngineVersion + " - ";
-    if (!m_project.name.empty()) title += m_project.name + " - ";
-    title += m_scenePath.empty() ? std::string("제목 없음") : fileName(m_scenePath);
+    if (!m_project.name().empty()) title += m_project.name() + " - ";
+    title += m_scenePath.empty() ? std::string(tr("Untitled")) : fileName(m_scenePath);
     if (m_dirty) title += " *";
-    if (m_tuningDirty) title += "  (튜닝 *)";
-    if (m_mode == Mode::Play) title += "  [플레이 중]";
+    if (m_tuningDirty) title += std::string("  (") + tr("Tuning") + " *)";
+    if (m_projectDirty) title += std::string("  (") + tr("Project Settings") + " *)";
+    if (m_mode == Mode::Play) title += std::string("  [") + tr("Playing") + "]";
     if (title != m_title) {
         m_window->setTitle(title.c_str());
         m_title = title;
@@ -1418,11 +1517,13 @@ void Editor::updateTitle() {
 
 void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
-    // 엔진 저장소 자신(engine= 없음)은 묻지 않는다
-    m_upgradeOffer = !project.engineDirectory.empty() && project.engineVersion != kEngineVersion;
+    revertProjectSettings();
+    // 엔진 저장소 자신(engine 없음)은 묻지 않는다
+    const game::ProjectSettings& s = project.settings;
+    m_upgradeOffer = !s.engine.empty() && s.engineVersion != kEngineVersion;
     if (m_upgradeOffer)
         MEALKIT_WARN("Project template is from engine %s, this engine is %s - tools\\upgrade_project.ps1 can update it",
-                     project.engineVersion.empty() ? "(unknown)" : project.engineVersion.c_str(), kEngineVersion);
+                     s.engineVersion.empty() ? "(unknown)" : s.engineVersion.c_str(), kEngineVersion);
 }
 
 void Editor::setGameCodeStatus(bool loaded, const std::string& text) {
@@ -1449,12 +1550,13 @@ void Editor::startBuild(BuildKind kind) {
     if (m_build.running() || m_project.directory.empty()) return;
     // 출시본은 디스크의 assets를 복사하므로 저장 안 된 씬을 먼저 저장한다
     if (kind == BuildKind::Export && m_dirty && !m_scenePath.empty() && !saveScene()) return;
+    if (kind == BuildKind::Export && m_projectDirty && !saveProjectSettings()) return; // 출시본에 mealkit.project가 들어간다
 
     std::string command;
     if (kind == BuildKind::Upgrade) {
         const std::string script = m_engineDirectory + "\\tools\\upgrade_project.ps1";
         if (!fileExists(script)) {
-            setStatus("업그레이드 스크립트가 없습니다: " + script);
+            setStatus(trf("Upgrade script not found: %s", script.c_str()));
             return;
         }
         command = "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Project \"" + m_project.directory + "\"";
@@ -1462,7 +1564,7 @@ void Editor::startBuild(BuildKind kind) {
     } else {
         const std::string script = m_project.directory + "\\build.bat";
         if (!fileExists(script)) {
-            setStatus("build.bat이 없습니다: " + script);
+            setStatus(trf("build.bat not found: %s", script.c_str()));
             return;
         }
         const char* arg = kind == BuildKind::GameCode ? "Editor" : "Export";
@@ -1473,7 +1575,7 @@ void Editor::startBuild(BuildKind kind) {
     m_buildLogScroll = true;
     if (kind != BuildKind::GameCode) m_buildLogOpen = true; // 게임 코드 빌드는 실패할 때만 연다
     if (!m_build.start(command, m_project.directory)) {
-        m_buildLog += "빌드를 시작하지 못했습니다.\n";
+        m_buildLog += std::string(tr("Could not start the build.")) + "\n";
         m_buildLogOpen = true;
         return;
     }
@@ -1491,7 +1593,7 @@ void Editor::pollBuild() {
         const std::string line = fresh.substr(start, nl + 1 - start);
         start = nl + 1;
         if (line.find("Note: including file:") != std::string::npos ||
-            line.find("참고: 포함 파일:") != std::string::npos)
+            line.find("참고: 포함 파일:") != std::string::npos) // i18n-ignore (한국어 MSVC 출력)
             continue;
         m_buildLog += line;
         m_buildLogScroll = true;
@@ -1500,28 +1602,35 @@ void Editor::pollBuild() {
     m_buildLogScroll = true;
     const std::string seconds = std::to_string(static_cast<int>(m_time - m_buildStart));
     if (m_build.exitCode() != 0) {
-        m_buildLog += "\n실패 (종료 코드 " + std::to_string(m_build.exitCode()) + ")\n";
+        m_buildLog += "\n" + trf("Failed (exit code %d)", m_build.exitCode()) + "\n";
         m_buildLogOpen = true;
-        setStatus(m_buildKind == BuildKind::GameCode ? "게임 코드 빌드 실패 - 빌드 로그를 확인하세요"
-                  : m_buildKind == BuildKind::Upgrade ? "업그레이드 실패 - 빌드 로그를 확인하세요"
-                                                      : "출시 빌드 실패 - 빌드 로그를 확인하세요");
+        setStatus(m_buildKind == BuildKind::GameCode ? tr("Game code build failed - see the build log")
+                  : m_buildKind == BuildKind::Upgrade ? tr("Upgrade failed - see the build log")
+                                                      : tr("Release build failed - see the build log"));
         if (m_buildKind == BuildKind::GameCode) {
             m_gameCodeFailed = true;
-            if (!m_gameLoaded) m_gameStatus = "게임 코드 빌드 실패 - 고친 뒤 Ctrl+R";
+            if (!m_gameLoaded) m_gameStatus = tr("Game code build failed - fix it and press Ctrl+R");
         }
         MEALKIT_ERROR("Build failed with exit code %d", m_build.exitCode());
     } else if (m_buildKind == BuildKind::Upgrade) {
-        m_buildLog += "\n업그레이드 완료 - 게임 코드를 다시 빌드합니다\n";
-        m_project.engineVersion = kEngineVersion;
+        m_buildLog += std::string("\n") + tr("Upgrade done - rebuilding the game code") + "\n";
+        // 업그레이드 도구가 mealkit.project의 engine·engineVersion을 고쳤다: 도구가 관리하는 값만 다시 읽는다
+        ProjectInfo upgraded;
+        if (loadProject(m_project.directory, upgraded)) {
+            for (game::ProjectSettings* s : {&m_project.settings, &m_projectEdit}) {
+                s->engine = upgraded.settings.engine;
+                s->engineVersion = upgraded.settings.engineVersion;
+            }
+        }
         MEALKIT_INFO("Project upgraded to engine %s", kEngineVersion);
         startBuild(BuildKind::GameCode); // 템플릿(CMakeLists 등)이 바뀌었으니 다시 빌드
     } else if (m_buildKind == BuildKind::GameCode) {
-        m_buildLog += "\n완료 (" + seconds + "초): 게임 코드\n";
+        m_buildLog += "\n" + trf("Done (%ss): game code", seconds.c_str()) + "\n";
         m_gameCodeBuilt = true;
         MEALKIT_INFO("Game code build finished");
     } else {
-        m_buildLog += "\n완료 (" + seconds + "초): " + m_project.exportDirectory() + "\n";
-        setStatus("출시 빌드 완료: export\\" + m_project.name);
+        m_buildLog += "\n" + trf("Done (%ss): %s", seconds.c_str(), m_project.exportDirectory().c_str()) + "\n";
+        setStatus(trf("Release build done: %s", ("export\\" + m_project.name()).c_str()));
         MEALKIT_INFO("Export finished: %s", m_project.exportDirectory().c_str());
     }
 }
@@ -1529,23 +1638,23 @@ void Editor::pollBuild() {
 void Editor::drawBuildLog() {
     if (!m_buildLogOpen) return;
     ImGui::SetNextWindowSize(ImVec2(720, 360), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(kBuildLogWindow, &m_buildLogOpen)) {
+    if (!ImGui::Begin(trl(kBuildLogWindow), &m_buildLogOpen)) {
         ImGui::End();
         return;
     }
     const bool editing = m_mode == Mode::Edit;
     ImGui::BeginDisabled(m_build.running() || m_project.directory.empty() || !editing);
-    if (ImGui::Button("게임 코드 빌드")) startBuild(BuildKind::GameCode);
+    if (ImGui::Button(tr("Build Game Code"))) startBuild(BuildKind::GameCode);
     ImGui::SameLine();
-    if (ImGui::Button("출시 빌드")) startBuild(BuildKind::Export);
+    if (ImGui::Button(tr("Release Build"))) startBuild(BuildKind::Export);
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(!directoryExists(m_project.exportDirectory()));
-    if (ImGui::Button("출시 폴더 열기")) openInExplorer(m_project.exportDirectory());
+    if (ImGui::Button(tr("Open Release Folder"))) openInExplorer(m_project.exportDirectory());
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (m_build.running())
-        ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), "빌드 중... %.0f초", m_time - m_buildStart);
+        ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), tr("Building... %.0fs"), m_time - m_buildStart);
     ImGui::Separator();
     if (ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
         ImGui::TextUnformatted(m_buildLog.data(), m_buildLog.data() + m_buildLog.size());

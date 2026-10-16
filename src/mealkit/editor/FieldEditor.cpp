@@ -1,5 +1,7 @@
 #include "mealkit/editor/FieldEditor.h"
 
+#include "mealkit/editor/Strings.h"
+
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -27,6 +29,19 @@ ImGuiDataType dataType(const ValueInfo& v) {
     }
 }
 
+// std::string을 직접 고치는 입력 칸 (버퍼가 모자라면 문자열을 늘린다)
+bool inputString(const char* label, std::string& text) {
+    auto resize = [](ImGuiInputTextCallbackData* data) {
+        if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+            std::string& s = *static_cast<std::string*>(data->UserData);
+            s.resize(static_cast<size_t>(data->BufTextLen));
+            data->Buf = s.data();
+        }
+        return 0;
+    };
+    return ImGui::InputText(label, text.data(), text.capacity() + 1, ImGuiInputTextFlags_CallbackResize, resize, &text);
+}
+
 void nameTooltip(const char* name) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", name);
 }
@@ -45,7 +60,7 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
 void drawReadOnlyStruct(const TypeInfo& type, const void* data) {
     for (const FieldInfo& f : type.fields) {
         ImGui::PushID(f.name);
-        drawReadOnlyValue(f.label, f.name, *f.value, at(data, f.offset));
+        drawReadOnlyValue(trData(f.label), f.name, *f.value, at(data, f.offset));
         ImGui::PopID();
     }
 }
@@ -91,7 +106,7 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
                 for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
                     const u32 slot = slots[static_cast<size_t>(row)];
                     const std::string item =
-                        "#" + std::to_string(slot) + " (세대 " + std::to_string(v.ops->generation(data, slot)) + ")";
+                        "#" + trf("%u (generation %u)", static_cast<unsigned>(slot), static_cast<unsigned>(v.ops->generation(data, slot)));
                     ImGui::PushID(static_cast<int>(slot));
                     drawReadOnlyValue(item.c_str(), name, *v.element, v.ops->item(data, slot));
                     ImGui::PopID();
@@ -131,6 +146,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
         }
         break;
     }
+    case Kind::String: changed = inputString(label, *static_cast<std::string*>(data)); break;
     case Kind::Id: {
         const std::string text = reflect::formatScalar(v, data);
         ImGui::LabelText(label, "%s", text.c_str());
@@ -170,7 +186,10 @@ bool drawFields(const TypeInfo& type, void* data) {
     bool changed = false;
     for (const FieldInfo& f : type.fields) {
         ImGui::PushID(f.name);
-        changed |= drawValue(f.label, f.name, *f.value, at(data, f.offset));
+        const bool readOnly = (f.flags & reflect::kFieldReadOnly) != 0;
+        ImGui::BeginDisabled(readOnly);
+        changed |= drawValue(trData(f.label), f.name, *f.value, at(data, f.offset));
+        ImGui::EndDisabled();
         ImGui::PopID();
     }
     return changed;
@@ -179,8 +198,8 @@ bool drawFields(const TypeInfo& type, void* data) {
 void drawFieldsReadOnly(const TypeInfo& type, const void* data) {
     const ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg;
     if (!ImGui::BeginTable("##fields", 2, flags)) return;
-    ImGui::TableSetupColumn("이름", ImGuiTableColumnFlags_WidthStretch, 0.45f);
-    ImGui::TableSetupColumn("값", ImGuiTableColumnFlags_WidthStretch, 0.55f);
+    ImGui::TableSetupColumn(tr("Name"), ImGuiTableColumnFlags_WidthStretch, 0.45f);
+    ImGui::TableSetupColumn(tr("Value"), ImGuiTableColumnFlags_WidthStretch, 0.55f);
     drawReadOnlyStruct(type, data);
     ImGui::EndTable();
 }

@@ -60,6 +60,10 @@ public:
     // 튜닝이 바뀌었으면 한 번 true (혼자 플레이 중이면 앱이 게임에 바로 적용한다)
     bool takeTuningChanged();
     const void* tuningData() const { return m_tuning.data(); }
+    // 게임이 더한 프로젝트 설정 타입 (GameModule::projectSettingsType, DLL을 내리기 전에 nullptr). 값은 텍스트로 보존한다.
+    void setProjectSettingsType(const reflect::TypeInfo* type);
+    // [프로젝트 설정] 창을 연다 (자동 테스트용)
+    void openProjectSettings() { m_projectWindowOpen = true; }
     // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
     void setStateView(reflect::View view) { m_stateView = view; }
 
@@ -111,6 +115,9 @@ private:
     void drawInspector(bool editing);
     void drawEnvironment(bool editing);
     void drawTuning();
+    void drawProjectSettings();
+    bool saveProjectSettings();
+    void revertProjectSettings();
     void drawState();
     void drawPopups();
     void drawPlayControls();
@@ -229,7 +236,12 @@ private:
     f64 m_autosaveTimer = 0.0;
     bool m_autosavePending = false; // 마지막 자동 저장 뒤에 바뀐 것이 있다
 
-    ProjectInfo m_project;
+    ProjectInfo m_project;              // 디스크에 저장된 프로젝트 설정
+    game::ProjectSettings m_projectEdit; // [프로젝트 설정] 창에서 고치는 값
+    reflect::Instance m_gameProject;     // 게임 DLL의 프로젝트 설정 타입 인스턴스
+    reflect::TextFields m_gameProjectText; // 게임 타입이 없을 때(DLL을 바꿔 끼울 때) 값을 보존한다
+    bool m_projectDirty = false;
+    bool m_projectWindowOpen = false;
     std::string m_engineDirectory;
     bool m_upgradeOffer = false;     // 프로젝트 템플릿이 엔진 버전과 다르다 (한 번 묻는다)
     bool m_upgradeRequested = false; // 빌드가 끝나면 업그레이드를 시작한다

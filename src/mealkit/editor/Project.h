@@ -1,26 +1,22 @@
 #pragma once
 
+#include "mealkit/game/ProjectSettings.h"
+
 #include <string>
 #include <vector>
 
-// 게임 프로젝트 폴더: 최상위에 mealkit.project(key=value 텍스트)가 있다.
-//   name=MyGame                  게임 이름 = 실행 파일·게임 DLL 이름
-//   engine=D:\MealKit              엔진 폴더 (build.bat, editor.bat이 읽는다. 엔진 저장소 자신은 없음)
-//   engineVersion=0.4.0          프로젝트 템플릿을 만든(업그레이드한) 엔진 버전 (다르면 에디터가 업그레이드를 권한다)
-//   scene=scenes/arena.scene     에디터가 처음 여는 씬 (assets 기준)
+// 게임 프로젝트 폴더: 최상위에 mealkit.project(game::ProjectSettings, mealkit/game/ProjectSettings.h)가 있다.
 namespace mealkit::editor {
 
-inline constexpr const char* kProjectFileName = "mealkit.project";
+inline constexpr const char* kProjectFileName = game::kProjectFileName;
 
-struct ProjectInfo {
-    std::string name;      // 게임 이름
+struct ProjectInfo : game::ProjectFile {
     std::string directory; // 프로젝트 폴더 (끝에 구분자 없음, 역슬래시)
-    std::string startScene = "scenes/arena.scene";
-    std::string engineDirectory; // engine= (엔진 저장소 자신은 비어 있다)
-    std::string engineVersion;   // engineVersion= (예전 프로젝트는 비어 있다)
 
+    const std::string& name() const { return settings.name; }
+    std::string filePath() const;        // <directory>\mealkit.project
     std::string gameDllPath() const;     // build\Editor\bin\<name>_game.dll
-    std::string startScenePath() const;  // assets\<startScene>
+    std::string startScenePath() const;  // assets\<scene>
     std::string exportDirectory() const; // export\<name>
 };
 
@@ -28,9 +24,18 @@ struct ProjectInfo {
 bool loadProject(const std::string& directory, ProjectInfo& out, std::string* error = nullptr);
 bool isProjectDirectory(const std::string& directory);
 
-// 최근 프로젝트 (%LOCALAPPDATA%\MealKit\recent_projects.txt). 최근 것이 먼저.
+// 사용자별 에디터 파일 폴더 (%LOCALAPPDATA%\MealKit): 프로젝트 목록, 즐겨찾기, 에디터 설정
+std::string editorUserDirectory();
+bool sameProjectDirectory(const std::string& a, const std::string& b); // 대소문자·슬래시·끝 구분자 무시
+
+// 프로젝트 관리자 목록 (recent_projects.txt). 최근에 연 것이 먼저.
 std::vector<std::string> loadRecentProjects();
 void addRecentProject(const std::string& directory);
-void removeRecentProject(const std::string& directory);
+void removeRecentProject(const std::string& directory); // 즐겨찾기에서도 뺀다
+// 즐겨찾기 (favorite_projects.txt). 목록 맨 위에 보인다
+std::vector<std::string> loadFavoriteProjects();
+void setFavoriteProject(const std::string& directory, bool favorite);
+// 프로젝트 폴더를 옮긴 뒤 목록과 즐겨찾기의 경로를 바꾼다
+void replaceProjectDirectory(const std::string& from, const std::string& to);
 
 } // namespace mealkit::editor

@@ -5,7 +5,9 @@
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/Editor.h"
 #include "mealkit/editor/GameModuleHost.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
+#include "mealkit/editor/Strings.h"
 #include "mealkit/game/GameData.h"
 #include "mealkit/net/Lockstep.h"
 #include "mealkit/net/Socket.h"
@@ -28,12 +30,16 @@ std::string playDirectory(const std::string& projectDir) { return projectDir + "
 } // namespace
 
 u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const game::GameModule& module,
-                    const std::string& tuningPath) {
+                    const std::string& tuningPath, const game::ProjectFile& project) {
     const reflect::TypeInfo* tuningType = module.tuningType ? module.tuningType() : nullptr;
     reflect::Instance tuning = tuningType ? reflect::Instance(*tuningType) : reflect::Instance();
     if (tuningType) game::loadTuning(*tuningType, tuning.data(), tuningPath);
+    const reflect::TypeInfo* gameProjectType = module.projectSettingsType ? module.projectSettingsType() : nullptr;
+    reflect::Instance gameProject = gameProjectType ? reflect::Instance(*gameProjectType) : reflect::Instance();
+    if (gameProjectType) game::applyGameSettings(project, *gameProjectType, gameProject.data());
     return game::contentHash(scene, models, module.objectTypes ? module.objectTypes() : nullptr, tuningType,
-                             tuning.data());
+                             tuning.data(), {&reflect::typeOf<game::ProjectSettings>(), &project.settings},
+                             {gameProjectType, gameProject.data()});
 }
 
 PlaySession::~PlaySession() { stop(); }
@@ -62,12 +68,12 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         createDirectories(dir);
         const std::string scenePath = dir + "\\play.scene";
         if (!scene::save(editor.scene(), scenePath)) {
-            error = "임시 씬을 쓰지 못했습니다: " + scenePath;
+            error = trf("Could not write the temporary scene: %s", scenePath.c_str());
             return false;
         }
-        m_session->setContentHash(playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath));
+        m_session->setContentHash(playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath, editor.project()));
         if (!m_session->host(kEditorPlayPort, m_config.players, kInputDelay, true)) {
-            error = "포트 " + std::to_string(kEditorPlayPort) + "을 열지 못했습니다 (다른 플레이가 쓰고 있나요?)";
+            error = trf("Could not open port %u (is another play session using it?)", static_cast<unsigned>(kEditorPlayPort));
             m_session.reset();
             return false;
         }
@@ -80,7 +86,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
             if (config.clientBots) args += " --bot";
             const std::string log = dir + "\\player" + std::to_string(i) + ".log";
             if (!m_clients.launch(exe, args, config.projectDir, log)) {
-                error = "참가 창을 띄우지 못했습니다";
+                error = tr("Could not start the player windows");
                 stop();
                 return false;
             }
@@ -89,7 +95,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     }
     m_game = host.create();
     if (!m_game) {
-        error = "게임 인스턴스를 만들지 못했습니다";
+        error = tr("Could not create the game instance");
         stop();
         return false;
     }
@@ -115,17 +121,17 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         session.lobbyPlayerCount() >= m_config.players)
         session.startMatch(m_seed, m_config.bodies);
     if (session.state() == net::SessionState::Ended) {
-        m_failure = std::string("세션이 끝났습니다: ") + session.endReason();
+        m_failure = trf("The session ended: %s", session.endReason());
         return;
     }
     if (!m_game->started() && session.state() != net::SessionState::Running) {
         if (now - m_startTime > kJoinTimeoutSeconds) {
-            m_failure = "참가 창이 " + std::to_string(static_cast<int>(kJoinTimeoutSeconds)) +
-                        "초 안에 접속하지 않았습니다 (build\\Editor\\play\\player*.log 확인)";
+            m_failure = trf("The player windows did not connect within %d seconds (see build\\Editor\\play\\player*.log)",
+                            static_cast<int>(kJoinTimeoutSeconds));
             return;
         }
         char text[160];
-        snprintf(text, sizeof(text), "참가 창을 기다리는 중 (%u/%u) | Esc 정지", session.lobbyPlayerCount(),
+        snprintf(text, sizeof(text), tr("Waiting for player windows (%u/%u) | Esc to stop"), session.lobbyPlayerCount(),
                  m_config.players);
         editor.setPlayStatus(text);
         return;
@@ -146,10 +152,11 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     m_statusTimer += dt;
     if (m_statusTimer >= 0.25) {
         char text[256];
-        const char* sync = !multiplayer() ? "" : session.desynced() ? " | 디싱크!" : " | 동기화됨";
-        snprintf(text, sizeof(text), "플레이 중%s | 틱 %u | 시뮬레이션 %.2f ms/틱 | 움직이는 물체 %u%s | Esc 정지",
-                 multiplayer() ? (" " + std::to_string(m_config.players) + "명").c_str() : "", m_game->nextTick(),
-                 m_game->takeSimMsPerTick(), m_game->activeBodies(), sync);
+        const std::string players = multiplayer() ? " " + trf("%u players", m_config.players) : std::string();
+        const std::string sync =
+            !multiplayer() ? std::string() : std::string(" | ") + (session.desynced() ? tr("Desync!") : tr("In sync"));
+        snprintf(text, sizeof(text), tr("Playing%s | tick %u | sim %.2f ms/tick | moving bodies %u%s | Esc to stop"),
+                 players.c_str(), m_game->nextTick(), m_game->takeSimMsPerTick(), m_game->activeBodies(), sync.c_str());
         editor.setPlayStatus(text);
         m_statusTimer = 0.0;
     }
@@ -174,9 +181,9 @@ int runPlayer(const PlayerOptions& o) {
     }
     setProjectRoot(project.directory);
 
-    const std::string title = "MealKit - " + project.name + " - 플레이어 " + std::to_string(o.index);
+    const std::string title = "MealKit - " + project.name() + " - " + trf("Player %u", static_cast<unsigned>(o.index));
     Window window;
-    if (!window.create({title.c_str(), 960, 540})) return 1;
+    if (!window.create({title.c_str(), 960, 540, kEditorCaptionColor})) return 1;
     render::Renderer renderer;
     if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, o.debugLayer})) return 1;
     asset::ModelCache models;
@@ -194,7 +201,7 @@ int runPlayer(const PlayerOptions& o) {
     }
 
     net::LockstepSession session;
-    session.setContentHash(playContentHash(scene, models, *host.module(), o.tuningPath));
+    session.setContentHash(playContentHash(scene, models, *host.module(), o.tuningPath, project));
     net::Address address;
     if (!net::startup() || !net::resolveAddress(o.address.c_str(), kEditorPlayPort, address)) {
         MEALKIT_ERROR("Cannot resolve %s", o.address.c_str());

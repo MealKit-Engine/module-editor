@@ -16,9 +16,11 @@
 #include "mealkit/core/Profile.h"
 #include "mealkit/editor/Editor.h"
 #include "mealkit/editor/GameModuleHost.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/PlaySession.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/ProjectManager.h"
+#include "mealkit/editor/Strings.h"
 #include "mealkit/game/GameInstance.h"
 #include "mealkit/net/Lockstep.h"
 #include "mealkit/platform/Paths.h"
@@ -52,6 +54,7 @@ struct Options {
     bool buildGame = false;  // 시작하자마자 [게임 코드 빌드]
     u32 players = 0;         // 0 = 에디터 설정, 2~4 = 여러 명 플레이 (자동 테스트)
     bool upgrade = false;    // 시작하자마자 프로젝트 업그레이드
+    bool projectSettings = false; // [프로젝트 설정] 창을 열고 시작
     // 참가 창 모드
     std::string playerAddress;
     std::string tuningPath;
@@ -79,6 +82,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--build-game") o.buildGame = true;
         else if (a == "--players" && next(v)) o.players = static_cast<u32>(std::atoi(v));
         else if (a == "--upgrade") o.upgrade = true;
+        else if (a == "--project-settings") o.projectSettings = true;
         else if (a == "--player" && next(v)) o.playerAddress = v;
         else if (a == "--player-index" && next(v)) o.playerIndex = static_cast<u32>(std::atoi(v));
         else if (a == "--scene" && next(v)) o.scenePath = v;
@@ -88,6 +92,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
+                "              --project-settings\n"
                 "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>] [--bot]\n");
             return false;
         }
@@ -117,6 +122,9 @@ int main(int argc, char** argv) {
     Options opt;
     if (!parseArgs(argc, argv, opt)) return 1;
     if (opt.frames) log::setDialogs(false);
+    std::string engineDir = MEALKIT_ENGINE_DIR;
+    std::replace(engineDir.begin(), engineDir.end(), '/', '\\');
+    editor::initStrings(engineDir);
     if (!opt.playerAddress.empty()) { // 여러 명 플레이의 참가 창
         editor::PlayerOptions player;
         player.projectDir = opt.projectDir;
@@ -130,7 +138,7 @@ int main(int argc, char** argv) {
     }
 
     Window window;
-    if (!window.create({"MealKit Editor", 1600, 900})) return 1;
+    if (!window.create({"MealKit Editor", 1600, 900, editor::kEditorCaptionColor})) return 1;
     render::Renderer renderer;
     if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer}))
         MEALKIT_FATAL("Renderer initialization failed. A Direct3D 12 GPU with Shader Model 6.0 is required.");
@@ -149,7 +157,7 @@ int main(int argc, char** argv) {
     if (!editor::loadProject(opt.projectDir, project, &error)) MEALKIT_FATAL("Cannot open project: %s", error.c_str());
     setProjectRoot(project.directory);
     editor::addRecentProject(project.directory);
-    MEALKIT_INFO("Project '%s': %s", project.name.c_str(), project.directory.c_str());
+    MEALKIT_INFO("Project '%s': %s", project.name().c_str(), project.directory.c_str());
 
     asset::ModelCache models;
     models.setRenderer(&renderer);
@@ -162,6 +170,7 @@ int main(int argc, char** argv) {
     if (opt.select >= 0) editor.selectByIndex(opt.select);
     if (opt.players > 1) editor.setPlayPlayers(opt.players);
     if (opt.upgrade) editor.requestUpgrade();
+    if (opt.projectSettings) editor.openProjectSettings();
     if (opt.play) editor.requestPlay();
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);
 
@@ -172,22 +181,25 @@ int main(int argc, char** argv) {
         std::string loadError;
         editor.setGameTypes(nullptr); // 예전 DLL의 타입 설명은 내리면 무효
         editor.setTuningType(nullptr);
+        editor.setProjectSettingsType(nullptr);
         const bool loaded = host.load(dllPath, loadError);
         if (host.loaded()) {
             editor.setGameTypes(host.module()->objectTypes());
             editor.setTuningType(host.module()->tuningType());
+            editor.setProjectSettingsType(host.module()->projectSettingsType ? host.module()->projectSettingsType()
+                                                                             : nullptr);
         }
         if (loaded) {
-            editor.setGameCodeStatus(true, "게임 코드 #" + std::to_string(host.generation()));
+            editor.setGameCodeStatus(true, mealkit::editor::trf("Game code #%u", static_cast<unsigned>(host.generation())));
         } else {
             MEALKIT_ERROR("%s", loadError.c_str());
             editor.setGameCodeStatus(host.loaded(), host.loaded()
-                                                        ? "새 게임 코드를 불러오지 못했습니다 (이전 코드 사용 중)"
-                                                        : "게임 코드를 불러오지 못했습니다: " + loadError);
+                                                        ? std::string(mealkit::editor::tr("Could not load the new game code (using the previous code)"))
+                                                        : mealkit::editor::trf("Could not load the game code: %s", loadError.c_str()));
         }
     };
     if (opt.buildGame || !fileExists(dllPath) || editor::GameModuleHost::olderThanEngine(dllPath)) {
-        editor.setGameCodeStatus(false, "게임 코드 빌드 중 - 끝나면 플레이할 수 있습니다");
+        editor.setGameCodeStatus(false, mealkit::editor::tr("Building game code - you can play when it finishes"));
         editor.startBuild(editor::BuildKind::GameCode);
     } else {
         loadGame();
@@ -227,8 +239,8 @@ int main(int argc, char** argv) {
                 !editor::GameModuleHost::olderThanEngine(dllPath)) {
                 loadGame();
                 if (host.loaded())
-                    editor.setGameCodeStatus(true, "게임 코드 #" + std::to_string(host.generation()) +
-                                                       " (빌드 실패 - 이전에 빌드된 코드 사용 중)");
+                    editor.setGameCodeStatus(true, mealkit::editor::trf("Game code #%u (build failed - using the previously built code)",
+                                                           static_cast<unsigned>(host.generation())));
             }
         }
 
@@ -245,7 +257,7 @@ int main(int argc, char** argv) {
                 editor.setMode(editor::Mode::Play);
             } else {
                 MEALKIT_ERROR("Play failed: %s", playError.c_str());
-                editor.showMessage("플레이를 시작하지 못했습니다: " + playError);
+                editor.showMessage(mealkit::editor::trf("Could not start playing: %s", playError.c_str()));
             }
         }
         if (editor.takeStopRequest() && editor.mode() == editor::Mode::Play) {
@@ -290,6 +302,7 @@ int main(int argc, char** argv) {
     stopGame();
     editor.setGameTypes(nullptr);
     editor.setTuningType(nullptr);
+    editor.setProjectSettingsType(nullptr);
     host.unload();
     editor.shutdown();
     renderer.shutdown();
