@@ -5,6 +5,7 @@
 #include "mealkit/game/ProjectSettings.h"
 #include "mealkit/input/Actions.h"
 #include "mealkit/loc/Strings.h"
+#include "mealkit/ui/Ui.h"
 #include "mealkit/platform/Gamepad.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/scene/Scene.h"
@@ -73,6 +74,8 @@ public:
     void update(f64 now, f64 dt, Editor& editor, Window& window, render::Renderer& renderer, asset::ModelCache& models);
     void buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer, asset::ModelCache& models,
                     render::FrameParams& frame, render::DrawList& out);
+    // 3D 다음, 에디터 UI 전: 게임 화면 UI
+    void renderUi(render::Renderer& renderer);
 
     game::GameInstance* game() const { return m_game; }
     // 더 진행할 수 없으면(참가 대기 시간 초과, 세션 종료) 이유를 돌려준다
@@ -85,6 +88,8 @@ private:
     input::Actions m_actions; // 에디터 창의 게임 뷰 입력 (assets/input.bindings, 플레이 중에 고치면 다시 읽는다)
     Gamepads m_pads;
     loc::Strings m_strings; // 게임 문자열 표 (프로젝트 기본 언어, 플레이 중에 고치면 다시 읽는다)
+    ui::System m_ui;        // 게임 화면 UI (씬 뷰 영역에 그린다)
+    bool m_uiReady = false;
     std::unique_ptr<net::LockstepSession> m_session;
     game::GameInstance* m_game = nullptr;
     ProcessGroup m_clients;

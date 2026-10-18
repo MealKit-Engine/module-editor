@@ -215,6 +215,7 @@ void Editor::update(f64 dt) {
     if (m_tablesOpen) m_tablesPanel.draw(m_window->nativeHandle(), editing, &m_tablesOpen);
     if (m_soundsOpen && m_audio) m_soundPanel.draw(*m_audio, &m_soundsOpen);
     if (m_feedbackOpen) m_feedbackPanel.draw(m_feedback, m_cameraPos + cameraForward() * 10.0f, dt, &m_feedbackOpen);
+    if (m_uiPanelOpen) m_uiPanel.draw(&m_uiPanelOpen);
     // 소리 이벤트 표(화면 전용)를 고치면 저장해 바로 들리게 한다 (오디오가 파일을 다시 읽는다)
     m_viewTableDirty |= m_tablesPanel.takeViewTableChanged();
     m_viewTableTimer += dt;
@@ -543,6 +544,7 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem(tr("Tables"), "Ctrl+T", &m_tablesOpen);
         ImGui::MenuItem(tr("Sounds"), nullptr, &m_soundsOpen, m_audio != nullptr);
         ImGui::MenuItem(tr("Feedback"), nullptr, &m_feedbackOpen);
+        ImGui::MenuItem(tr("UI"), nullptr, &m_uiPanelOpen);
         if (ImGui::MenuItem(tr("Reset Layout"))) m_layoutReset = true;
         ImGui::EndMenu();
     }
@@ -1611,6 +1613,7 @@ void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
     m_tablesPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);
+    m_uiPanel.setProject(project.settings.language);
     revertProjectSettings();
     // 엔진 저장소 자신(engine 없음)은 묻지 않는다
     const game::ProjectSettings& s = project.settings;

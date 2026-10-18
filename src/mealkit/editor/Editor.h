@@ -4,6 +4,7 @@
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/FeedbackPanel.h"
+#include "mealkit/editor/UiPanel.h"
 #include "mealkit/editor/SoundPanel.h"
 #include "mealkit/editor/TablesPanel.h"
 #include "mealkit/game/SimDebug.h"
@@ -87,6 +88,15 @@ public:
     void setFeedback(feedback::Player* player) { m_feedback = player; }
     void setEventType(const reflect::TypeInfo* type) { m_feedbackPanel.setEventType(type); }
     void openFeedback() { m_feedbackOpen = true; } // 자동 테스트용
+    // 게임 화면 UI 미리보기 ([UI] 패널): 게임의 뷰 모델 목록, 편집 모드에서 씬 뷰 위에 그리기
+    void setViewModels(const std::vector<const reflect::TypeInfo*>* types) { m_uiPanel.setViewModels(types); }
+    void openUiPanel(const std::string& file = {}) {
+        m_uiPanelOpen = true;
+        if (!file.empty()) m_uiPanel.select(file);
+    }
+    void renderUiPreview(render::Renderer& renderer, f64 dt) {
+        if (m_uiPanelOpen && m_mode == Mode::Edit) m_uiPanel.render(renderer, m_viewport, dt);
+    }
     // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
     void setStateView(reflect::View view) { m_stateView = view; }
 
@@ -302,6 +312,8 @@ private:
     feedback::Player* m_feedback = nullptr;
     FeedbackPanel m_feedbackPanel;
     bool m_feedbackOpen = false;
+    UiPanel m_uiPanel;
+    bool m_uiPanelOpen = false;
     bool m_viewTableDirty = false;
     f64 m_viewTableTimer = 0.0;
     f64 m_rowCheckTimer = 0.0;

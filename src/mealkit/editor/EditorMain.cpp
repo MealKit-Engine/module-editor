@@ -61,6 +61,7 @@ struct Options {
     bool tables = false;          // [표] 창을 열고 시작
     bool sounds = false;          // [소리] 창을 열고 시작
     bool feedback = false;        // [연출] 창을 열고 시작
+    std::string uiPreview;        // [UI] 창을 열고 이 화면(assets/ui의 파일 이름)을 미리보기
     // 참가 창 모드
     std::string playerAddress;
     std::string tuningPath;
@@ -94,6 +95,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--tables") o.tables = true;
         else if (a == "--sounds") o.sounds = true;
         else if (a == "--feedback") o.feedback = true;
+        else if (a == "--ui" && next(v)) o.uiPreview = v;
         else if (a == "--player" && next(v)) o.playerAddress = v;
         else if (a == "--player-index" && next(v)) o.playerIndex = static_cast<u32>(std::atoi(v));
         else if (a == "--scene" && next(v)) o.scenePath = v;
@@ -105,7 +107,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --feedback\n"
+                "              --project-settings --tables --sounds --feedback --ui <file.ui>\n"
                 "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>]\n"
                 "                 [--view-tuning <file>] [--bot]\n");
             return false;
@@ -199,6 +201,7 @@ int main(int argc, char** argv) {
     if (opt.tables) editor.openTables();
     if (opt.sounds) editor.openSounds();
     if (opt.feedback) editor.openFeedback();
+    if (!opt.uiPreview.empty()) editor.openUiPanel(opt.uiPreview);
     if (opt.play) editor.requestPlay();
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);
 
@@ -213,6 +216,7 @@ int main(int argc, char** argv) {
         editor.setProjectSettingsType(nullptr);
         editor.setTables(nullptr);
         editor.setEventType(nullptr);
+        editor.setViewModels(nullptr);
         const bool loaded = host.load(dllPath, loadError);
         if (host.loaded()) {
             editor.setGameTypes(host.module()->objectTypes());
@@ -221,6 +225,7 @@ int main(int argc, char** argv) {
             static const reflect::TableList kNoTables;
             editor.setTables(host.module()->tables ? host.module()->tables() : &kNoTables);
             editor.setEventType(host.module()->eventType ? host.module()->eventType() : nullptr);
+            editor.setViewModels(host.module()->viewModels ? host.module()->viewModels() : nullptr);
             editor.setProjectSettingsType(host.module()->projectSettingsType ? host.module()->projectSettingsType()
                                                                              : nullptr);
         }
@@ -329,6 +334,8 @@ int main(int argc, char** argv) {
 
         const bool active = !window.minimized() && renderer.beginFrame(frameParams);
         if (active) drawList.submit(renderer);
+        if (active && playing && play.active()) play.renderUi(renderer);
+        if (active) editor.renderUiPreview(renderer, dt);
         editor.renderUi(active);
         if (active) renderer.endFrame();
 
@@ -348,6 +355,7 @@ int main(int argc, char** argv) {
     editor.setProjectSettingsType(nullptr);
     editor.setTables(nullptr);
     editor.setEventType(nullptr);
+    editor.setViewModels(nullptr);
     host.unload();
     editor.shutdown();
     renderer.shutdown();

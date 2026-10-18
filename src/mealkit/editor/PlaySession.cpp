@@ -54,6 +54,8 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     m_feedback = &feedback;
     m_actions.load(); // 에디터 플레이는 프로젝트 바인딩만 쓴다 (플레이어가 바꾼 키 파일 없음)
     m_strings.load(editor.project().settings.language, editor.project().settings.language);
+    m_ui.closeAll();
+    m_uiReady = false; // 렌더러는 update에서 받는다
     m_config = config;
     m_config.players = std::clamp(config.players, 1u, net::kMaxPlayers);
     m_host = &host;
@@ -164,11 +166,19 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
                           *m_feedback,
                           m_actions,
                           m_strings,
+                          m_ui,
                           editor.viewport(),
                           editor.gameKeyboardAllowed(),
                           editor.gameMouseAllowed(),
                           editor.viewTuning()};
     m_strings.update(dt);
+    if (!m_uiReady) {
+        m_ui.init(&renderer, &m_strings);
+        m_uiReady = true;
+    }
+    m_ui.update({&window.input(), &m_actions, ctx.mouseAllowed, ctx.keyboardAllowed}, ctx.viewport, dt);
+    if (m_ui.wantsMouse()) ctx.mouseAllowed = false;
+    if (m_ui.wantsKeyboard()) ctx.keyboardAllowed = false;
     m_pads.update(dt); // 패드는 게임 뷰가 키보드를 받을 때만 (다른 패널을 고치는 동안 캐릭터가 움직이지 않게)
     m_actions.update(window.input(), ctx.keyboardAllowed ? m_pads.first() : input::PadState{}, ctx.keyboardAllowed,
                      ctx.mouseAllowed, dt);
@@ -199,11 +209,16 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
 void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer,
                              asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
     if (!m_game || !m_session) return;
-    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, *m_feedback, m_actions, m_strings, editor.viewport()};
+    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, *m_feedback, m_actions, m_strings, m_ui, editor.viewport()};
     ctx.viewTuningData = editor.viewTuning();
     m_game->buildFrame(ctx, now, frame, out);
+    m_ui.setCamera(frame.viewProj); // 월드 위 UI (drawAt은 buildFrame 안에서)
     m_audio->setListener(frame.cameraPos, frame.cameraForward);
     m_feedback->screenTint(frame.tintColor, frame.tintAmount);
+}
+
+void PlaySession::renderUi(render::Renderer& renderer) {
+    if (m_game && m_session) m_ui.render(renderer);
 }
 
 // ---------------------------------------------------------------- 참가 창
@@ -259,12 +274,14 @@ int runPlayer(const PlayerOptions& o) {
     Gamepads pads;
     loc::Strings strings;
     strings.load(project.settings.language, project.settings.language);
+    ui::System ui;
+    ui.init(&renderer, &strings);
 
     game::GameInstance* game = host.create();
     game::PlayOptions options;
     options.bot = o.bot;
     options.tuningPath = o.tuningPath;
-    game::GameContext ctx{window, renderer, models, session, audio, feedback, actions, strings};
+    game::GameContext ctx{window, renderer, models, session, audio, feedback, actions, strings, ui};
     render::DrawList drawList;
     f64 lastTime = nowSeconds();
     int exitCode = 0;
@@ -289,6 +306,9 @@ int runPlayer(const PlayerOptions& o) {
         feedback.update(dt);
         pads.update(dt);
         strings.update(dt);
+        ui.update({&window.input(), &actions, ctx.mouseAllowed, ctx.keyboardAllowed}, ctx.viewport, dt);
+        if (ui.wantsMouse()) ctx.mouseAllowed = false;
+        if (ui.wantsKeyboard()) ctx.keyboardAllowed = false;
         actions.update(window.input(), window.focused() ? pads.first() : input::PadState{}, ctx.keyboardAllowed,
                        ctx.mouseAllowed, dt);
         game->update(ctx, dt);
@@ -296,10 +316,12 @@ int runPlayer(const PlayerOptions& o) {
             render::FrameParams frame;
             drawList.clear();
             game->buildFrame(ctx, now, frame, drawList);
+            ui.setCamera(frame.viewProj);
             audio.setListener(frame.cameraPos, frame.cameraForward);
             feedback.screenTint(frame.tintColor, frame.tintAmount);
             if (renderer.beginFrame(frame)) {
                 drawList.submit(renderer);
+                ui.render(renderer);
                 renderer.endFrame();
             }
         }
