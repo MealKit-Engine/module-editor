@@ -170,7 +170,24 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
     switch (v.kind) {
     case Kind::Bool: changed = ImGui::Checkbox(label, static_cast<bool*>(data)); break;
     case Kind::Int:
-    case Kind::UInt: changed = ImGui::DragScalar(label, dataType(v), data, 0.2f); break;
+    case Kind::UInt:
+        if (!v.enumNames.empty()) { // MEALKIT_ENUM: 이름 고르기
+            u64 value = 0;
+            std::memcpy(&value, data, v.size);
+            const std::string preview = reflect::formatScalar(v, data);
+            if (ImGui::BeginCombo(label, preview.c_str())) {
+                for (size_t i = 0; i < v.enumNames.size(); ++i)
+                    if (ImGui::Selectable(v.enumNames[i].c_str(), value == i)) {
+                        const u64 next = i;
+                        std::memcpy(data, &next, v.size); // 리틀 엔디언: 아래 바이트부터
+                        changed = true;
+                    }
+                ImGui::EndCombo();
+            }
+        } else {
+            changed = ImGui::DragScalar(label, dataType(v), data, 0.2f);
+        }
+        break;
     case Kind::Float: changed = ImGui::DragFloat(label, static_cast<f32*>(data), 0.01f, 0.0f, 0.0f, "%.3f"); break;
     case Kind::Vec3: changed = ImGui::DragFloat3(label, &static_cast<Vec3*>(data)->x, 0.01f, 0.0f, 0.0f, "%.3f"); break;
     case Kind::Quat: {

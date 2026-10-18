@@ -2,6 +2,7 @@
 
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/audio/Audio.h"
+#include "mealkit/feedback/Feedback.h"
 #include "mealkit/core/Clock.h"
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/Editor.h"
@@ -46,9 +47,10 @@ u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const 
 PlaySession::~PlaySession() { stop(); }
 
 bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost& host, asset::ModelCache& models,
-                        audio::Engine& audio, f64 now, std::string& error) {
+                        audio::Engine& audio, feedback::Player& feedback, f64 now, std::string& error) {
     stop();
     m_audio = &audio;
+    m_feedback = &feedback;
     m_config = config;
     m_config.players = std::clamp(config.players, 1u, net::kMaxPlayers);
     m_host = &host;
@@ -111,6 +113,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
 
 void PlaySession::stop() {
     if (m_audio) m_audio->stopAll(); // 게임이 낸 소리 (배경음 루프 포함)
+    if (m_feedback) m_feedback->clear();
     m_clients.terminateAll();
     if (m_host && m_game) m_host->destroy(m_game);
     m_game = nullptr;
@@ -155,6 +158,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
                           models,
                           session,
                           *m_audio,
+                          *m_feedback,
                           editor.viewport(),
                           editor.gameKeyboardAllowed(),
                           editor.gameMouseAllowed(),
@@ -185,10 +189,11 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
 void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer,
                              asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
     if (!m_game || !m_session) return;
-    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, editor.viewport()};
+    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, *m_feedback, editor.viewport()};
     ctx.viewTuningData = editor.viewTuning();
     m_game->buildFrame(ctx, now, frame, out);
     m_audio->setListener(frame.cameraPos, frame.cameraForward);
+    m_feedback->screenTint(frame.tintColor, frame.tintAmount);
 }
 
 // ---------------------------------------------------------------- 참가 창
@@ -238,12 +243,13 @@ int runPlayer(const PlayerOptions& o) {
     // 참가 창은 같은 PC에서 여러 개가 뜨므로 소리를 끈 채로 시작한다 (게임 코드는 똑같이 소리를 부른다)
     audio::Engine audio;
     audio.init({project.settings.audioVoices, true});
+    feedback::Player feedback(audio);
 
     game::GameInstance* game = host.create();
     game::PlayOptions options;
     options.bot = o.bot;
     options.tuningPath = o.tuningPath;
-    game::GameContext ctx{window, renderer, models, session, audio};
+    game::GameContext ctx{window, renderer, models, session, audio, feedback};
     render::DrawList drawList;
     f64 lastTime = nowSeconds();
     int exitCode = 0;
@@ -265,12 +271,14 @@ int runPlayer(const PlayerOptions& o) {
         ctx.viewTuningData = viewTuning.view();
         if (!game->started() && session.state() == net::SessionState::Running) game->start(ctx, scene, options);
         audio.update(dt);
+        feedback.update(dt);
         game->update(ctx, dt);
         if (!window.minimized()) {
             render::FrameParams frame;
             drawList.clear();
             game->buildFrame(ctx, now, frame, drawList);
             audio.setListener(frame.cameraPos, frame.cameraForward);
+            feedback.screenTint(frame.tintColor, frame.tintAmount);
             if (renderer.beginFrame(frame)) {
                 drawList.submit(renderer);
                 renderer.endFrame();

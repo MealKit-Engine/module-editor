@@ -3,6 +3,7 @@
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
+#include "mealkit/editor/FeedbackPanel.h"
 #include "mealkit/editor/SoundPanel.h"
 #include "mealkit/editor/TablesPanel.h"
 #include "mealkit/game/SimDebug.h"
@@ -82,6 +83,10 @@ public:
     // 소리 ([소리] 패널 미리듣기·목소리 목록). 에디터가 만들어 넘긴다 (nullptr = 없음)
     void setAudio(audio::Engine* audio) { m_audio = audio; }
     void openSounds() { m_soundsOpen = true; } // 자동 테스트용
+    // 연출 ([연출] 패널 미리보기). nullptr = 없음
+    void setFeedback(feedback::Player* player) { m_feedback = player; }
+    void setEventType(const reflect::TypeInfo* type) { m_feedbackPanel.setEventType(type); }
+    void openFeedback() { m_feedbackOpen = true; } // 자동 테스트용
     // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
     void setStateView(reflect::View view) { m_stateView = view; }
 
@@ -294,6 +299,9 @@ private:
     audio::Engine* m_audio = nullptr;
     SoundPanel m_soundPanel;
     bool m_soundsOpen = false;
+    feedback::Player* m_feedback = nullptr;
+    FeedbackPanel m_feedbackPanel;
+    bool m_feedbackOpen = false;
     bool m_viewTableDirty = false;
     f64 m_viewTableTimer = 0.0;
     f64 m_rowCheckTimer = 0.0;
