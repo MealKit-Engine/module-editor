@@ -185,6 +185,8 @@ private:
     Vec3 cameraForward() const;
     void updateTitle();
     void pollBuild();
+    void startLayoutCheck();
+    void pollLayoutCheck();
 
     Window* m_window = nullptr;
     render::Renderer* m_renderer = nullptr;
@@ -273,6 +275,8 @@ private:
     bool m_buildLogOpen = false;
     bool m_buildLogScroll = false;
     f64 m_buildStart = 0.0;
+    ChildProcess m_layoutCheck; // tools\check_layout.ps1 (프로젝트를 열 때)
+    std::string m_layoutOutput;
 };
 
 } // namespace mealkit::editor

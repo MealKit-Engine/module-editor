@@ -200,6 +200,7 @@ void Editor::update(f64 dt) {
     drawProjectSettings();
     drawState();
     pollBuild();
+    pollLayoutCheck();
     drawBuildLog();
 
     if (editing) {
@@ -1510,6 +1511,45 @@ void Editor::setProject(const ProjectInfo& project) {
     if (m_upgradeOffer)
         MEALKIT_WARN("Project template is from engine %s, this engine is %s - tools\\upgrade_project.ps1 can update it",
                      s.engineVersion.empty() ? "(unknown)" : s.engineVersion.c_str(), kEngineVersion);
+    startLayoutCheck();
+}
+
+// 폴더 구조 검사 (docs/CODING_MODEL.md "프로젝트 폴더 구조"): 규칙은 엔진의 tools\check_layout.ps1 한 곳에 있고, check.ps1·Export와 같은 결과다
+void Editor::startLayoutCheck() {
+    if (m_engineDirectory.empty() || m_project.directory.empty() || m_layoutCheck.running()) return;
+    const std::string script = m_engineDirectory + "\\tools\\check_layout.ps1";
+    if (!fileExists(script)) return;
+    m_layoutOutput.clear();
+    m_layoutCheck.start("powershell -NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Project \"" +
+                            m_project.directory + "\"",
+                        m_project.directory);
+}
+
+void Editor::pollLayoutCheck() {
+    if (!m_layoutCheck.running()) return;
+    if (m_layoutCheck.poll(m_layoutOutput)) return;
+    std::string problems;
+    u32 errors = 0, warnings = 0;
+    size_t start = 0;
+    while (start < m_layoutOutput.size()) {
+        size_t end = m_layoutOutput.find('\n', start);
+        if (end == std::string::npos) end = m_layoutOutput.size();
+        const std::string line = m_layoutOutput.substr(start, end - start);
+        start = end + 1;
+        const bool error = line.rfind("error:", 0) == 0, warning = line.rfind("warning:", 0) == 0;
+        if (!error && !warning) continue;
+        errors += error ? 1u : 0u;
+        warnings += warning ? 1u : 0u;
+        if (error) MEALKIT_ERROR("Layout %s", line.c_str());
+        else MEALKIT_WARN("Layout %s", line.c_str());
+        problems += line + "\n";
+    }
+    if (errors)
+        showMessage(trf("The project folder layout has %u problem(s). Release builds fail until they are fixed:\n\n%s",
+                        static_cast<unsigned>(errors), problems.c_str()));
+    else if (warnings)
+        setStatus(trf("Project layout: %u warning(s) - see the log (tools\\upgrade_project.ps1 creates missing folders)",
+                      static_cast<unsigned>(warnings)));
 }
 
 void Editor::setGameCodeStatus(bool loaded, const std::string& text) {
