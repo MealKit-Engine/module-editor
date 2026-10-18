@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
     if (!window.create({"MealKit Editor", 1600, 900, editor::kEditorCaptionColor})) return 1;
     render::Renderer renderer;
     if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer}))
-        MEALKIT_FATAL("Renderer initialization failed. A Direct3D 12 GPU with Shader Model 6.0 is required.");
+        MEALKIT_FATAL("Renderer initialization failed.\n%s", renderer.initError());
 
     // ---- 프로젝트 고르기
     if (opt.projectDir.empty()) {
