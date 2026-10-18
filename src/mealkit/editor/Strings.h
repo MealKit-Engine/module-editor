@@ -20,7 +20,8 @@ inline constexpr Language kLanguages[] = {{"ko", "한국어"}, {"en", "English"}
 inline constexpr const char* kDefaultLanguage = "ko";
 
 // 엔진 폴더의 engine/res/strings/에서 표를 읽고, 사용자 설정(%LOCALAPPDATA%\MealKit\editor_settings.txt)의 언어를 고른다.
-void initStrings(const std::string& engineDirectory);
+// language가 있으면(--lang, 문서 스크린샷용) 그 언어를 쓰고 사용자 설정은 바꾸지 않는다.
+void initStrings(const std::string& engineDirectory, const std::string& language = {});
 const char* currentLanguage();
 // 언어를 바꾸고 사용자 설정에 저장한다. 이미 돌려준 tr() 포인터는 계속 유효하다(언어마다 따로 보관).
 void setLanguage(const char* code);

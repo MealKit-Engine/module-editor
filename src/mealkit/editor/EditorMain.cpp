@@ -59,6 +59,7 @@ struct Options {
     std::string playerAddress;
     std::string tuningPath;
     u32 playerIndex = 2;
+    std::string language; // --lang: 이번 실행만 이 언어 (문서 스크린샷)
 };
 
 bool parseArgs(int argc, char** argv, Options& o) {
@@ -87,6 +88,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--player-index" && next(v)) o.playerIndex = static_cast<u32>(std::atoi(v));
         else if (a == "--scene" && next(v)) o.scenePath = v;
         else if (a == "--tuning" && next(v)) o.tuningPath = v;
+        else if (a == "--lang" && next(v)) o.language = v;
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
             std::printf(
@@ -124,7 +126,7 @@ int main(int argc, char** argv) {
     if (opt.frames) log::setDialogs(false);
     std::string engineDir = MEALKIT_ENGINE_DIR;
     std::replace(engineDir.begin(), engineDir.end(), '/', '\\');
-    editor::initStrings(engineDir);
+    editor::initStrings(engineDir, opt.language);
     if (!opt.playerAddress.empty()) { // 여러 명 플레이의 참가 창
         editor::PlayerOptions player;
         player.projectDir = opt.projectDir;

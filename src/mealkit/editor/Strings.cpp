@@ -87,7 +87,7 @@ Table& current() {
 
 } // namespace
 
-void initStrings(const std::string& engineDirectory) {
+void initStrings(const std::string& engineDirectory, const std::string& language) {
     for (const Language& lang : kLanguages) {
         Table& t = tableFor(lang.code);
         if (t.code == "en") continue;
@@ -105,6 +105,7 @@ void initStrings(const std::string& engineDirectory) {
             code = settings.substr(at + 9, end == std::string::npos ? std::string::npos : end - at - 9);
         }
     }
+    if (!language.empty()) code = language;
     bool known = false;
     for (const Language& lang : kLanguages) known |= code == lang.code;
     g_current = &tableFor(known ? code.c_str() : kDefaultLanguage);
