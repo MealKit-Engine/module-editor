@@ -171,7 +171,8 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
                           editor.viewport(),
                           editor.gameKeyboardAllowed(),
                           editor.gameMouseAllowed(),
-                          editor.viewTuning()};
+                          editor.viewTuning(),
+                          game::userFolder(editor.project().settings)};
     m_strings.update(dt);
     if (!m_uiReady) {
         m_ui.init(&renderer, &m_strings);
