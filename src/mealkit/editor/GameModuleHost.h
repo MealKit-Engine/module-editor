@@ -33,8 +33,9 @@ public:
     // 원본 DLL이 불러온 뒤 바뀌었고, 쓰기가 끝난 것 같은가 (같은 수정 시각을 두 번 연속 보면 true).
     // 0.5초 정도 간격으로 부른다.
     bool sourceChangedAndStable();
-    // 원본 DLL이 엔진(mealkit.dll)보다 오래되었는가 → 엔진이 바뀌었으니 게임 코드를 다시 빌드해야 한다
-    static bool olderThanEngine(const std::string& dllPath);
+    // 원본 DLL이 엔진보다 오래되었는가 → 게임 코드를 다시 빌드해야 한다.
+    // 엔진 시각 = 엔진 import lib(내보내기가 바뀔 때만 바뀐다)과 engineDirectory의 엔진 헤더(editor/ 밖) 중 가장 새것
+    static bool olderThanEngine(const std::string& dllPath, const std::string& engineDirectory);
 
 private:
     void* m_dll = nullptr; // loadLibrary()

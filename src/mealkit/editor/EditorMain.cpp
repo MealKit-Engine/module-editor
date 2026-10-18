@@ -198,7 +198,7 @@ int main(int argc, char** argv) {
                                                         : mealkit::editor::trf("Could not load the game code: %s", loadError.c_str()));
         }
     };
-    if (opt.buildGame || !fileExists(dllPath) || editor::GameModuleHost::olderThanEngine(dllPath)) {
+    if (opt.buildGame || !fileExists(dllPath) || editor::GameModuleHost::olderThanEngine(dllPath, engineDirectory())) {
         editor.setGameCodeStatus(false, mealkit::editor::tr("Building game code - you can play when it finishes"));
         editor.startBuild(editor::BuildKind::GameCode);
     } else {
@@ -236,7 +236,7 @@ int main(int argc, char** argv) {
             if (reload) loadGame();
             // 빌드가 실패했는데 불러온 코드가 없으면, 예전에 빌드된 DLL이라도 불러와 플레이할 수 있게 한다
             if (editor.takeGameCodeBuildFailed() && !host.loaded() && fileExists(dllPath) &&
-                !editor::GameModuleHost::olderThanEngine(dllPath)) {
+                !editor::GameModuleHost::olderThanEngine(dllPath, engineDirectory())) {
                 loadGame();
                 if (host.loaded())
                     editor.setGameCodeStatus(true, mealkit::editor::trf("Game code #%u (build failed - using the previously built code)",

@@ -5,6 +5,7 @@
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/System.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <system_error>
 
@@ -96,10 +97,27 @@ bool GameModuleHost::sourceChangedAndStable() {
     return stable;
 }
 
-bool GameModuleHost::olderThanEngine(const std::string& dllPath) {
+bool GameModuleHost::olderThanEngine(const std::string& dllPath, const std::string& engineDirectory) {
     const u64 game = fileWriteTime(dllPath);
-    const u64 engine = fileWriteTime(executableDirectory() + "\\mealkit.dll");
-    return game != 0 && engine != 0 && game < engine;
+    if (game == 0) return false;
+    // mealkit.dll 시각은 쓰지 않는다: 엔진 .cpp만 바뀌어도 다시 링크되지만 게임 DLL은 다시 링크되지 않는다.
+    // import lib은 내보내기가 바뀔 때만 링커가 다시 쓴다 → 게임 DLL이 다시 링크돼야 하는 때와 맞다.
+    const std::string bin = executableDirectory();
+    u64 engine = fileWriteTime(toUtf8(fromUtf8(bin).parent_path() / "engine" / "mealkit.lib"));
+    if (engine == 0) engine = fileWriteTime(bin + "\\mealkit.dll"); // import lib이 없는 배치
+    // 헤더만 바뀐 경우(구조체 배치, 인라인 함수)는 내보내기가 같아도 게임 코드를 다시 컴파일해야 한다
+    std::error_code ec;
+    const fs::path headers = fromUtf8(engineDirectory) / "engine" / "src" / "mealkit";
+    for (fs::recursive_directory_iterator it(headers, ec), end; !ec && it != end; it.increment(ec)) {
+        const fs::path& path = it->path();
+        if (it.depth() == 0 && path.filename() == "editor") { // 에디터 헤더는 게임 코드가 쓰지 않는다
+            it.disable_recursion_pending();
+            continue;
+        }
+        if (path.extension() != ".h") continue;
+        engine = std::max(engine, fileWriteTime(toUtf8(path)));
+    }
+    return engine != 0 && game < engine;
 }
 
 } // namespace mealkit::editor
