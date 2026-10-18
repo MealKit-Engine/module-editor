@@ -69,8 +69,15 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     m_options.tuningPath = editor.writePlayTuning();
     editor.saveTablesForPlay(); // 게임은 매치를 시작할 때 표 파일을 읽는다
 
+    m_game = host.create();
+    if (!m_game) {
+        error = tr("Could not create the game instance");
+        stop();
+        return false;
+    }
     m_session = std::make_unique<net::LockstepSession>();
     if (!multiplayer()) {
+        m_game->lobby(*m_session, m_options, game::userFolder(editor.project().settings)); // 로드아웃
         m_session->startOffline(m_seed, config.bodies);
     } else {
         // 참가 창이 읽을 씬 사본 (저장 안 된 편집 포함)
@@ -106,12 +113,6 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         }
         MEALKIT_INFO("Editor play: hosting %u players on port %u", m_config.players, kEditorPlayPort);
     }
-    m_game = host.create();
-    if (!m_game) {
-        error = tr("Could not create the game instance");
-        stop();
-        return false;
-    }
     editor.takeTuningChanged(); // 시작할 때 이미 임시 파일로 넘겼다
     return true;
 }
@@ -130,6 +131,8 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     if (!m_game || !m_session || !m_failure.empty()) return;
     net::LockstepSession& session = *m_session;
     session.update(now);
+    if (!m_game->started() && session.state() == net::SessionState::Lobby)
+        m_game->lobby(session, m_options, game::userFolder(editor.project().settings));
 
     // 방장: 모두 들어오면 매치 시작
     if (session.isHost() && session.state() == net::SessionState::Lobby &&
@@ -321,6 +324,7 @@ int runPlayer(const PlayerOptions& o) {
         ctx.keyboardAllowed = ctx.mouseAllowed = window.focused();
         viewTuning.poll(now);
         ctx.viewTuningData = viewTuning.view();
+        if (!game->started() && session.state() != net::SessionState::Running) game->lobby(session, options, {});
         if (!game->started() && session.state() == net::SessionState::Running) game->start(ctx, scene, options);
         audio.update(dt);
         feedback.update(dt);
