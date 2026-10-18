@@ -4,6 +4,7 @@
 #include "mealkit/game/GameInstance.h"
 #include "mealkit/game/ProjectSettings.h"
 #include "mealkit/input/Actions.h"
+#include "mealkit/platform/Gamepad.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/scene/Scene.h"
 
@@ -81,6 +82,7 @@ private:
     audio::Engine* m_audio = nullptr;
     feedback::Player* m_feedback = nullptr;
     input::Actions m_actions; // 에디터 창의 게임 뷰 입력 (assets/input.bindings, 플레이 중에 고치면 다시 읽는다)
+    Gamepads m_pads;
     std::unique_ptr<net::LockstepSession> m_session;
     game::GameInstance* m_game = nullptr;
     ProcessGroup m_clients;

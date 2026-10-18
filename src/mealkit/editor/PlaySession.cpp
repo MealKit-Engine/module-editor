@@ -166,7 +166,9 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
                           editor.gameKeyboardAllowed(),
                           editor.gameMouseAllowed(),
                           editor.viewTuning()};
-    m_actions.update(window.input(), input::PadState{}, ctx.keyboardAllowed, ctx.mouseAllowed, dt);
+    m_pads.update(dt); // 패드는 게임 뷰가 키보드를 받을 때만 (다른 패널을 고치는 동안 캐릭터가 움직이지 않게)
+    m_actions.update(window.input(), ctx.keyboardAllowed ? m_pads.first() : input::PadState{}, ctx.keyboardAllowed,
+                     ctx.mouseAllowed, dt);
     if (!m_game->started()) {
         m_game->start(ctx, editor.scene(), m_options);
         MEALKIT_INFO("Play mode: %u player(s), match data %u", session.playerCount(), session.matchData());
@@ -250,6 +252,7 @@ int runPlayer(const PlayerOptions& o) {
     feedback::Player feedback(audio);
     input::Actions actions;
     actions.load();
+    Gamepads pads;
 
     game::GameInstance* game = host.create();
     game::PlayOptions options;
@@ -278,7 +281,9 @@ int runPlayer(const PlayerOptions& o) {
         if (!game->started() && session.state() == net::SessionState::Running) game->start(ctx, scene, options);
         audio.update(dt);
         feedback.update(dt);
-        actions.update(window.input(), input::PadState{}, ctx.keyboardAllowed, ctx.mouseAllowed, dt);
+        pads.update(dt);
+        actions.update(window.input(), window.focused() ? pads.first() : input::PadState{}, ctx.keyboardAllowed,
+                       ctx.mouseAllowed, dt);
         game->update(ctx, dt);
         if (!window.minimized()) {
             render::FrameParams frame;
