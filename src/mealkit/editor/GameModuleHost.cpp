@@ -33,17 +33,26 @@ bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
         return false;
     }
 
-    // hot\<이름>.<번호>.dll 로 복사해서 불러온다. 지난 복사본은 지운다(불러온 것은 지워지지 않으므로 남는다).
+    // hot\<이름>.<프로세스>.<번호>.dll 로 복사해서 불러온다.
+    // 프로세스 번호를 넣는다: 여러 명 플레이의 참가 창(같은 에디터 실행 파일)도 각자 복사본을 쓴다
     const fs::path hotDir = source.parent_path() / "hot";
     fs::create_directories(hotDir, ec);
-    for (const auto& entry : fs::directory_iterator(hotDir, ec)) fs::remove(entry.path(), ec);
     const u32 next = m_generation + 1;
-    // 프로세스 번호를 넣는다: 여러 명 플레이의 참가 창(같은 에디터 실행 파일)도 각자 복사본을 쓴다
-    const fs::path copy = hotDir / (source.stem().wstring() + L"." + std::to_wstring(processId()) + L"." +
-                                    std::to_wstring(next) + L".dll");
+    const std::wstring mine = source.stem().wstring() + L"." + std::to_wstring(processId()) + L".";
+    const fs::path copy = hotDir / (mine + std::to_wstring(next) + L".dll");
     if (!fs::copy_file(source, copy, fs::copy_options::overwrite_existing, ec)) {
         error = "cannot copy the game DLL (still being written?): " + ec.message();
         return false;
+    }
+    // 지난 복사본 지우기: 내 것은 모두, 다른 프로세스 것은 1분 넘게 된 것만 (막 복사해 불러오려는 참가 창의 파일을 지우지 않게).
+    // 불러온 DLL은 지워지지 않으므로 남는다. 만든 시각은 OS 단위(Windows 100ns)라 내 새 복사본과 비교한다
+    const unsigned long long now = fileCreationTime(toUtf8(copy));
+    constexpr unsigned long long kStale = 60ull * 10'000'000ull;
+    for (const auto& entry : fs::directory_iterator(hotDir, ec)) {
+        if (entry.path() == copy) continue;
+        const bool own = entry.path().filename().wstring().rfind(mine, 0) == 0;
+        const unsigned long long created = fileCreationTime(toUtf8(entry.path()));
+        if (own || (created != 0 && now > created + kStale)) fs::remove(entry.path(), ec);
     }
 
     void* dll = loadLibrary(toUtf8(copy), error);
