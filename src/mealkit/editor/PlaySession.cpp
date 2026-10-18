@@ -1,6 +1,7 @@
 #include "mealkit/editor/PlaySession.h"
 
 #include "mealkit/asset/ModelCache.h"
+#include "mealkit/audio/Audio.h"
 #include "mealkit/core/Clock.h"
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/Editor.h"
@@ -45,8 +46,9 @@ u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const 
 PlaySession::~PlaySession() { stop(); }
 
 bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost& host, asset::ModelCache& models,
-                        f64 now, std::string& error) {
+                        audio::Engine& audio, f64 now, std::string& error) {
     stop();
+    m_audio = &audio;
     m_config = config;
     m_config.players = std::clamp(config.players, 1u, net::kMaxPlayers);
     m_host = &host;
@@ -108,6 +110,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
 }
 
 void PlaySession::stop() {
+    if (m_audio) m_audio->stopAll(); // 게임이 낸 소리 (배경음 루프 포함)
     m_clients.terminateAll();
     if (m_host && m_game) m_host->destroy(m_game);
     m_game = nullptr;
@@ -151,6 +154,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
                           renderer,
                           models,
                           session,
+                          *m_audio,
                           editor.viewport(),
                           editor.gameKeyboardAllowed(),
                           editor.gameMouseAllowed(),
@@ -181,9 +185,10 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
 void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer,
                              asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
     if (!m_game || !m_session) return;
-    game::GameContext ctx{window, renderer, models, *m_session, editor.viewport()};
+    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, editor.viewport()};
     ctx.viewTuningData = editor.viewTuning();
     m_game->buildFrame(ctx, now, frame, out);
+    m_audio->setListener(frame.cameraPos, frame.cameraForward);
 }
 
 // ---------------------------------------------------------------- 참가 창
@@ -230,11 +235,15 @@ int runPlayer(const PlayerOptions& o) {
     game::LiveTuning viewTuning; // 에디터가 고칠 때마다 다시 쓰는 사본 (없으면 assets/view.tuning)
     if (host.module()->viewTuningType) viewTuning.open(*host.module()->viewTuningType(), o.viewTuningPath);
 
+    // 참가 창은 같은 PC에서 여러 개가 뜨므로 소리를 끈 채로 시작한다 (게임 코드는 똑같이 소리를 부른다)
+    audio::Engine audio;
+    audio.init({project.settings.audioVoices, true});
+
     game::GameInstance* game = host.create();
     game::PlayOptions options;
     options.bot = o.bot;
     options.tuningPath = o.tuningPath;
-    game::GameContext ctx{window, renderer, models, session};
+    game::GameContext ctx{window, renderer, models, session, audio};
     render::DrawList drawList;
     f64 lastTime = nowSeconds();
     int exitCode = 0;
@@ -255,11 +264,13 @@ int runPlayer(const PlayerOptions& o) {
         viewTuning.poll(now);
         ctx.viewTuningData = viewTuning.view();
         if (!game->started() && session.state() == net::SessionState::Running) game->start(ctx, scene, options);
+        audio.update(dt);
         game->update(ctx, dt);
         if (!window.minimized()) {
             render::FrameParams frame;
             drawList.clear();
             game->buildFrame(ctx, now, frame, drawList);
+            audio.setListener(frame.cameraPos, frame.cameraForward);
             if (renderer.beginFrame(frame)) {
                 drawList.submit(renderer);
                 renderer.endFrame();

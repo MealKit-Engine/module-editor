@@ -11,6 +11,9 @@
 
 namespace mealkit {
 class Window;
+namespace audio {
+class Engine;
+}
 namespace asset {
 class ModelCache;
 }
@@ -54,8 +57,8 @@ public:
     PlaySession(const PlaySession&) = delete;
     PlaySession& operator=(const PlaySession&) = delete;
 
-    bool start(const PlayConfig& config, Editor& editor, GameModuleHost& host, asset::ModelCache& models, f64 now,
-               std::string& error);
+    bool start(const PlayConfig& config, Editor& editor, GameModuleHost& host, asset::ModelCache& models,
+               audio::Engine& audio, f64 now, std::string& error);
     void stop();
     bool active() const { return m_game != nullptr; }
     bool multiplayer() const { return m_config.players > 1; }
@@ -71,6 +74,7 @@ public:
 
 private:
     GameModuleHost* m_host = nullptr;
+    audio::Engine* m_audio = nullptr;
     std::unique_ptr<net::LockstepSession> m_session;
     game::GameInstance* m_game = nullptr;
     ProcessGroup m_clients;

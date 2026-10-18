@@ -11,6 +11,7 @@
 //              Ctrl+R 게임 코드 빌드, Ctrl+B 출시 빌드
 
 #include "mealkit/asset/ModelCache.h"
+#include "mealkit/audio/Audio.h"
 #include "mealkit/core/Clock.h"
 #include "mealkit/core/Log.h"
 #include "mealkit/core/Profile.h"
@@ -56,6 +57,7 @@ struct Options {
     bool upgrade = false;    // 시작하자마자 프로젝트 업그레이드
     bool projectSettings = false; // [프로젝트 설정] 창을 열고 시작
     bool tables = false;          // [표] 창을 열고 시작
+    bool sounds = false;          // [소리] 창을 열고 시작
     // 참가 창 모드
     std::string playerAddress;
     std::string tuningPath;
@@ -87,6 +89,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--upgrade") o.upgrade = true;
         else if (a == "--project-settings") o.projectSettings = true;
         else if (a == "--tables") o.tables = true;
+        else if (a == "--sounds") o.sounds = true;
         else if (a == "--player" && next(v)) o.playerAddress = v;
         else if (a == "--player-index" && next(v)) o.playerIndex = static_cast<u32>(std::atoi(v));
         else if (a == "--scene" && next(v)) o.scenePath = v;
@@ -98,7 +101,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables\n"
+                "              --project-settings --tables --sounds\n"
                 "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>]\n"
                 "                 [--view-tuning <file>] [--bot]\n");
             return false;
@@ -170,9 +173,15 @@ int main(int argc, char** argv) {
     asset::ModelCache models;
     models.setRenderer(&renderer);
 
+    // 소리: 플레이 중인 게임과 [소리] 패널 미리듣기가 같이 쓴다
+    audio::Engine audio;
+    audio.init({project.settings.audioVoices, false});
+
     editor::Editor editor;
     const std::string scenePath = opt.scenePath.empty() ? project.startScenePath() : opt.scenePath;
     if (!editor.init(window, renderer, scenePath, models)) MEALKIT_FATAL("Editor initialization failed");
+    editor.setAudio(&audio);
+    editor.setEngineTables(audio::engineTables());
     editor.setEngineDirectory(engineDirectory());
     editor.setProject(project);
     if (opt.select >= 0) editor.selectByIndex(opt.select);
@@ -180,6 +189,7 @@ int main(int argc, char** argv) {
     if (opt.upgrade) editor.requestUpgrade();
     if (opt.projectSettings) editor.openProjectSettings();
     if (opt.tables) editor.openTables();
+    if (opt.sounds) editor.openSounds();
     if (opt.play) editor.requestPlay();
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);
 
@@ -267,7 +277,7 @@ int main(int argc, char** argv) {
             config.bodies = opt.bodies;
             config.projectDir = project.directory;
             std::string playError;
-            if (play.start(config, editor, host, models, now, playError)) {
+            if (play.start(config, editor, host, models, audio, now, playError)) {
                 editor.setMode(editor::Mode::Play);
             } else {
                 MEALKIT_ERROR("Play failed: %s", playError.c_str());
@@ -289,6 +299,8 @@ int main(int argc, char** argv) {
                 editor.setMode(editor::Mode::Edit);
             }
         }
+
+        audio.update(dt);
 
         render::FrameParams frameParams;
         drawList.clear();
@@ -314,6 +326,8 @@ int main(int argc, char** argv) {
 
     editor.saveBackupIfDirty();
     stopGame();
+    editor.setAudio(nullptr);
+    audio.shutdown();
     editor.setGameTypes(nullptr);
     editor.setTuningType(nullptr);
     editor.setViewTuningType(nullptr);

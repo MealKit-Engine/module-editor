@@ -3,6 +3,7 @@
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
+#include "mealkit/editor/SoundPanel.h"
 #include "mealkit/editor/TablesPanel.h"
 #include "mealkit/game/SimDebug.h"
 #include "mealkit/platform/Process.h"
@@ -77,6 +78,10 @@ public:
     // 플레이를 시작할 때: 고친 표를 저장한다 (게임은 매치를 시작할 때 파일에서 읽는다)
     void saveTablesForPlay();
     void openTables() { m_tablesOpen = true; } // 자동 테스트용
+    void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
+    // 소리 ([소리] 패널 미리듣기·목소리 목록). 에디터가 만들어 넘긴다 (nullptr = 없음)
+    void setAudio(audio::Engine* audio) { m_audio = audio; }
+    void openSounds() { m_soundsOpen = true; } // 자동 테스트용
     // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
     void setStateView(reflect::View view) { m_stateView = view; }
 
@@ -286,6 +291,11 @@ private:
     ChildProcess m_layoutCheck; // tools\check_layout.ps1 (프로젝트를 열 때)
     TablesPanel m_tablesPanel;
     bool m_tablesOpen = false;
+    audio::Engine* m_audio = nullptr;
+    SoundPanel m_soundPanel;
+    bool m_soundsOpen = false;
+    bool m_viewTableDirty = false;
+    f64 m_viewTableTimer = 0.0;
     f64 m_rowCheckTimer = 0.0;
     std::string m_layoutOutput;
 };

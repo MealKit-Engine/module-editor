@@ -213,6 +213,16 @@ void Editor::update(f64 dt) {
     drawEnvironment(editing);
     drawTuning();
     if (m_tablesOpen) m_tablesPanel.draw(m_window->nativeHandle(), editing, &m_tablesOpen);
+    if (m_soundsOpen && m_audio) m_soundPanel.draw(*m_audio, &m_soundsOpen);
+    // 소리 이벤트 표(화면 전용)를 고치면 저장해 바로 들리게 한다 (오디오가 파일을 다시 읽는다)
+    m_viewTableDirty |= m_tablesPanel.takeViewTableChanged();
+    m_viewTableTimer += dt;
+    if (m_viewTableDirty && m_viewTableTimer >= 0.3) {
+        std::string status;
+        m_tablesPanel.saveAll(&status);
+        m_viewTableDirty = false;
+        m_viewTableTimer = 0.0;
+    }
     updateRowProblems(dt);
     drawProjectSettings();
     drawState();
@@ -530,6 +540,7 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("View"))) {
         if (ImGui::MenuItem(tr("Focus Selected"), "F", false, editing && m_selected != 0)) focusSelected();
         ImGui::MenuItem(tr("Tables"), "Ctrl+T", &m_tablesOpen);
+        ImGui::MenuItem(tr("Sounds"), nullptr, &m_soundsOpen, m_audio != nullptr);
         if (ImGui::MenuItem(tr("Reset Layout"))) m_layoutReset = true;
         ImGui::EndMenu();
     }
