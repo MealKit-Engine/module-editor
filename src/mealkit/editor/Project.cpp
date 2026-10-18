@@ -7,7 +7,6 @@
 #include <filesystem>
 #include <fstream>
 #include <system_error>
-#include <windows.h>
 
 namespace mealkit::editor {
 namespace fs = std::filesystem;
@@ -109,10 +108,7 @@ bool loadProject(const std::string& directory, ProjectInfo& out, std::string* er
 }
 
 std::string editorUserDirectory() {
-    wchar_t buffer[MAX_PATH];
-    const DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
-    const fs::path base = (len > 0 && len < MAX_PATH) ? fs::path(buffer) : fromUtf8(executableDirectory());
-    return toUtf8(base / "MealKit");
+    return toUtf8(fromUtf8(userDataDirectory()) / "MealKit");
 }
 
 bool sameProjectDirectory(const std::string& a, const std::string& b) {

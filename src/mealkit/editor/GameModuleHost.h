@@ -37,7 +37,7 @@ public:
     static bool olderThanEngine(const std::string& dllPath);
 
 private:
-    void* m_dll = nullptr; // HMODULE
+    void* m_dll = nullptr; // loadLibrary()
     const game::GameModule* m_module = nullptr;
     std::string m_sourcePath;
     std::string m_loadedCopy;

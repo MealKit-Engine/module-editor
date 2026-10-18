@@ -1,10 +1,11 @@
 #include "mealkit/editor/ProjectManager.h"
 
 #include "mealkit/core/Log.h"
-#include "mealkit/editor/Image.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/Strings.h"
+#include "mealkit/platform/FileDialog.h"
+#include "mealkit/platform/Image.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/platform/Window.h"
@@ -20,9 +21,6 @@
 #include <system_error>
 #include <vector>
 
-#include <windows.h>
-#include <shobjidl.h>
-
 // 프로젝트 관리자 (고도 에디터의 프로젝트 관리자를 따른다):
 //   위: [만들기] [가져오기] [검색] ............ [언어]
 //   목록: 별(즐겨찾기) | 아이콘(눌러 바꾸기) | 이름(눌러 고치기 = exe 이름) / 폴더(눌러 고치기 = 폴더 옮기기) | 시작일·수정일
@@ -33,63 +31,9 @@ namespace fs = std::filesystem;
 
 constexpr int kDefaultIconResource = 2; // MealKitEditor.rc의 RCDATA (밀키트 아이콘)
 constexpr u32 kIconPixels = 128;
-
-std::wstring widen(const std::string& s) {
-    if (s.empty()) return {};
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
-    std::wstring w(static_cast<size_t>(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
-    return w;
-}
-
-std::string narrow(const wchar_t* w) {
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-    std::string s(static_cast<size_t>(n > 0 ? n - 1 : 0), '\0');
-    if (n > 1) WideCharToMultiByte(CP_UTF8, 0, w, -1, s.data(), n, nullptr, nullptr);
-    return s;
-}
+constexpr FileFilter kImageFilter{"Image", "*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.ico;*.tif;*.tiff"};
 
 fs::path fromUtf8(const std::string& s) { return fs::path(std::u8string(s.begin(), s.end())); }
-
-// 파일·폴더 고르기 대화상자 (취소하면 빈 문자열). filter가 있으면 파일, 없으면 폴더
-std::string pickPath(void* owner, const std::string& initialFolder, const wchar_t* filterName = nullptr,
-                     const wchar_t* filterSpec = nullptr) {
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    std::string result;
-    IFileOpenDialog* dialog = nullptr;
-    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return {};
-    DWORD options = 0;
-    dialog->GetOptions(&options);
-    options |= FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST;
-    if (filterSpec) {
-        const COMDLG_FILTERSPEC spec{filterName, filterSpec};
-        dialog->SetFileTypes(1, &spec);
-        options |= FOS_FILEMUSTEXIST;
-    } else {
-        options |= FOS_PICKFOLDERS;
-    }
-    dialog->SetOptions(options);
-    if (!initialFolder.empty()) {
-        IShellItem* folder = nullptr;
-        if (SUCCEEDED(SHCreateItemFromParsingName(widen(initialFolder).c_str(), nullptr, IID_PPV_ARGS(&folder)))) {
-            dialog->SetFolder(folder);
-            folder->Release();
-        }
-    }
-    if (SUCCEEDED(dialog->Show(static_cast<HWND>(owner)))) {
-        IShellItem* item = nullptr;
-        if (SUCCEEDED(dialog->GetResult(&item))) {
-            PWSTR path = nullptr;
-            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-                result = narrow(path);
-                CoTaskMemFree(path);
-            }
-            item->Release();
-        }
-    }
-    dialog->Release();
-    return result;
-}
 
 bool validGameName(const char* name) {
     if (!std::isalpha(static_cast<unsigned char>(name[0]))) return false;
@@ -104,25 +48,6 @@ bool containsNoCase(const std::string& text, const char* needle) {
         return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
     });
     return it != text.end();
-}
-
-// FILETIME(100ns, 1601년부터) → 지역 시각 문자열
-std::string formatFileTime(u64 fileTime, bool withTime) {
-    if (fileTime == 0) return "-";
-    FILETIME utc{static_cast<DWORD>(fileTime), static_cast<DWORD>(fileTime >> 32)}, local;
-    SYSTEMTIME st;
-    FileTimeToLocalFileTime(&utc, &local);
-    FileTimeToSystemTime(&local, &st);
-    char buf[32];
-    if (withTime) std::snprintf(buf, sizeof(buf), "%04u-%02u-%02u %02u:%02u", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute);
-    else std::snprintf(buf, sizeof(buf), "%04u-%02u-%02u", st.wYear, st.wMonth, st.wDay);
-    return buf;
-}
-
-u64 creationTime(const std::string& path) {
-    WIN32_FILE_ATTRIBUTE_DATA data{};
-    if (!GetFileAttributesExW(widen(path).c_str(), GetFileExInfoStandard, &data)) return 0;
-    return (static_cast<u64>(data.ftCreationTime.dwHighDateTime) << 32) | data.ftCreationTime.dwLowDateTime;
 }
 
 // 프로젝트에서 가장 최근에 고친 파일 시각. 빌드 산출물·버전 관리·서드파티 폴더는 보지 않는다
@@ -259,7 +184,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             e.engineSample = sameProjectDirectory(dir, engineDir);
             if (e.valid) {
                 e.created = !e.info.settings.created.empty() ? e.info.settings.created
-                                                             : formatFileTime(creationTime(e.directory), false);
+                                                             : formatFileTime(fileCreationTime(e.directory), false);
                 e.modifiedTime = lastModifiedTime(e.directory);
                 e.modified = formatFileTime(e.modifiedTime, true);
                 Image image;
@@ -292,9 +217,8 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
         std::string location;
         if (!entries.empty()) location = parentDirectory(loadRecentProjects().front());
         if (location.empty()) {
-            wchar_t profile[MAX_PATH];
-            const DWORD n = GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH);
-            if (n > 0 && n < MAX_PATH) location = narrow(profile) + "\\Documents\\MealKitProjects";
+            const std::string documents = documentsDirectory();
+            if (!documents.empty()) location = documents + "\\MealKitProjects";
         }
         strncpy_s(newLocation, location.c_str(), _TRUNCATE);
     }
@@ -327,7 +251,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
     };
     auto changeIcon = [&](Entry& e) {
         const std::string file =
-            pickPath(window.nativeHandle(), e.directory, L"Image", L"*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.ico;*.tif;*.tiff");
+            openFileDialog(window.nativeHandle(), "", e.directory, &kImageFilter, 1);
         if (file.empty()) return;
         Image image;
         if (!loadImage(file, 256, image)) {
@@ -405,7 +329,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
         if (ImGui::Button((std::string(icon::kAdd) + "  " + tr("Create")).c_str())) openCreate = true;
         ImGui::SameLine();
         if (ImGui::Button((std::string(icon::kFolder) + "  " + tr("Import")).c_str())) {
-            const std::string dir = pickPath(window.nativeHandle(), newLocation);
+            const std::string dir = pickFolderDialog(window.nativeHandle(), newLocation);
             if (!dir.empty()) {
                 if (isProjectDirectory(dir)) {
                     addRecentProject(dir);
@@ -633,7 +557,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
                     ProjectInfo info;
                     // 옮기면 폴더 생성 시각이 바뀔 수 있어, 시작일을 아직 적지 않았으면 먼저 적는다
                     if (loadProject(confirmDirectory, info) && info.settings.created.empty()) {
-                        info.settings.created = formatFileTime(creationTime(confirmDirectory), false);
+                        info.settings.created = formatFileTime(fileCreationTime(confirmDirectory), false);
                         game::saveProjectFile(info.filePath(), info);
                     }
                     if (moveProjectFolder(confirmDirectory, confirmValue, error)) {
@@ -678,7 +602,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             ImGui::InputText("##location", newLocation, sizeof(newLocation));
             ImGui::SameLine();
             if (ImGui::Button(browse)) {
-                const std::string dir = pickPath(window.nativeHandle(), newLocation);
+                const std::string dir = pickFolderDialog(window.nativeHandle(), newLocation);
                 if (!dir.empty()) strncpy_s(newLocation, dir.c_str(), _TRUNCATE);
             }
             const bool nameOk = validGameName(newName);

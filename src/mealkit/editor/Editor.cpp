@@ -5,6 +5,7 @@
 #include "mealkit/core/Version.h"
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/Strings.h"
+#include "mealkit/platform/FileDialog.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Window.h"
 
@@ -18,8 +19,6 @@
 #include <imgui_internal.h>
 #include <ImGuizmo.h>
 
-#include <windows.h>
-#include <commdlg.h>
 
 namespace mealkit::editor {
 namespace {
@@ -111,41 +110,8 @@ u32 packColor(const f32 c[3], u32 previous) {
     return channel(c[0]) | (channel(c[1]) << 8) | (channel(c[2]) << 16) | (previous & 0xFF000000u);
 }
 
-std::wstring widen(const std::string& s) {
-    const int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring out(len > 0 ? len - 1 : 0, L'\0');
-    if (len > 1) MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, out.data(), len);
-    return out;
-}
-
-std::string narrow(const wchar_t* w) {
-    const int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-    std::string out(len > 0 ? len - 1 : 0, '\0');
-    if (len > 1) WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), len, nullptr, nullptr);
-    return out;
-}
-
-constexpr const wchar_t* kSceneFilter = L"MealKit scene (*.scene)\0*.scene\0All files (*.*)\0*.*\0";
-constexpr const wchar_t* kModelFilter = L"glTF model (*.glb, *.gltf)\0*.glb;*.gltf\0All files (*.*)\0*.*\0";
-
-std::string fileDialog(void* owner, bool save, const std::string& current, const wchar_t* filter = kSceneFilter,
-                       const wchar_t* defaultExt = L"scene", const std::string& folder = {}) {
-    wchar_t buffer[MAX_PATH] = {};
-    const std::wstring initial = widen(current);
-    const std::wstring initialDir = widen(folder);
-    wcsncpy_s(buffer, initial.c_str(), _TRUNCATE);
-    OPENFILENAMEW ofn{};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = static_cast<HWND>(owner);
-    ofn.lpstrFilter = filter;
-    ofn.lpstrFile = buffer;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrDefExt = defaultExt;
-    ofn.lpstrInitialDir = initialDir.empty() ? nullptr : initialDir.c_str();
-    ofn.Flags = OFN_NOCHANGEDIR | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
-    const BOOL ok = save ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn);
-    return ok ? narrow(buffer) : std::string();
-}
+const FileFilter kSceneFilters[] = {{"MealKit scene (*.scene)", "*.scene"}, {"All files (*.*)", "*.*"}};
+const FileFilter kModelFilters[] = {{"glTF model (*.glb, *.gltf)", "*.glb;*.gltf"}, {"All files (*.*)", "*.*"}};
 
 bool toolButton(const char* label, bool active) {
     if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
@@ -1318,7 +1284,7 @@ void Editor::addEntity(const std::string& typeName) {
 
 std::string Editor::chooseModel() {
     const std::string root = asset::ModelCache::assetsRoot();
-    const std::string path = fileDialog(m_window->nativeHandle(), false, "", kModelFilter, L"glb", root + "\\models");
+    const std::string path = openFileDialog(m_window->nativeHandle(), "", root + "\\models", kModelFilters, 2);
     if (path.empty()) return {};
     // assets 폴더 안이면 상대 경로로 저장한다 (다른 PC에서도 같은 씬 파일이 동작하도록)
     const std::string relative = relativeTo(root, path);
@@ -1411,7 +1377,7 @@ void Editor::newScene() {
 }
 
 void Editor::openSceneDialog() {
-    const std::string path = fileDialog(m_window->nativeHandle(), false, m_scenePath);
+    const std::string path = openFileDialog(m_window->nativeHandle(), m_scenePath, "", kSceneFilters, 2);
     if (path.empty()) return;
     saveBackupIfDirty();
     loadScene(path);
@@ -1454,7 +1420,7 @@ bool Editor::saveScene() {
 }
 
 bool Editor::saveSceneAs() {
-    const std::string path = fileDialog(m_window->nativeHandle(), true, m_scenePath);
+    const std::string path = saveFileDialog(m_window->nativeHandle(), m_scenePath, "", kSceneFilters, 2, "scene");
     if (path.empty()) return false;
     m_scenePath = path;
     return saveScene();

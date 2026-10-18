@@ -1,11 +1,12 @@
 #include "mealkit/editor/GameModuleHost.h"
 
 #include "mealkit/core/Log.h"
+#include "mealkit/platform/DynamicLibrary.h"
 #include "mealkit/platform/Paths.h"
+#include "mealkit/platform/System.h"
 
 #include <filesystem>
 #include <system_error>
-#include <windows.h>
 
 namespace mealkit::editor {
 namespace fs = std::filesystem;
@@ -18,12 +19,6 @@ std::string toUtf8(const fs::path& p) {
     return std::string(s.begin(), s.end());
 }
 
-u64 writeTime(const std::string& path) {
-    WIN32_FILE_ATTRIBUTE_DATA data{};
-    if (!GetFileAttributesExW(fromUtf8(path).c_str(), GetFileExInfoStandard, &data)) return 0;
-    return (static_cast<u64>(data.ftLastWriteTime.dwHighDateTime) << 32) | data.ftLastWriteTime.dwLowDateTime;
-}
-
 } // namespace
 
 GameModuleHost::~GameModuleHost() { unload(); }
@@ -31,7 +26,7 @@ GameModuleHost::~GameModuleHost() { unload(); }
 bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
     std::error_code ec;
     const fs::path source = fromUtf8(dllPath);
-    const u64 stamp = writeTime(dllPath);
+    const u64 stamp = fileWriteTime(dllPath);
     if (stamp == 0) {
         error = "game DLL not found: " + dllPath;
         return false;
@@ -43,31 +38,30 @@ bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
     for (const auto& entry : fs::directory_iterator(hotDir, ec)) fs::remove(entry.path(), ec);
     const u32 next = m_generation + 1;
     // 프로세스 번호를 넣는다: 여러 명 플레이의 참가 창(같은 에디터 실행 파일)도 각자 복사본을 쓴다
-    const fs::path copy = hotDir / (source.stem().wstring() + L"." + std::to_wstring(GetCurrentProcessId()) + L"." +
+    const fs::path copy = hotDir / (source.stem().wstring() + L"." + std::to_wstring(processId()) + L"." +
                                     std::to_wstring(next) + L".dll");
     if (!fs::copy_file(source, copy, fs::copy_options::overwrite_existing, ec)) {
         error = "cannot copy the game DLL (still being written?): " + ec.message();
         return false;
     }
 
-    HMODULE dll = LoadLibraryW(copy.c_str());
+    void* dll = loadLibrary(toUtf8(copy), error);
     if (!dll) {
-        error = "LoadLibrary failed (" + std::to_string(GetLastError()) + "): " + toUtf8(copy);
         fs::remove(copy, ec);
         return false;
     }
-    auto get = reinterpret_cast<game::GetGameModuleFn>(GetProcAddress(dll, game::kGetGameModuleSymbol));
+    auto get = reinterpret_cast<game::GetGameModuleFn>(findSymbol(dll, game::kGetGameModuleSymbol));
     const game::GameModule* module = get ? get() : nullptr;
     if (!module || !module->create || !module->destroy) {
         error = "the DLL does not export mealkitGetGameModule (MEALKIT_GAME_MODULE missing?)";
-        FreeLibrary(dll);
+        freeLibrary(dll);
         fs::remove(copy, ec);
         return false;
     }
     if (module->apiVersion != game::kApiVersion) {
         error = "game DLL API version " + std::to_string(module->apiVersion) + " != engine " +
                 std::to_string(game::kApiVersion) + " - rebuild the game code";
-        FreeLibrary(dll);
+        freeLibrary(dll);
         fs::remove(copy, ec);
         return false;
     }
@@ -85,7 +79,7 @@ bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
 
 void GameModuleHost::unload() {
     if (!m_dll) return;
-    FreeLibrary(static_cast<HMODULE>(m_dll));
+    freeLibrary(m_dll);
     std::error_code ec;
     fs::remove(fromUtf8(m_loadedCopy), ec);
     m_dll = nullptr;
@@ -95,7 +89,7 @@ void GameModuleHost::unload() {
 
 bool GameModuleHost::sourceChangedAndStable() {
     if (m_sourcePath.empty()) return false;
-    const u64 stamp = writeTime(m_sourcePath);
+    const u64 stamp = fileWriteTime(m_sourcePath);
     if (stamp == 0 || stamp == m_loadedWriteTime) return false;
     const bool stable = stamp == m_seenWriteTime;
     m_seenWriteTime = stamp;
@@ -103,8 +97,8 @@ bool GameModuleHost::sourceChangedAndStable() {
 }
 
 bool GameModuleHost::olderThanEngine(const std::string& dllPath) {
-    const u64 game = writeTime(dllPath);
-    const u64 engine = writeTime(executableDirectory() + "\\mealkit.dll");
+    const u64 game = fileWriteTime(dllPath);
+    const u64 engine = fileWriteTime(executableDirectory() + "\\mealkit.dll");
     return game != 0 && engine != 0 && game < engine;
 }
 
