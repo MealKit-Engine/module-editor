@@ -79,6 +79,7 @@ private:
     u64 m_seed = 0;
     f64 m_startTime = 0.0;
     f64 m_statusTimer = 0.0;
+    f64 m_viewTuningTimer = 0.0;
     std::string m_failure;
 };
 
@@ -88,6 +89,7 @@ struct PlayerOptions {
     std::string address;
     std::string scenePath;
     std::string tuningPath;
+    std::string viewTuningPath; // 에디터가 고칠 때마다 다시 쓰는 화면용 튜닝 사본 (바뀌면 다시 읽는다)
     u32 index = 2; // 창 제목에 쓰는 번호
     bool bot = false;
     bool debugLayer = false;

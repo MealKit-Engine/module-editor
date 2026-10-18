@@ -3,7 +3,7 @@
 //   MealKitEditor.exe                         프로젝트 관리자 (최근 프로젝트, 열기, 새 프로젝트)
 //   MealKitEditor.exe --project <폴더>        프로젝트 열기 (mealkit.project가 있는 폴더)
 //   MealKitEditor.exe --project <폴더> my.scene   다른 씬 열기
-//   MealKitEditor.exe --project <폴더> --player <주소:포트> --scene <파일> [--tuning <파일>] [--bot]
+//   MealKitEditor.exe --project <폴더> --player <주소:포트> --scene <파일> [--tuning <파일>] [--view-tuning <파일>] [--bot]
 //                                             참가 창 모드 (에디터 여러 명 플레이가 띄운다)
 //
 // 게임 코드: <프로젝트>\build\Editor\bin\<이름>_game.dll. 다시 빌드되면 편집 모드에서 자동으로 바꿔 끼운다(핫 리로드).
@@ -58,6 +58,7 @@ struct Options {
     // 참가 창 모드
     std::string playerAddress;
     std::string tuningPath;
+    std::string viewTuningPath;
     u32 playerIndex = 2;
     std::string language; // --lang: 이번 실행만 이 언어 (문서 스크린샷)
 };
@@ -88,6 +89,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--player-index" && next(v)) o.playerIndex = static_cast<u32>(std::atoi(v));
         else if (a == "--scene" && next(v)) o.scenePath = v;
         else if (a == "--tuning" && next(v)) o.tuningPath = v;
+        else if (a == "--view-tuning" && next(v)) o.viewTuningPath = v;
         else if (a == "--lang" && next(v)) o.language = v;
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
@@ -95,7 +97,8 @@ bool parseArgs(int argc, char** argv, Options& o) {
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
                 "              --project-settings\n"
-                "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>] [--bot]\n");
+                "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>]\n"
+                "                 [--view-tuning <file>] [--bot]\n");
             return false;
         }
     }
@@ -133,6 +136,7 @@ int main(int argc, char** argv) {
         player.address = opt.playerAddress;
         player.scenePath = opt.scenePath;
         player.tuningPath = opt.tuningPath;
+        player.viewTuningPath = opt.viewTuningPath;
         player.index = opt.playerIndex;
         player.bot = opt.bot;
         player.debugLayer = opt.debugLayer;
@@ -183,11 +187,13 @@ int main(int argc, char** argv) {
         std::string loadError;
         editor.setGameTypes(nullptr); // 예전 DLL의 타입 설명은 내리면 무효
         editor.setTuningType(nullptr);
+        editor.setViewTuningType(nullptr);
         editor.setProjectSettingsType(nullptr);
         const bool loaded = host.load(dllPath, loadError);
         if (host.loaded()) {
             editor.setGameTypes(host.module()->objectTypes());
             editor.setTuningType(host.module()->tuningType());
+            editor.setViewTuningType(host.module()->viewTuningType ? host.module()->viewTuningType() : nullptr);
             editor.setProjectSettingsType(host.module()->projectSettingsType ? host.module()->projectSettingsType()
                                                                              : nullptr);
         }
@@ -304,6 +310,7 @@ int main(int argc, char** argv) {
     stopGame();
     editor.setGameTypes(nullptr);
     editor.setTuningType(nullptr);
+    editor.setViewTuningType(nullptr);
     editor.setProjectSettingsType(nullptr);
     host.unload();
     editor.shutdown();

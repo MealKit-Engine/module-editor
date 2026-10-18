@@ -466,7 +466,8 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem(tr("Open..."), "Ctrl+O")) openSceneDialog();
         if (ImGui::MenuItem(tr("Save"), "Ctrl+S")) {
             saveScene();
-            if (m_tuningDirty) saveTuning();
+            if (m_tuning.dirty) saveTuningDoc(m_tuning);
+            if (m_viewTuning.dirty) saveTuningDoc(m_viewTuning);
             if (m_projectDirty) saveProjectSettings();
         }
         if (ImGui::MenuItem(tr("Save As..."))) saveSceneAs();
@@ -842,71 +843,97 @@ void Editor::drawEnvironment(bool editing) {
     ImGui::End();
 }
 
-// ---------------------------------------------------------------- 튜닝 (assets/game.tuning)
+// ---------------------------------------------------------------- 튜닝 (assets/game.tuning, assets/view.tuning)
 
-std::string Editor::tuningPath() const {
-    return m_project.directory.empty() ? std::string() : m_project.directory + "\\assets\\game.tuning";
+std::string Editor::tuningDocPath(const TuningDoc& doc) const {
+    return m_project.directory.empty() ? std::string() : m_project.directory + "\\assets\\" + doc.file;
 }
 
-void Editor::setTuningType(const reflect::TypeInfo* type) {
-    if (m_tuning.type()) { // 지금 값을 텍스트로 보존
-        m_tuningText.clear();
-        reflect::toText(*m_tuning.type(), m_tuning.data(), m_tuningText);
+void Editor::setTuningDocType(TuningDoc& doc, const reflect::TypeInfo* type) {
+    if (doc.value.type()) { // 지금 값을 텍스트로 보존
+        doc.text.clear();
+        reflect::toText(*doc.value.type(), doc.value.data(), doc.text);
     }
-    m_tuning = type ? reflect::Instance(*type) : reflect::Instance();
+    doc.value = type ? reflect::Instance(*type) : reflect::Instance();
     if (!type) return;
-    if (!m_tuningLoaded) {
-        loadTuningFile();
-        m_tuningLoaded = true;
+    if (!doc.loaded) {
+        loadTuningDoc(doc);
+        doc.loaded = true;
     } else {
         std::string unknown;
-        reflect::fromText(*type, m_tuning.data(), m_tuningText, &unknown);
-        if (!unknown.empty()) MEALKIT_WARN("Tuning fields no longer declared: %s", unknown.c_str());
+        reflect::fromText(*type, doc.value.data(), doc.text, &unknown);
+        if (!unknown.empty()) MEALKIT_WARN("%s fields no longer declared: %s", doc.file, unknown.c_str());
+        doc.changed = true;
     }
 }
 
-bool Editor::loadTuningFile() {
-    if (!m_tuning.type()) return false;
-    m_tuning = reflect::Instance(*m_tuning.type()); // 기본값부터
-    const std::string path = tuningPath();
-    m_tuningDirty = false;
-    m_tuningChanged = true;
+bool Editor::loadTuningDoc(TuningDoc& doc) {
+    if (!doc.value.type()) return false;
+    doc.value = reflect::Instance(*doc.value.type()); // 기본값부터
+    const std::string path = tuningDocPath(doc);
+    doc.dirty = false;
+    doc.changed = true;
     if (path.empty() || !fileExists(path)) return false;
     std::string error;
-    if (!reflect::loadTextFile(*m_tuning.type(), m_tuning.data(), path, &error)) {
+    if (!reflect::loadTextFile(*doc.value.type(), doc.value.data(), path, &error)) {
         setStatus(trf("Could not read the tuning file: %s", error.c_str()));
         return false;
     }
     return true;
 }
 
-bool Editor::saveTuning() {
-    if (!m_tuning.type() || tuningPath().empty()) return false;
-    if (!reflect::saveTextFile(
-            *m_tuning.type(), m_tuning.data(), tuningPath(),
-            (std::string("MealKit tuning (") + m_tuning.type()->name + "). Edit it in the editor's [Tuning] panel.").c_str())) {
-        setStatus(trf("Could not save tuning: %s", tuningPath().c_str()));
+bool Editor::saveTuningDoc(TuningDoc& doc) {
+    const std::string path = tuningDocPath(doc);
+    if (!doc.value.type() || path.empty()) return false;
+    const std::string header =
+        std::string("MealKit tuning (") + doc.value.type()->name + "). Edit it in the editor's [Tuning] panel.";
+    if (!reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, header.c_str())) {
+        setStatus(trf("Could not save tuning: %s", path.c_str()));
         return false;
     }
-    m_tuningDirty = false;
-    setStatus(trf("Tuning saved: %s", "assets\\game.tuning"));
+    doc.dirty = false;
+    setStatus(trf("Tuning saved: %s", (std::string("assets\\") + doc.file).c_str()));
     return true;
 }
 
-std::string Editor::writePlayTuning() {
-    if (!m_tuning.type() || m_project.directory.empty()) return {};
+std::string Editor::writePlayCopy(const TuningDoc& doc, const char* fileName) {
+    if (!doc.value.type() || m_project.directory.empty()) return {};
     const std::string dir = m_project.directory + "\\build\\Editor\\play";
     createDirectories(dir);
-    const std::string path = dir + "\\play.tuning";
-    return reflect::saveTextFile(*m_tuning.type(), m_tuning.data(), path, "editor play (unsaved values)")
+    const std::string path = dir + "\\" + fileName;
+    return reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, "editor play (unsaved values)")
                ? path
                : std::string();
 }
 
-bool Editor::takeTuningChanged() {
-    const bool changed = m_tuningChanged;
-    m_tuningChanged = false;
+bool Editor::takeChanged(TuningDoc& doc) {
+    const bool changed = doc.changed;
+    doc.changed = false;
     return changed;
+}
+
+void Editor::drawTuningDoc(TuningDoc& doc, bool liveInMultiplayer) {
+    const reflect::TypeInfo* type = doc.value.type();
+    ImGui::TextDisabled("assets\\%s (%s)%s", doc.file, type->name, doc.dirty ? " *" : "");
+    ImGui::BeginDisabled(!doc.dirty);
+    if (ImGui::Button(tr("Save"))) saveTuningDoc(doc);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Reload from File"))) loadTuningDoc(doc);
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Defaults"))) {
+        doc.value = reflect::Instance(*type);
+        doc.dirty = doc.changed = true;
+    }
+    if (m_mode == Mode::Play && (m_playPlayers == 1 || liveInMultiplayer))
+        ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", tr("Playing: changes apply immediately"));
+    else if (m_mode == Mode::Play)
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.4f, 1.0f), "%s",
+                           tr("Changes do not apply during multiplayer play (from the next play)"));
+    ImGui::Separator();
+    ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
+    if (drawFields(*type, doc.value.data())) doc.dirty = doc.changed = true;
+    ImGui::PopItemWidth();
 }
 
 void Editor::drawTuning() {
@@ -917,32 +944,24 @@ void Editor::drawTuning() {
         ImGui::End();
         return;
     }
-    const reflect::TypeInfo* type = m_tuning.type();
-    if (!type) {
+    if (!m_tuning.value.type()) {
         ImGui::TextDisabled("%s", tr("Tuning values appear when the game code is loaded."));
         ImGui::End();
         return;
     }
-    ImGui::TextDisabled("assets\\game.tuning (%s)%s", type->name, m_tuningDirty ? " *" : "");
-    ImGui::BeginDisabled(!m_tuningDirty);
-    if (ImGui::Button(tr("Save"))) saveTuning();
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button(tr("Reload from File"))) loadTuningFile();
-    ImGui::SameLine();
-    if (ImGui::Button(tr("Defaults"))) {
-        m_tuning = reflect::Instance(*type);
-        m_tuningDirty = m_tuningChanged = true;
+    // 게임 = 시뮬레이션 규칙 값(콘텐츠 해시), 화면 = 보이기만 하는 값(해시 밖, 여러 명 플레이 중에도 바로 적용)
+    if (ImGui::BeginTabBar("##tuningTabs")) {
+        if (ImGui::BeginTabItem(trl("Game###GameTuning"))) {
+            drawTuningDoc(m_tuning, false);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem(trl("Display###ViewTuning"))) {
+            if (m_viewTuning.value.type()) drawTuningDoc(m_viewTuning, true);
+            else ImGui::TextDisabled("%s", tr("The game declares no view tuning (ViewTuningType)."));
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
-    if (m_mode == Mode::Play && m_playPlayers == 1)
-        ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", tr("Playing: changes apply immediately"));
-    else if (m_mode == Mode::Play)
-        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.4f, 1.0f), "%s",
-                           tr("Changes do not apply during multiplayer play (from the next play)"));
-    ImGui::Separator();
-    ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
-    if (drawFields(*type, m_tuning.data())) m_tuningDirty = m_tuningChanged = true;
-    ImGui::PopItemWidth();
     ImGui::End();
 }
 
@@ -1132,7 +1151,8 @@ void Editor::handleShortcuts() {
     if (io.KeyCtrl) {
         if (pressed(ImGuiKey_S)) {
             saveScene();
-            if (m_tuningDirty) saveTuning();
+            if (m_tuning.dirty) saveTuningDoc(m_tuning);
+            if (m_viewTuning.dirty) saveTuningDoc(m_viewTuning);
             if (m_projectDirty) saveProjectSettings();
         }
         if (pressed(ImGuiKey_Z)) io.KeyShift ? redo() : undo();
@@ -1470,7 +1490,7 @@ void Editor::updateTitle() {
     if (!m_project.name().empty()) title += m_project.name() + " - ";
     title += m_scenePath.empty() ? std::string(tr("Untitled")) : fileName(m_scenePath);
     if (m_dirty) title += " *";
-    if (m_tuningDirty) title += std::string("  (") + tr("Tuning") + " *)";
+    if (m_tuning.dirty || m_viewTuning.dirty) title += std::string("  (") + tr("Tuning") + " *)";
     if (m_projectDirty) title += std::string("  (") + tr("Project Settings") + " *)";
     if (m_mode == Mode::Play) title += std::string("  [") + tr("Playing") + "]";
     if (title != m_title) {

@@ -72,6 +72,8 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
             return false;
         }
         m_session->setContentHash(playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath, editor.project()));
+        const std::string viewTuningPath = editor.writePlayViewTuning(); // 참가 창은 이 사본이 바뀔 때마다 다시 읽는다
+        editor.takeViewTuningChanged();
         if (!m_session->host(kEditorPlayPort, m_config.players, kInputDelay, true)) {
             error = trf("Could not open port %u (is another play session using it?)", static_cast<unsigned>(kEditorPlayPort));
             m_session.reset();
@@ -83,6 +85,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
                                "\" --player 127.0.0.1:" + std::to_string(kEditorPlayPort) + " --player-index " +
                                std::to_string(i) + " --scene \"" + scenePath + "\"";
             if (!m_options.tuningPath.empty()) args += " --tuning \"" + m_options.tuningPath + "\"";
+            if (!viewTuningPath.empty()) args += " --view-tuning \"" + viewTuningPath + "\"";
             if (config.clientBots) args += " --bot";
             const std::string log = dir + "\\player" + std::to_string(i) + ".log";
             if (!m_clients.launch(exe, args, config.projectDir, log)) {
@@ -137,8 +140,20 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         return;
     }
 
-    game::GameContext ctx{
-        window, renderer, models, session, editor.viewport(), editor.gameKeyboardAllowed(), editor.gameMouseAllowed()};
+    // 화면용 튜닝: 에디터 값을 그대로 넘기고, 여러 명이면 참가 창이 읽는 사본을 다시 쓴다 (0.2초에 한 번까지)
+    m_viewTuningTimer += dt;
+    if (multiplayer() && m_viewTuningTimer >= 0.2 && editor.takeViewTuningChanged()) {
+        editor.writePlayViewTuning();
+        m_viewTuningTimer = 0.0;
+    }
+    game::GameContext ctx{window,
+                          renderer,
+                          models,
+                          session,
+                          editor.viewport(),
+                          editor.gameKeyboardAllowed(),
+                          editor.gameMouseAllowed(),
+                          editor.viewTuning()};
     if (!m_game->started()) {
         m_game->start(ctx, editor.scene(), m_options);
         MEALKIT_INFO("Play mode: %u bodies, %u player(s)", session.matchData(), session.playerCount());
@@ -166,6 +181,7 @@ void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Re
                              asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
     if (!m_game || !m_session) return;
     game::GameContext ctx{window, renderer, models, *m_session, editor.viewport()};
+    ctx.viewTuningData = editor.viewTuning();
     m_game->buildFrame(ctx, now, frame, out);
 }
 
@@ -210,6 +226,9 @@ int runPlayer(const PlayerOptions& o) {
     net::cleanup();
     if (!session.join(address)) return 1;
 
+    game::LiveTuning viewTuning; // 에디터가 고칠 때마다 다시 쓰는 사본 (없으면 assets/view.tuning)
+    if (host.module()->viewTuningType) viewTuning.open(*host.module()->viewTuningType(), o.viewTuningPath);
+
     game::GameInstance* game = host.create();
     game::PlayOptions options;
     options.bot = o.bot;
@@ -232,6 +251,8 @@ int runPlayer(const PlayerOptions& o) {
         }
         ctx.viewport = {0.0f, 0.0f, static_cast<f32>(window.width()), static_cast<f32>(window.height())};
         ctx.keyboardAllowed = ctx.mouseAllowed = window.focused();
+        viewTuning.poll(now);
+        ctx.viewTuningData = viewTuning.view();
         if (!game->started() && session.state() == net::SessionState::Running) game->start(ctx, scene, options);
         game->update(ctx, dt);
         if (!window.minimized()) {

@@ -147,6 +147,33 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
         break;
     }
     case Kind::String: changed = inputString(label, *static_cast<std::string*>(data)); break;
+    case Kind::Ticks: { // 초로 고치고 틱으로 반올림한다
+        Ticks& t = *static_cast<Ticks*>(data);
+        f32 seconds = t.toSeconds();
+        const f32 step = 1.0f / static_cast<f32>(reflect::tickRate());
+        if (ImGui::DragFloat(label, &seconds, step, 0.0f, 3600.0f, "%.3f s")) {
+            const Ticks next = Ticks::seconds(seconds);
+            changed = next.value != t.value;
+            t = next;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("%s", trf("%s: %u ticks at %u Hz", name, static_cast<unsigned>(t.value),
+                                        static_cast<unsigned>(reflect::tickRate()))
+                                        .c_str());
+        return changed;
+    }
+    case Kind::Color: {
+        Color& c = *static_cast<Color*>(data);
+        f32 rgba[4] = {static_cast<f32>(c.value & 0xFF) / 255.0f, static_cast<f32>((c.value >> 8) & 0xFF) / 255.0f,
+                       static_cast<f32>((c.value >> 16) & 0xFF) / 255.0f, static_cast<f32>(c.value >> 24) / 255.0f};
+        if (ImGui::ColorEdit4(label, rgba, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf)) {
+            auto byte = [](f32 v) { return static_cast<u8>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); };
+            const Color next = Color::rgb(byte(rgba[0]), byte(rgba[1]), byte(rgba[2]), byte(rgba[3]));
+            changed = next != c;
+            c = next;
+        }
+        break;
+    }
     case Kind::Id: {
         const std::string text = reflect::formatScalar(v, data);
         ImGui::LabelText(label, "%s", text.c_str());

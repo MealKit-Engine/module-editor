@@ -54,12 +54,19 @@ public:
     // 게임 DLL이 선언한 오브젝트 종류 (DLL을 내리기 전에 nullptr로 되돌린다)
     void setGameTypes(const scene::TypeList* types) { m_gameTypes = types; }
     // 게임 튜닝 타입 (DLL을 내리기 전에 nullptr). 편집 중인 값은 텍스트로 보존했다가 새 타입에 다시 넣는다.
-    void setTuningType(const reflect::TypeInfo* type);
+    void setTuningType(const reflect::TypeInfo* type) { setTuningDocType(m_tuning, type); }
     // 플레이를 시작할 때: 저장 안 된 튜닝 값을 임시 파일로 써서 경로를 돌려준다 (타입이 없으면 빈 문자열 = 기본 파일)
-    std::string writePlayTuning();
+    std::string writePlayTuning() { return writePlayCopy(m_tuning, "play.tuning"); }
     // 튜닝이 바뀌었으면 한 번 true (혼자 플레이 중이면 앱이 게임에 바로 적용한다)
-    bool takeTuningChanged();
-    const void* tuningData() const { return m_tuning.data(); }
+    bool takeTuningChanged() { return takeChanged(m_tuning); }
+    const void* tuningData() const { return m_tuning.value.data(); }
+    // 화면용 튜닝 (GameModule::viewTuningType, assets/view.tuning): 고치면 플레이 중인 게임에 바로 보인다 (여러 명이어도).
+    void setViewTuningType(const reflect::TypeInfo* type) { setTuningDocType(m_viewTuning, type); }
+    reflect::View viewTuning() const { return {m_viewTuning.value.type(), m_viewTuning.value.data()}; }
+    // 참가 창이 읽는 화면용 튜닝 사본 (여러 명 플레이를 시작할 때 쓰고, 값이 바뀌면 다시 쓴다)
+    std::string writePlayViewTuning() { return writePlayCopy(m_viewTuning, kPlayViewTuningFile); }
+    bool takeViewTuningChanged() { return takeChanged(m_viewTuning); }
+    static constexpr const char* kPlayViewTuningFile = "play.view.tuning";
     // 게임이 더한 프로젝트 설정 타입 (GameModule::projectSettingsType, DLL을 내리기 전에 nullptr). 값은 텍스트로 보존한다.
     void setProjectSettingsType(const reflect::TypeInfo* type);
     // [프로젝트 설정] 창을 연다 (자동 테스트용)
@@ -100,6 +107,16 @@ public:
     void selectByIndex(int index); // 자동 테스트/스크린샷용
 
 private:
+    // 튜닝 파일 하나 (assets/game.tuning, assets/view.tuning)를 게임 DLL의 타입으로 편집한다
+    struct TuningDoc {
+        const char* file = ""; // assets 안의 파일 이름
+        reflect::Instance value;
+        reflect::TextFields text; // DLL을 바꿔 끼울 때 값을 보존한다
+        bool loaded = false;
+        bool dirty = false;   // 파일과 다르다
+        bool changed = false; // 플레이 중인 게임에 아직 넘기지 않았다
+    };
+
     struct Snapshot {
         std::vector<scene::Entity> entities;
         scene::Environment environment;
@@ -115,6 +132,13 @@ private:
     void drawInspector(bool editing);
     void drawEnvironment(bool editing);
     void drawTuning();
+    void drawTuningDoc(TuningDoc& doc, bool liveInMultiplayer);
+    void setTuningDocType(TuningDoc& doc, const reflect::TypeInfo* type);
+    std::string tuningDocPath(const TuningDoc& doc) const;
+    bool loadTuningDoc(TuningDoc& doc);
+    bool saveTuningDoc(TuningDoc& doc);
+    std::string writePlayCopy(const TuningDoc& doc, const char* fileName);
+    static bool takeChanged(TuningDoc& doc);
     void drawProjectSettings();
     bool saveProjectSettings();
     void revertProjectSettings();
@@ -125,9 +149,6 @@ private:
     void updateAutosave(f64 dt);
     void focusPanel(const char* window);
     void focusPanelNow(); // 그 창의 Begin 직전에 부른다
-    std::string tuningPath() const;
-    bool loadTuningFile();
-    bool saveTuning();
     void drawGizmo();
     void drawBuildLog();
     void setupDefaultLayout(u32 dockId);
@@ -216,11 +237,8 @@ private:
     bool m_layoutReset = false;
 
     const scene::TypeList* m_gameTypes = nullptr;
-    reflect::Instance m_tuning;       // 게임 DLL의 튜닝 타입 인스턴스
-    reflect::TextFields m_tuningText; // DLL을 바꿔 끼울 때 값을 보존한다
-    bool m_tuningLoaded = false;
-    bool m_tuningDirty = false;
-    bool m_tuningChanged = false;
+    TuningDoc m_tuning{"game.tuning"};     // 게임 튜닝 (시뮬레이션, 콘텐츠 해시)
+    TuningDoc m_viewTuning{"view.tuning"}; // 화면용 튜닝
     reflect::View m_stateView;
     const char* m_focusPanel = nullptr; // 앞으로 가져올 패널 (모드가 바뀔 때)
     int m_focusFrames = 0;
