@@ -161,6 +161,7 @@ private:
     void addEntity(const std::string& type);
     const reflect::TypeInfo* entityType(const scene::Entity& e) const; // 모르는 종류(게임 코드 없음)면 nullptr
     bool isMarker(const scene::Entity& e) const;
+    bool isArea(const scene::Entity& e) const;
     std::vector<const reflect::TypeInfo*> allTypes() const; // 기본 종류 + 게임 종류(라벨 순)
     void drawTypeMenuItems();
     void drawObjectFields(scene::Entity& e);

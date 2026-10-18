@@ -42,7 +42,7 @@ namespace {
 struct Options {
     std::string projectDir;
     std::string scenePath;
-    u32 bodies = 2000;
+    u32 bodies = 0; // --bodies: 매치 데이터 (게임이 정한다)
     bool debugLayer = false;
     // 자동 테스트/스크린샷용
     u32 frames = 0; // 이 프레임 수만큼 돌고 종료

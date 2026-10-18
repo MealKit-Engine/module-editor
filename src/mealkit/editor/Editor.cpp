@@ -37,6 +37,21 @@ constexpr f64 kAutosaveSeconds = 90.0; // 저장 안 된 변경이 있으면 이
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
 
 constexpr const char* kEntityPayload = "MEALKIT_ENTITY";
+constexpr f32 kAreaEdgeDraw = 0.0025f; // 영역 모서리 두께 (카메라 거리의 비율, 멀어도 보이게)
+constexpr f32 kAreaEdgePick = 0.6f;   // 영역 모서리를 누를 수 있는 두께 (m)
+
+// 영역 상자의 모서리 12개: 물체 로컬(크기 적용) 공간의 중심과 반 크기
+void areaEdges(Vec3 half, f32 thickness, Vec3 centers[12], Vec3 halves[12]) {
+    const f32 t = thickness * 0.5f;
+    int n = 0;
+    for (int a = -1; a <= 1; a += 2)
+        for (int b = -1; b <= 1; b += 2) {
+            const f32 fa = static_cast<f32>(a), fb = static_cast<f32>(b);
+            centers[n] = {0.0f, fa * half.y, fb * half.z}, halves[n++] = {half.x + t, t, t}; // x 방향
+            centers[n] = {fa * half.x, 0.0f, fb * half.z}, halves[n++] = {t, half.y + t, t}; // y 방향
+            centers[n] = {fa * half.x, fb * half.y, 0.0f}, halves[n++] = {t, t, half.z + t}; // z 방향
+        }
+}
 
 // 행 벡터 규약 TRS 행렬 (ImGuizmo와 같은 메모리 배치: 이동이 [12..14])
 void compose(const scene::Transform& e, f32 out[16]) {
@@ -391,6 +406,21 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
     const render::MeshId box = m_models->boxMesh();
     for (const Entity& e : m_scene.entities) {
         const scene::Transform world = scene::worldTransform(m_scene, e);
+        if (isArea(e)) { // 보이지 않는 영역: 안이 가려지지 않게 모서리만
+            Vec3 centers[12], halves[12];
+            const f32 thickness = std::max(0.05f, length(world.position - m_cameraPos) * kAreaEdgeDraw);
+            areaEdges(world.scale * 0.5f, thickness, centers, halves);
+            for (int i = 0; i < 12; ++i) {
+                render::InstanceData edge;
+                edge.position = world.position + rotate(world.rotation, centers[i]);
+                edge.rotation = world.rotation;
+                edge.scale = halves[i] * 2.0f;
+                edge.color = e.color;
+                edge.flags = e.id == m_selected ? render::kInstanceHighlight : 0u;
+                out.add(box, edge);
+            }
+            continue;
+        }
         render::InstanceData inst;
         inst.position = world.position;
         inst.rotation = world.rotation;
@@ -1197,6 +1227,18 @@ void Editor::handlePicking() {
     f32 bestT = 1e30f;
     for (const Entity& e : m_scene.entities) {
         const scene::Transform w = scene::worldTransform(m_scene, e);
+        if (isArea(e)) { // 영역은 모서리를 눌러야 고른다 (안을 누르면 안의 물체)
+            Vec3 centers[12], halves[12];
+            areaEdges(w.scale * 0.5f, kAreaEdgePick, centers, halves);
+            for (int i = 0; i < 12; ++i) {
+                const f32 t = rayBox(m_cameraPos, dir, w, centers[i], halves[i]);
+                if (t >= 0.0f && t < bestT) {
+                    bestT = t;
+                    best = e.id;
+                }
+            }
+            continue;
+        }
         Vec3 center{}, half = (isMarker(e) ? kSpawnSize : w.scale) * 0.5f;
         if (const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model)) {
             const Vec3 c = (model->boundsMin + model->boundsMax) * 0.5f,
@@ -1222,6 +1264,11 @@ const reflect::TypeInfo* Editor::entityType(const Entity& e) const { return scen
 bool Editor::isMarker(const Entity& e) const {
     const reflect::TypeInfo* type = entityType(e);
     return type && (type->flags & reflect::kObjectMarker);
+}
+
+bool Editor::isArea(const Entity& e) const {
+    const reflect::TypeInfo* type = entityType(e);
+    return type && (type->flags & reflect::kObjectArea);
 }
 
 std::vector<const reflect::TypeInfo*> Editor::allTypes() const {
@@ -1294,6 +1341,10 @@ void Editor::addEntity(const std::string& typeName) {
     if (type->flags & reflect::kObjectMarker) {
         e.position = {pos.x, std::max(pos.y, 0.0f) + 0.9f, pos.z};
         e.color = 0xFF5ADCFF;
+    } else if (type->flags & reflect::kObjectArea) {
+        e.scale = {10, 4, 10};
+        e.position = {pos.x, std::max(pos.y, 0.0f) + 2.0f, pos.z};
+        e.color = 0xFF50C8FF;
     } else {
         e.scale = {2, 2, 2};
         e.position = {pos.x, std::max(pos.y, 0.0f) + 1.0f, pos.z};
