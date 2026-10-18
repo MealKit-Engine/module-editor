@@ -176,6 +176,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     // 혼자 플레이: 튜닝을 바꾸면 바로 적용. 여러 명이면 피어마다 달라져 디싱크가 나므로 적용하지 않는다.
     if (editor.takeTuningChanged() && !multiplayer()) m_game->setTuning(editor.tuningData());
     m_game->update(ctx, dt);
+    m_game->debugUi(ctx); // 에디터 ImGui 프레임 안 (게임 DLL도 mealkit.dll의 같은 ImGui를 쓴다)
     editor.setStateView(m_game->stateView());
     editor.setSimDebug(m_game->debug(), !multiplayer());
 
