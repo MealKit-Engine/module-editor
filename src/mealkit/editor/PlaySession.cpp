@@ -167,6 +167,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
                           m_actions,
                           m_strings,
                           m_ui,
+                          m_settings,
                           editor.viewport(),
                           editor.gameKeyboardAllowed(),
                           editor.gameMouseAllowed(),
@@ -175,10 +176,18 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     if (!m_uiReady) {
         m_ui.init(&renderer, &m_strings);
         m_uiReady = true;
+        settings::Service::Targets t; // 화면 항목(창 모드·크기·수직동기)은 에디터에 적용하지 않는다
+        t.audio = m_audio;
+        t.strings = &m_strings;
+        t.ui = &m_ui;
+        t.actions = &m_actions;
+        t.projectLanguage = editor.project().settings.language;
+        m_settings.init(t, game::userFolder(editor.project().settings) + "/" + settings::kSettingsFile);
     }
     m_ui.update({&window.input(), &m_actions, ctx.mouseAllowed, ctx.keyboardAllowed}, ctx.viewport, dt);
     if (m_ui.wantsMouse()) ctx.mouseAllowed = false;
     if (m_ui.wantsKeyboard()) ctx.keyboardAllowed = false;
+    m_settings.update(&window.input(), dt);
     m_pads.update(dt); // 패드는 게임 뷰가 키보드를 받을 때만 (다른 패널을 고치는 동안 캐릭터가 움직이지 않게)
     m_actions.update(window.input(), ctx.keyboardAllowed ? m_pads.first() : input::PadState{}, ctx.keyboardAllowed,
                      ctx.mouseAllowed, dt);
@@ -209,7 +218,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
 void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer,
                              asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
     if (!m_game || !m_session) return;
-    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, *m_feedback, m_actions, m_strings, m_ui, editor.viewport()};
+    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, *m_feedback, m_actions, m_strings, m_ui, m_settings, editor.viewport()};
     ctx.viewTuningData = editor.viewTuning();
     m_game->buildFrame(ctx, now, frame, out);
     m_ui.setCamera(frame.viewProj); // 월드 위 UI (drawAt은 buildFrame 안에서)
@@ -276,12 +285,22 @@ int runPlayer(const PlayerOptions& o) {
     strings.load(project.settings.language, project.settings.language);
     ui::System ui;
     ui.init(&renderer, &strings);
+    settings::Service playerSettings; // 참가 창: 기본값, 저장하지 않는다 (같은 PC의 여러 창이 한 파일을 쓰지 않게)
+    {
+        settings::Service::Targets t;
+        t.audio = &audio;
+        t.strings = &strings;
+        t.ui = &ui;
+        t.actions = &actions;
+        t.projectLanguage = project.settings.language;
+        playerSettings.init(t, {});
+    }
 
     game::GameInstance* game = host.create();
     game::PlayOptions options;
     options.bot = o.bot;
     options.tuningPath = o.tuningPath;
-    game::GameContext ctx{window, renderer, models, session, audio, feedback, actions, strings, ui};
+    game::GameContext ctx{window, renderer, models, session, audio, feedback, actions, strings, ui, playerSettings};
     render::DrawList drawList;
     f64 lastTime = nowSeconds();
     int exitCode = 0;
@@ -309,6 +328,7 @@ int runPlayer(const PlayerOptions& o) {
         ui.update({&window.input(), &actions, ctx.mouseAllowed, ctx.keyboardAllowed}, ctx.viewport, dt);
         if (ui.wantsMouse()) ctx.mouseAllowed = false;
         if (ui.wantsKeyboard()) ctx.keyboardAllowed = false;
+        playerSettings.update(&window.input(), dt);
         actions.update(window.input(), window.focused() ? pads.first() : input::PadState{}, ctx.keyboardAllowed,
                        ctx.mouseAllowed, dt);
         game->update(ctx, dt);

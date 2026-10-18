@@ -5,6 +5,7 @@
 #include "mealkit/game/ProjectSettings.h"
 #include "mealkit/input/Actions.h"
 #include "mealkit/loc/Strings.h"
+#include "mealkit/settings/Settings.h"
 #include "mealkit/ui/Ui.h"
 #include "mealkit/platform/Gamepad.h"
 #include "mealkit/platform/Process.h"
@@ -90,6 +91,7 @@ private:
     loc::Strings m_strings; // 게임 문자열 표 (프로젝트 기본 언어, 플레이 중에 고치면 다시 읽는다)
     ui::System m_ui;        // 게임 화면 UI (씬 뷰 영역에 그린다)
     bool m_uiReady = false;
+    settings::Service m_settings; // 플레이어 설정 (에디터 창의 모드는 바꾸지 않는다)
     std::unique_ptr<net::LockstepSession> m_session;
     game::GameInstance* m_game = nullptr;
     ProcessGroup m_clients;
