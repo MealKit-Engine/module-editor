@@ -11,6 +11,7 @@
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/game/GameData.h"
+#include "mealkit/input/Actions.h"
 #include "mealkit/net/Lockstep.h"
 #include "mealkit/net/Socket.h"
 #include "mealkit/platform/Paths.h"
@@ -51,6 +52,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     stop();
     m_audio = &audio;
     m_feedback = &feedback;
+    m_actions.load(); // 에디터 플레이는 프로젝트 바인딩만 쓴다 (플레이어가 바꾼 키 파일 없음)
     m_config = config;
     m_config.players = std::clamp(config.players, 1u, net::kMaxPlayers);
     m_host = &host;
@@ -159,10 +161,12 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
                           session,
                           *m_audio,
                           *m_feedback,
+                          m_actions,
                           editor.viewport(),
                           editor.gameKeyboardAllowed(),
                           editor.gameMouseAllowed(),
                           editor.viewTuning()};
+    m_actions.update(window.input(), input::PadState{}, ctx.keyboardAllowed, ctx.mouseAllowed, dt);
     if (!m_game->started()) {
         m_game->start(ctx, editor.scene(), m_options);
         MEALKIT_INFO("Play mode: %u player(s), match data %u", session.playerCount(), session.matchData());
@@ -189,7 +193,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
 void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer,
                              asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
     if (!m_game || !m_session) return;
-    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, *m_feedback, editor.viewport()};
+    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, *m_feedback, m_actions, editor.viewport()};
     ctx.viewTuningData = editor.viewTuning();
     m_game->buildFrame(ctx, now, frame, out);
     m_audio->setListener(frame.cameraPos, frame.cameraForward);
@@ -244,12 +248,14 @@ int runPlayer(const PlayerOptions& o) {
     audio::Engine audio;
     audio.init({project.settings.audioVoices, true});
     feedback::Player feedback(audio);
+    input::Actions actions;
+    actions.load();
 
     game::GameInstance* game = host.create();
     game::PlayOptions options;
     options.bot = o.bot;
     options.tuningPath = o.tuningPath;
-    game::GameContext ctx{window, renderer, models, session, audio, feedback};
+    game::GameContext ctx{window, renderer, models, session, audio, feedback, actions};
     render::DrawList drawList;
     f64 lastTime = nowSeconds();
     int exitCode = 0;
@@ -272,6 +278,7 @@ int runPlayer(const PlayerOptions& o) {
         if (!game->started() && session.state() == net::SessionState::Running) game->start(ctx, scene, options);
         audio.update(dt);
         feedback.update(dt);
+        actions.update(window.input(), input::PadState{}, ctx.keyboardAllowed, ctx.mouseAllowed, dt);
         game->update(ctx, dt);
         if (!window.minimized()) {
             render::FrameParams frame;

@@ -12,6 +12,7 @@
 
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/audio/Audio.h"
+#include "mealkit/input/Actions.h"
 #include "mealkit/feedback/Feedback.h"
 #include "mealkit/core/Clock.h"
 #include "mealkit/core/Log.h"
@@ -186,7 +187,9 @@ int main(int argc, char** argv) {
     if (!editor.init(window, renderer, scenePath, models)) MEALKIT_FATAL("Editor initialization failed");
     editor.setAudio(&audio);
     editor.setFeedback(&feedback);
-    editor.setEngineTables(audio::engineTables());
+    reflect::TableList engineTables = audio::engineTables(); // [표] 패널에 나오는 엔진 표: 소리 이벤트, 입력 바인딩
+    engineTables.insert(engineTables.end(), input::engineTables().begin(), input::engineTables().end());
+    editor.setEngineTables(engineTables);
     editor.setEngineDirectory(engineDirectory());
     editor.setProject(project);
     if (opt.select >= 0) editor.selectByIndex(opt.select);
