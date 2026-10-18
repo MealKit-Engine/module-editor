@@ -3,6 +3,7 @@
 #include "mealkit/editor/Strings.h"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -130,7 +131,41 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
     }
 }
 
-bool drawValue(const char* label, const char* name, const ValueInfo& v, void* data) {
+// 행 참조: 가리키는 표의 행 id를 고른다 (표를 모르면 글자로)
+bool drawRowRef(const char* label, const ValueInfo& v, void* data, const FieldContext* context) {
+    const reflect::RowRefView ref = reflect::rowRefOf(data);
+    const std::vector<std::string>* ids = nullptr;
+    if (context && context->tables)
+        for (const game::TableIndex& t : *context->tables)
+            if (t.rowType == v.type || std::strcmp(t.rowType->name, v.type->name) == 0) ids = t.ids;
+    if (!ids) return inputString(label, *ref.id);
+    bool found = ref.id->empty();
+    for (const std::string& id : *ids) found = found || id == *ref.id;
+    if (!found) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+    const std::string preview = ref.id->empty() ? std::string(tr("(none)")) : *ref.id + (found ? "" : " (?)");
+    bool changed = false;
+    if (ImGui::BeginCombo(label, preview.c_str())) {
+        if (!found) ImGui::PopStyleColor();
+        if (ImGui::Selectable(tr("(none)"), ref.id->empty())) {
+            ref.id->clear();
+            changed = true;
+        }
+        for (const std::string& id : *ids) {
+            if (ImGui::Selectable(id.c_str(), id == *ref.id)) {
+                *ref.id = id;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    } else if (!found) {
+        ImGui::PopStyleColor();
+    }
+    if (!found && ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", trf("'%s' is not a row of the %s table", ref.id->c_str(), v.type->name).c_str());
+    return changed;
+}
+
+bool drawValue(const char* label, const char* name, const ValueInfo& v, void* data, const FieldContext* context) {
     bool changed = false;
     switch (v.kind) {
     case Kind::Bool: changed = ImGui::Checkbox(label, static_cast<bool*>(data)); break;
@@ -147,6 +182,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
         break;
     }
     case Kind::String: changed = inputString(label, *static_cast<std::string*>(data)); break;
+    case Kind::RowRef: changed = drawRowRef(label, v, data, context); break;
     case Kind::Ticks: { // 초로 고치고 틱으로 반올림한다
         Ticks& t = *static_cast<Ticks*>(data);
         f32 seconds = t.toSeconds();
@@ -181,7 +217,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
     }
     case Kind::Struct:
         if (ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_DefaultOpen)) {
-            changed = drawFields(*v.type, data);
+            changed = drawFields(*v.type, data, context);
             ImGui::TreePop();
         }
         break;
@@ -190,7 +226,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
             for (u32 i = 0; i < v.count; ++i) {
                 const std::string item = "[" + std::to_string(i) + "]";
                 ImGui::PushID(static_cast<int>(i));
-                changed |= drawValue(item.c_str(), name, *v.element, at(data, i * v.element->size));
+                changed |= drawValue(item.c_str(), name, *v.element, at(data, i * v.element->size), context);
                 ImGui::PopID();
             }
             ImGui::TreePop();
@@ -209,13 +245,18 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
 
 } // namespace
 
-bool drawFields(const TypeInfo& type, void* data) {
+bool drawValueWidget(const char* label, const char* name, const ValueInfo& value, void* data,
+                     const FieldContext* context) {
+    return drawValue(label, name, value, data, context);
+}
+
+bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
     bool changed = false;
     for (const FieldInfo& f : type.fields) {
         ImGui::PushID(f.name);
         const bool readOnly = (f.flags & reflect::kFieldReadOnly) != 0;
         ImGui::BeginDisabled(readOnly);
-        changed |= drawValue(trData(f.label), f.name, *f.value, at(data, f.offset));
+        changed |= drawValue(trData(f.label), f.name, *f.value, at(data, f.offset), context);
         ImGui::EndDisabled();
         ImGui::PopID();
     }

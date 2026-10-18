@@ -212,6 +212,8 @@ void Editor::update(f64 dt) {
     drawInspector(editing);
     drawEnvironment(editing);
     drawTuning();
+    if (m_tablesOpen) m_tablesPanel.draw(m_window->nativeHandle(), editing, &m_tablesOpen);
+    updateRowProblems(dt);
     drawProjectSettings();
     drawState();
     pollBuild();
@@ -500,6 +502,8 @@ void Editor::drawMenuBar() {
             if (m_tuning.dirty) saveTuningDoc(m_tuning);
             if (m_viewTuning.dirty) saveTuningDoc(m_viewTuning);
             if (m_projectDirty) saveProjectSettings();
+            std::string status;
+            if (m_tablesPanel.dirty()) m_tablesPanel.saveAll(&status);
         }
         if (ImGui::MenuItem(tr("Save As..."))) saveSceneAs();
         ImGui::Separator();
@@ -525,6 +529,7 @@ void Editor::drawMenuBar() {
     }
     if (ImGui::BeginMenu(tr("View"))) {
         if (ImGui::MenuItem(tr("Focus Selected"), "F", false, editing && m_selected != 0)) focusSelected();
+        ImGui::MenuItem(tr("Tables"), "Ctrl+T", &m_tablesOpen);
         if (ImGui::MenuItem(tr("Reset Layout"))) m_layoutReset = true;
         ImGui::EndMenu();
     }
@@ -963,7 +968,8 @@ void Editor::drawTuningDoc(TuningDoc& doc, bool liveInMultiplayer) {
                            tr("Changes do not apply during multiplayer play (from the next play)"));
     ImGui::Separator();
     ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
-    if (drawFields(*type, doc.value.data())) doc.dirty = doc.changed = true;
+    const FieldContext context{&m_tablesPanel.index()};
+    if (drawFields(*type, doc.value.data(), &context)) doc.dirty = doc.changed = true;
     ImGui::PopItemWidth();
 }
 
@@ -994,6 +1000,37 @@ void Editor::drawTuning() {
         ImGui::EndTabBar();
     }
     ImGui::End();
+}
+
+// ---------------------------------------------------------------- 정의 데이터 표 ([표] 패널)
+
+void Editor::saveTablesForPlay() {
+    std::string status;
+    if (!m_tablesPanel.dirty()) return;
+    if (m_tablesPanel.saveAll(&status)) setStatus(trf("Tables saved for play: %s", status.c_str()));
+    else setStatus(status);
+}
+
+// 패널 밖 데이터(튜닝, 씬 물체 필드)의 행 참조도 [표] 패널의 "없는 행 참조" 목록에 넣는다 (0.5초마다)
+void Editor::updateRowProblems(f64 dt) {
+    m_rowCheckTimer += dt;
+    if (m_rowCheckTimer < 0.5) return;
+    m_rowCheckTimer = 0.0;
+    std::vector<std::string> problems;
+    const game::TableIndexList& index = m_tablesPanel.index();
+    if (index.empty()) {
+        m_tablesPanel.setExtraProblems({});
+        return;
+    }
+    if (m_tuning.value.type()) game::resolveRows(*m_tuning.value.type(), m_tuning.value.data(), index, &problems, "game.tuning: ");
+    for (const Entity& e : m_scene.entities) {
+        const reflect::TypeInfo* type = entityType(e);
+        if (!type || type->fields.empty() || !m_gameTypes) continue;
+        reflect::Instance instance(*type);
+        reflect::fromText(*type, instance.data(), e.fields);
+        game::resolveRows(*type, instance.data(), index, &problems, fileName(m_scenePath) + " " + e.name + ": ");
+    }
+    m_tablesPanel.setExtraProblems(std::move(problems));
 }
 
 // ---------------------------------------------------------------- 프로젝트 설정 (mealkit.project)
@@ -1185,7 +1222,10 @@ void Editor::handleShortcuts() {
             if (m_tuning.dirty) saveTuningDoc(m_tuning);
             if (m_viewTuning.dirty) saveTuningDoc(m_viewTuning);
             if (m_projectDirty) saveProjectSettings();
+            std::string status;
+            if (m_tablesPanel.dirty()) m_tablesPanel.saveAll(&status);
         }
+        if (pressed(ImGuiKey_T)) m_tablesOpen = !m_tablesOpen;
         if (pressed(ImGuiKey_Z)) io.KeyShift ? redo() : undo();
         if (pressed(ImGuiKey_Y)) redo();
         if (pressed(ImGuiKey_D)) duplicateSelected();
@@ -1315,7 +1355,8 @@ void Editor::drawObjectFields(Entity& e) {
     reflect::Instance instance(*type);
     std::string warnings;
     reflect::fromText(*type, instance.data(), e.fields, &warnings);
-    if (drawFields(*type, instance.data())) {
+    const FieldContext context{&m_tablesPanel.index()};
+    if (drawFields(*type, instance.data(), &context)) {
         reflect::TextFields fields;
         reflect::toText(*type, instance.data(), fields);
         e.fields = std::move(fields);
@@ -1555,6 +1596,7 @@ void Editor::updateTitle() {
 
 void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
+    m_tablesPanel.setProjectDirectory(project.directory);
     revertProjectSettings();
     // 엔진 저장소 자신(engine 없음)은 묻지 않는다
     const game::ProjectSettings& s = project.settings;

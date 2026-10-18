@@ -55,6 +55,7 @@ struct Options {
     u32 players = 0;         // 0 = 에디터 설정, 2~4 = 여러 명 플레이 (자동 테스트)
     bool upgrade = false;    // 시작하자마자 프로젝트 업그레이드
     bool projectSettings = false; // [프로젝트 설정] 창을 열고 시작
+    bool tables = false;          // [표] 창을 열고 시작
     // 참가 창 모드
     std::string playerAddress;
     std::string tuningPath;
@@ -85,6 +86,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--players" && next(v)) o.players = static_cast<u32>(std::atoi(v));
         else if (a == "--upgrade") o.upgrade = true;
         else if (a == "--project-settings") o.projectSettings = true;
+        else if (a == "--tables") o.tables = true;
         else if (a == "--player" && next(v)) o.playerAddress = v;
         else if (a == "--player-index" && next(v)) o.playerIndex = static_cast<u32>(std::atoi(v));
         else if (a == "--scene" && next(v)) o.scenePath = v;
@@ -96,7 +98,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
-                "              --project-settings\n"
+                "              --project-settings --tables\n"
                 "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>]\n"
                 "                 [--view-tuning <file>] [--bot]\n");
             return false;
@@ -177,6 +179,7 @@ int main(int argc, char** argv) {
     if (opt.players > 1) editor.setPlayPlayers(opt.players);
     if (opt.upgrade) editor.requestUpgrade();
     if (opt.projectSettings) editor.openProjectSettings();
+    if (opt.tables) editor.openTables();
     if (opt.play) editor.requestPlay();
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);
 
@@ -189,11 +192,14 @@ int main(int argc, char** argv) {
         editor.setTuningType(nullptr);
         editor.setViewTuningType(nullptr);
         editor.setProjectSettingsType(nullptr);
+        editor.setTables(nullptr);
         const bool loaded = host.load(dllPath, loadError);
         if (host.loaded()) {
             editor.setGameTypes(host.module()->objectTypes());
             editor.setTuningType(host.module()->tuningType());
             editor.setViewTuningType(host.module()->viewTuningType ? host.module()->viewTuningType() : nullptr);
+            static const reflect::TableList kNoTables;
+            editor.setTables(host.module()->tables ? host.module()->tables() : &kNoTables);
             editor.setProjectSettingsType(host.module()->projectSettingsType ? host.module()->projectSettingsType()
                                                                              : nullptr);
         }
@@ -312,6 +318,7 @@ int main(int argc, char** argv) {
     editor.setTuningType(nullptr);
     editor.setViewTuningType(nullptr);
     editor.setProjectSettingsType(nullptr);
+    editor.setTables(nullptr);
     host.unload();
     editor.shutdown();
     renderer.shutdown();

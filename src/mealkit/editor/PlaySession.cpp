@@ -39,7 +39,7 @@ u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const 
     if (gameProjectType) game::applyGameSettings(project, *gameProjectType, gameProject.data());
     return game::contentHash(scene, models, module.objectTypes ? module.objectTypes() : nullptr, tuningType,
                              tuning.data(), {&reflect::typeOf<game::ProjectSettings>(), &project.settings},
-                             {gameProjectType, gameProject.data()});
+                             {gameProjectType, gameProject.data()}, module.tables ? module.tables() : nullptr);
 }
 
 PlaySession::~PlaySession() { stop(); }
@@ -58,6 +58,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     m_options.shadow = config.shadow;
     m_options.record = config.players <= 1; // 되감기는 혼자 플레이에서만 (여러 명이면 멈출 수 없다)
     m_options.tuningPath = editor.writePlayTuning();
+    editor.saveTablesForPlay(); // 게임은 매치를 시작할 때 표 파일을 읽는다
 
     m_session = std::make_unique<net::LockstepSession>();
     if (!multiplayer()) {

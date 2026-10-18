@@ -3,6 +3,7 @@
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
+#include "mealkit/editor/TablesPanel.h"
 #include "mealkit/game/SimDebug.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/render/DrawList.h"
@@ -71,6 +72,11 @@ public:
     void setProjectSettingsType(const reflect::TypeInfo* type);
     // [프로젝트 설정] 창을 연다 (자동 테스트용)
     void openProjectSettings() { m_projectWindowOpen = true; }
+    // 게임이 등록한 정의 데이터 표 ([표] 패널, DLL을 내리기 전에 nullptr. 값은 텍스트로 보존한다)
+    void setTables(const reflect::TableList* tables) { m_tablesPanel.setTables(tables); }
+    // 플레이를 시작할 때: 고친 표를 저장한다 (게임은 매치를 시작할 때 파일에서 읽는다)
+    void saveTablesForPlay();
+    void openTables() { m_tablesOpen = true; } // 자동 테스트용
     // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
     void setStateView(reflect::View view) { m_stateView = view; }
 
@@ -132,6 +138,7 @@ private:
     void drawInspector(bool editing);
     void drawEnvironment(bool editing);
     void drawTuning();
+    void updateRowProblems(f64 dt); // 튜닝·씬 물체의 없는 행 참조 → [표] 패널
     void drawTuningDoc(TuningDoc& doc, bool liveInMultiplayer);
     void setTuningDocType(TuningDoc& doc, const reflect::TypeInfo* type);
     std::string tuningDocPath(const TuningDoc& doc) const;
@@ -277,6 +284,9 @@ private:
     bool m_buildLogScroll = false;
     f64 m_buildStart = 0.0;
     ChildProcess m_layoutCheck; // tools\check_layout.ps1 (프로젝트를 열 때)
+    TablesPanel m_tablesPanel;
+    bool m_tablesOpen = false;
+    f64 m_rowCheckTimer = 0.0;
     std::string m_layoutOutput;
 };
 
