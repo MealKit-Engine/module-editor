@@ -52,8 +52,9 @@ struct PlayConfig {
 };
 
 // 방장과 참가 창이 같은 값으로 만드는 콘텐츠 해시 (씬 + 모델 + 튜닝 파일 + 저장된 프로젝트 설정)
+// parts: 구성별 해시 (net::ContentPart 순서, 거부 이유), 필요 없으면 nullptr
 u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const game::GameModule& module,
-                    const std::string& tuningPath, const game::ProjectFile& project);
+                    const std::string& tuningPath, const game::ProjectFile& project, u64* parts = nullptr);
 
 class PlaySession {
 public:

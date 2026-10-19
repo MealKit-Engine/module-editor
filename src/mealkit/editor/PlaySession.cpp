@@ -34,13 +34,14 @@ std::string playDirectory(const std::string& projectDir) { return projectDir + "
 } // namespace
 
 u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const game::GameModule& module,
-                    const std::string& tuningPath, const game::ProjectFile& project) {
+                    const std::string& tuningPath, const game::ProjectFile& project, u64* parts) {
     game::MatchDataOptions o;
     o.scene = &scene;
     o.tuningPath = tuningPath;
     o.project = &project;
     game::MatchData data;
     game::loadMatchData(game::gameTypes(module), o, models, data); // 씬을 주므로 실패하지 않는다
+    if (parts) std::copy(std::begin(data.contentParts), std::end(data.contentParts), parts);
     return data.contentHash;
 }
 
@@ -79,6 +80,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     matchConfig.inputDelay = game::msToTicks(kInputDelayMs);
     matchConfig.loopbackOnly = true; // 같은 PC의 참가 창만 (방화벽 창이 뜨지 않는다)
     matchConfig.announceRooms = false;
+    matchConfig.build = host.module()->build;
     if (!multiplayer()) {
         m_match->init(matchConfig);
         m_match->playOffline();
@@ -94,7 +96,8 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
             error = trf("Could not write the temporary scene: %s", scenePath.c_str());
             return false;
         }
-        matchConfig.contentHash = playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath, editor.project());
+        matchConfig.contentHash =
+            playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath, editor.project(), matchConfig.contentParts);
         m_match->init(matchConfig);
         const std::string viewTuningPath = editor.writePlayViewTuning(); // 참가 창은 이 사본이 바뀔 때마다 다시 읽는다
         editor.takeViewTuningChanged();
@@ -276,6 +279,8 @@ int runPlayer(const PlayerOptions& o) {
     {
         game::MatchServiceConfig c;
         c.contentHash = data.contentHash;
+        std::copy(std::begin(data.contentParts), std::end(data.contentParts), std::begin(c.contentParts));
+        c.build = host.module()->build;
         c.gameName = project.name();
         c.defaultPort = kEditorPlayPort;
         c.announceRooms = false;
