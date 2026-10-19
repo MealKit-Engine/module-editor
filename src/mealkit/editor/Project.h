@@ -15,10 +15,14 @@ struct ProjectInfo : game::ProjectFile {
 
     const std::string& name() const { return settings.name; }
     std::string filePath() const;        // <directory>\mealkit.project
-    std::string gameDllPath() const;     // build\Editor\bin\<name>_game.dll
+    std::string editorBuildDirectory() const; // build\<editorBuildName()>
+    std::string gameDllPath() const;     // build\<editorBuildName()>\bin\<name>_game.dll
     std::string startScenePath() const;  // assets\<scene>
     std::string exportDirectory() const; // export\<name>
 };
+
+// 이 에디터의 빌드 이름 = build.bat 인자: "Editor"(DX12) 또는 "VulkanEditor" (exe가 있는 build\<이름>\bin에서)
+const std::string& editorBuildName();
 
 // directory\mealkit.project를 읽는다. 실패하면 false와 이유.
 bool loadProject(const std::string& directory, ProjectInfo& out, std::string* error = nullptr);

@@ -29,7 +29,7 @@ namespace {
 
 constexpr u32 kInputDelayMs = 100; // 127.0.0.1 참가 창: 고정 (자동 조절 없음)
 
-std::string playDirectory(const std::string& projectDir) { return projectDir + "\\build\\Editor\\play"; }
+std::string playDirectory(const std::string& projectDir) { return projectDir + "\\build\\" + editorBuildName() + "\\play"; }
 
 } // namespace
 

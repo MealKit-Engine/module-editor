@@ -2,6 +2,7 @@
 
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/Project.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 
@@ -72,7 +73,7 @@ void TuningPanel::saveDirty() {
 
 std::string TuningPanel::writePlayCopy(const Doc& doc, const char* fileName) {
     if (!doc.value.type() || m_projectDir.empty()) return {};
-    const std::string dir = m_projectDir + "\\build\\Editor\\play";
+    const std::string dir = m_projectDir + "\\build\\" + editorBuildName() + "\\play";
     createDirectories(dir);
     const std::string path = dir + "\\" + fileName;
     return reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, "editor play (unsaved values)")

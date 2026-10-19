@@ -76,8 +76,19 @@ void eraseDirectory(std::vector<std::string>& list, const std::string& dir) {
 
 std::string ProjectInfo::filePath() const { return directory + "\\" + kProjectFileName; }
 
+const std::string& editorBuildName() {
+    // 에디터 exe는 <폴더>\build\<이름>\bin에 있다: Editor(DX12) 또는 VulkanEditor
+    static const std::string name = [] {
+        const std::string build = fileName(parentDirectory(executableDirectory()));
+        return build == "VulkanEditor" ? build : std::string("Editor");
+    }();
+    return name;
+}
+
+std::string ProjectInfo::editorBuildDirectory() const { return directory + "\\build\\" + editorBuildName(); }
+
 std::string ProjectInfo::gameDllPath() const {
-    return directory + "\\build\\Editor\\bin\\" + settings.name + "_game.dll";
+    return editorBuildDirectory() + "\\bin\\" + settings.name + "_game.dll";
 }
 
 std::string ProjectInfo::startScenePath() const {

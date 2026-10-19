@@ -28,7 +28,7 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
             m_status = trf("build.bat not found: %s", script.c_str());
             return false;
         }
-        const char* arg = kind == BuildKind::GameCode ? "Editor" : "Export";
+        const std::string arg = kind == BuildKind::GameCode ? editorBuildName() : std::string("Export");
         command = "\"" + script + "\" " + arg;
         m_log = std::string("> build.bat ") + arg + "\n";
     }
