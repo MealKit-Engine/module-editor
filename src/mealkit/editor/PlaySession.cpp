@@ -57,7 +57,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     m_host = &host;
     m_failure.clear();
     m_startTime = now;
-    m_seed = static_cast<u64>(std::time(nullptr));
+    m_left = m_firstMatch = m_loadingShown = false;
     m_options = {};
     m_options.bot = config.bot;
     m_options.shadow = config.shadow;
@@ -71,10 +71,20 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         stop();
         return false;
     }
-    m_session = std::make_unique<net::LockstepSession>();
+    m_match = std::make_unique<game::MatchService>();
+    game::MatchServiceConfig matchConfig;
+    matchConfig.gameName = editor.project().name();
+    matchConfig.defaultPort = kEditorPlayPort;
+    matchConfig.defaultMaxPlayers = m_config.players;
+    matchConfig.inputDelay = kInputDelay;
+    matchConfig.loopbackOnly = true; // 같은 PC의 참가 창만 (방화벽 창이 뜨지 않는다)
+    matchConfig.announceRooms = false;
     if (!multiplayer()) {
-        m_game->lobby(*m_session, m_options, game::userFolder(editor.project().settings)); // 로드아웃
-        m_session->startOffline(m_seed, config.bodies);
+        m_match->init(matchConfig);
+        m_match->playOffline();
+        m_game->lobby(m_match->session(), m_options, game::userFolder(editor.project().settings)); // 로드아웃
+        m_match->start(config.bodies);
+        m_firstMatch = true;
     } else {
         // 참가 창이 읽을 씬 사본 (저장 안 된 편집 포함)
         const std::string dir = playDirectory(config.projectDir);
@@ -84,12 +94,13 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
             error = trf("Could not write the temporary scene: %s", scenePath.c_str());
             return false;
         }
-        m_session->setContentHash(playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath, editor.project()));
+        matchConfig.contentHash = playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath, editor.project());
+        m_match->init(matchConfig);
         const std::string viewTuningPath = editor.writePlayViewTuning(); // 참가 창은 이 사본이 바뀔 때마다 다시 읽는다
         editor.takeViewTuningChanged();
-        if (!m_session->host(kEditorPlayPort, m_config.players, kInputDelay, true)) {
+        if (!m_match->host(kEditorPlayPort, m_config.players)) {
             error = trf("Could not open port %u (is another play session using it?)", static_cast<unsigned>(kEditorPlayPort));
-            m_session.reset();
+            m_match.reset();
             return false;
         }
         const std::string exe = executableDirectory() + "\\MealKitEditor.exe";
@@ -119,12 +130,12 @@ void PlaySession::stop() {
     m_clients.terminateAll();
     if (m_host && m_game) m_host->destroy(m_game);
     m_game = nullptr;
-    m_session.reset();
+    m_match.reset();
 }
 
 void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render::Renderer& renderer,
                          asset::ModelCache& models) {
-    if (!m_game || !m_session || !m_failure.empty()) return;
+    if (!m_game || !m_match || !m_failure.empty() || m_left) return;
     if (!m_frontReady) {
         game::FrontendConfig c; // 바인딩은 프로젝트 것만 (플레이어가 바꾼 키 파일 없음), 화면 항목은 적용하지 않는다
         c.renderer = &renderer;
@@ -135,20 +146,26 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         m_front.init(c); // 화면용 튜닝은 에디터가 넘긴다 (패널에서 고친 값)
         m_frontReady = true;
     }
-    net::LockstepSession& session = *m_session;
-    session.update(now);
+    net::LockstepSession& session = m_match->session();
+    m_match->update(now);
+    if (m_match->phase() == game::MatchPhase::Menu) { // 게임이 [나가기]를 눌렀다
+        m_left = true;
+        return;
+    }
     if (!m_game->started() && session.state() == net::SessionState::Lobby)
         m_game->lobby(session, m_options, game::userFolder(editor.project().settings));
 
-    // 방장: 모두 들어오면 매치 시작
-    if (session.isHost() && session.state() == net::SessionState::Lobby &&
-        session.lobbyPlayerCount() >= m_config.players)
-        session.startMatch(m_seed, m_config.bodies);
+    // 방장: 첫 매치는 모두 들어오면 시작한다 (그다음 매치는 게임의 로비 화면이 시작한다)
+    if (!m_firstMatch && session.isHost() && session.state() == net::SessionState::Lobby &&
+        session.lobbyPlayerCount() >= m_config.players) {
+        m_match->start(m_config.bodies);
+        m_firstMatch = true;
+    }
     if (session.state() == net::SessionState::Ended) {
         m_failure = trf("The session ended: %s", session.endReason());
         return;
     }
-    if (!m_game->started() && session.state() != net::SessionState::Running) {
+    if (!m_firstMatch) {
         if (now - m_startTime > kJoinTimeoutSeconds) {
             m_failure = trf("The player windows did not connect within %d seconds (see build\\Editor\\play\\player*.log)",
                             static_cast<int>(kJoinTimeoutSeconds));
@@ -167,18 +184,26 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         editor.writePlayViewTuning();
         m_viewTuningTimer = 0.0;
     }
-    game::GameContext ctx = m_front.context(window, renderer, models, session);
+    game::GameContext ctx = m_front.context(window, renderer, models, *m_match);
     ctx.viewport = editor.viewport();
     ctx.keyboardAllowed = editor.gameKeyboardAllowed();
     ctx.mouseAllowed = editor.gameMouseAllowed();
     ctx.viewTuningData = editor.viewTuning();
     ctx.userFolder = game::userFolder(editor.project().settings);
+    ctx.scene = &editor.scene();
+    // 매치 시작(로딩 화면을 한 번 그린 뒤)과 끝(로비로 돌아감)
+    if (!m_game->started() && session.state() == net::SessionState::Running) {
+        if (m_loadingShown) {
+            m_game->start(ctx, editor.scene(), m_options);
+            MEALKIT_INFO("Play mode: %u player(s), match data %u", session.playerCount(), session.matchData());
+        }
+        m_loadingShown = !m_loadingShown;
+    } else if (m_game->started() && session.state() != net::SessionState::Running) {
+        m_game->stop(ctx);
+        m_loadingShown = false;
+    }
     // 패드는 게임 뷰가 키보드를 받을 때만 (다른 패널을 고치는 동안 캐릭터가 움직이지 않게)
     m_front.update(now, dt, window.input(), editor.gameKeyboardAllowed(), ctx);
-    if (!m_game->started()) {
-        m_game->start(ctx, editor.scene(), m_options);
-        MEALKIT_INFO("Play mode: %u player(s), match data %u", session.playerCount(), session.matchData());
-    }
     // 혼자 플레이: 튜닝을 바꾸면 바로 적용. 여러 명이면 피어마다 달라져 디싱크가 나므로 적용하지 않는다.
     if (editor.takeTuningChanged() && !multiplayer()) m_game->setTuning(editor.tuningData());
     m_game->update(ctx, dt);
@@ -186,7 +211,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     editor.setStateView(m_game->stateView());
     editor.setSimDebug(m_game->debug(), !multiplayer());
 
-    if (m_perf.update(dt, {nullptr, m_session.get(), m_audio, m_game})) {
+    if (m_perf.update(dt, {nullptr, &session, m_audio, m_game})) {
         const game::FrameSample& perf = m_perf.sample();
         char text[256];
         const std::string players = multiplayer() ? " " + trf("%u players", m_config.players) : std::string();
@@ -200,16 +225,17 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
 
 void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer,
                              asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
-    if (!m_game || !m_session || !m_frontReady) return;
-    game::GameContext ctx = m_front.context(window, renderer, models, *m_session);
+    if (!m_game || !m_match || !m_frontReady) return;
+    game::GameContext ctx = m_front.context(window, renderer, models, *m_match);
     ctx.viewport = editor.viewport();
     ctx.viewTuningData = editor.viewTuning();
+    ctx.scene = &editor.scene();
     m_game->buildFrame(ctx, now, frame, out);
     m_front.afterBuildFrame(frame);
 }
 
 void PlaySession::renderUi(render::Renderer& renderer) {
-    if (m_game && m_session && m_frontReady) m_front.renderUi(renderer);
+    if (m_game && m_match && m_frontReady) m_front.renderUi(renderer);
 }
 
 // ---------------------------------------------------------------- 참가 창
@@ -246,15 +272,17 @@ int runPlayer(const PlayerOptions& o) {
     if (!game::loadMatchData(game::gameTypes(*host.module()), dataOptions, models, data)) return 1;
     const scene::Scene& scene = data.scene;
 
-    net::LockstepSession session;
-    session.setContentHash(data.contentHash);
-    net::Address address;
-    if (!net::startup() || !net::resolveAddress(o.address.c_str(), kEditorPlayPort, address)) {
-        MEALKIT_ERROR("Cannot resolve %s", o.address.c_str());
-        return 1;
+    game::MatchService matches;
+    {
+        game::MatchServiceConfig c;
+        c.contentHash = data.contentHash;
+        c.gameName = project.name();
+        c.defaultPort = kEditorPlayPort;
+        c.announceRooms = false;
+        matches.init(c);
     }
-    net::cleanup();
-    if (!session.join(address)) return 1;
+    if (!matches.join(o.address)) return 1;
+    net::LockstepSession& session = matches.session();
 
     // 참가 창은 같은 PC에서 여러 개가 뜨므로 소리를 끈 채로 시작한다 (게임 코드는 똑같이 소리를 부른다)
     audio::Engine audio;
@@ -278,26 +306,35 @@ int runPlayer(const PlayerOptions& o) {
     game::PlayOptions options;
     options.bot = o.bot;
     options.tuningPath = o.tuningPath;
-    game::GameContext ctx = front.context(window, renderer, models, session);
+    game::GameContext ctx = front.context(window, renderer, models, matches);
+    ctx.scene = &scene;
     render::DrawList drawList;
     f64 lastTime = nowSeconds();
     int exitCode = 0;
+    bool loadingShown = false;
     while (window.pumpMessages()) {
         const f64 now = nowSeconds();
         const f64 dt = std::min(now - lastTime, 0.25);
         lastTime = now;
-        if (window.input().keyPressed(key::Escape)) break;
+        if (!game->menus() && window.input().keyPressed(key::Escape)) break;
         if (window.consumeResize()) renderer.resize(window.width(), window.height());
-        session.update(now);
+        matches.update(now);
         if (session.state() == net::SessionState::Ended) {
             MEALKIT_INFO("Session ended: %s", session.endReason());
             exitCode = session.desynced() ? 2 : 0;
             break;
         }
+        if (matches.phase() == game::MatchPhase::Menu) break; // 게임이 [나가기]를 눌렀다
         ctx.viewport = {0.0f, 0.0f, static_cast<f32>(window.width()), static_cast<f32>(window.height())};
         ctx.keyboardAllowed = ctx.mouseAllowed = window.focused();
         if (!game->started() && session.state() != net::SessionState::Running) game->lobby(session, options, {});
-        if (!game->started() && session.state() == net::SessionState::Running) game->start(ctx, scene, options);
+        if (!game->started() && session.state() == net::SessionState::Running) {
+            if (loadingShown) game->start(ctx, scene, options);
+            loadingShown = !loadingShown;
+        } else if (game->started() && session.state() != net::SessionState::Running) {
+            game->stop(ctx);
+            loadingShown = false;
+        }
         audio.update(dt);
         feedback.update(dt);
         front.update(now, dt, window.input(), window.focused(), ctx);
@@ -314,8 +351,9 @@ int runPlayer(const PlayerOptions& o) {
             }
         }
     }
+    if (game->started()) game->stop(ctx);
     host.destroy(game);
-    session.shutdown();
+    matches.shutdown();
     host.unload();
     renderer.shutdown();
     return exitCode;

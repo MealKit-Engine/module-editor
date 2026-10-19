@@ -78,6 +78,8 @@ public:
     game::GameInstance* game() const { return m_game; }
     // 더 진행할 수 없으면(참가 대기 시간 초과, 세션 종료) 이유를 돌려준다
     const std::string& failure() const { return m_failure; }
+    // 게임의 화면 흐름이 매치를 나갔다 (메뉴의 [나가기] = 에디터는 플레이를 멈춘다)
+    bool leftByGame() const { return m_left; }
 
 private:
     GameModuleHost* m_host = nullptr;
@@ -87,12 +89,14 @@ private:
     // 플레이어 설정(에디터 창의 모드는 바꾸지 않는다). 렌더러를 받는 첫 update에서 init (플레이마다 다시 읽는다)
     game::Frontend m_front;
     bool m_frontReady = false;
-    std::unique_ptr<net::LockstepSession> m_session;
+    std::unique_ptr<game::MatchService> m_match; // 세션 (혼자: 네트워크 없는 로비, 여러 명: 127.0.0.1 방장)
     game::GameInstance* m_game = nullptr;
+    bool m_firstMatch = false;   // 첫 매치를 시작했다 (그다음은 게임의 로비 화면이 시작한다)
+    bool m_loadingShown = false; // 매치 시작 전 로딩 화면을 한 번 그렸다
+    bool m_left = false;
     ProcessGroup m_clients;
     PlayConfig m_config;
     game::PlayOptions m_options;
-    u64 m_seed = 0;
     f64 m_startTime = 0.0;
     game::FrameStats m_perf; // 플레이 상태 줄의 틱·시뮬레이션 시간 (takeSimMsPerTick은 여기서만 읽는다)
     f64 m_viewTuningTimer = 0.0;

@@ -313,6 +313,10 @@ int main(int argc, char** argv) {
                 editor.showMessage(play.failure());
                 stopGame();
                 editor.setMode(editor::Mode::Edit);
+            } else if (play.leftByGame()) { // 게임 메뉴의 [나가기]
+                MEALKIT_INFO("Play stopped by the game (left the match)");
+                stopGame();
+                editor.setMode(editor::Mode::Edit);
             }
         }
 
