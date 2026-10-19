@@ -1087,6 +1087,7 @@ bool Editor::saveProjectSettings() {
         setStatus(trf("Could not save project settings: %s", next.filePath().c_str()));
         return false;
     }
+    if (next.settings.tickRate != m_project.settings.tickRate) game::applyTickRate(next.settings); // 다음 플레이부터
     m_project = next;
     m_projectDirty = false;
     setStatus(trf("Project settings saved: %s", "mealkit.project"));

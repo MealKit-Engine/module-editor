@@ -27,7 +27,7 @@
 namespace mealkit::editor {
 namespace {
 
-constexpr u32 kInputDelay = 3;
+constexpr u32 kInputDelayMs = 100; // 127.0.0.1 참가 창: 고정 (자동 조절 없음)
 
 std::string playDirectory(const std::string& projectDir) { return projectDir + "\\build\\Editor\\play"; }
 
@@ -76,7 +76,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     matchConfig.gameName = editor.project().name();
     matchConfig.defaultPort = kEditorPlayPort;
     matchConfig.defaultMaxPlayers = m_config.players;
-    matchConfig.inputDelay = kInputDelay;
+    matchConfig.inputDelay = game::msToTicks(kInputDelayMs);
     matchConfig.loopbackOnly = true; // 같은 PC의 참가 창만 (방화벽 창이 뜨지 않는다)
     matchConfig.announceRooms = false;
     if (!multiplayer()) {

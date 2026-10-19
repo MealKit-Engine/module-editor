@@ -104,6 +104,7 @@ bool loadProject(const std::string& directory, ProjectInfo& out, std::string* er
         if (error) *error = "mealkit.project has no name";
         return false;
     }
+    game::applyTickRate(out.settings); // 튜닝·씬·표의 시간 값(초)을 이 틱레이트로 읽는다
     return true;
 }
 
