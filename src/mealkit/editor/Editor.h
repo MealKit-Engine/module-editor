@@ -7,6 +7,7 @@
 #include "mealkit/editor/UiPanel.h"
 #include "mealkit/editor/SoundPanel.h"
 #include "mealkit/editor/TablesPanel.h"
+#include "mealkit/game/FrameStats.h"
 #include "mealkit/game/SimDebug.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/render/DrawList.h"
@@ -234,7 +235,7 @@ private:
     std::string m_status;
     f64 m_statusTime = -100.0;
     f64 m_time = 0.0;
-    f64 m_fps = 0.0;
+    game::FrameStats m_perf; // 상태 표시줄 fps (mealkit/game/FrameStats.h)
 
     Vec3 m_cameraPos{0.0f, 24.0f, -48.0f};
     f32 m_cameraYaw = 0.0f;

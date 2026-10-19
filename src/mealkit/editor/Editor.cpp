@@ -179,7 +179,7 @@ void Editor::shutdown() { m_imgui.shutdown(); }
 void Editor::update(f64 dt) {
     MEALKIT_ZONE("Editor UI");
     m_time += dt;
-    if (dt > 0.0) m_fps = m_fps == 0.0 ? 1.0 / dt : m_fps * 0.95 + (1.0 / dt) * 0.05;
+    m_perf.update(dt, {});
 
     m_imgui.newFrame();
     ImGuizmo::BeginFrame();
@@ -637,7 +637,7 @@ void Editor::drawStatusBar() {
                     "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));
             const char* fps = "0000 fps";
             ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - 16.0f);
-            ImGui::TextDisabled("%.0f fps", m_fps);
+            ImGui::TextDisabled("%.0f fps", m_perf.sample().fps);
             ImGui::EndMenuBar();
         }
     }

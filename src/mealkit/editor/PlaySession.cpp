@@ -10,6 +10,7 @@
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/Strings.h"
+#include "mealkit/game/FrameStats.h"
 #include "mealkit/game/GameData.h"
 #include "mealkit/input/Actions.h"
 #include "mealkit/net/Lockstep.h"
@@ -206,16 +207,15 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     editor.setStateView(m_game->stateView());
     editor.setSimDebug(m_game->debug(), !multiplayer());
 
-    m_statusTimer += dt;
-    if (m_statusTimer >= 0.25) {
+    if (m_perf.update(dt, {nullptr, m_session.get(), m_audio, m_game})) {
+        const game::FrameSample& perf = m_perf.sample();
         char text[256];
         const std::string players = multiplayer() ? " " + trf("%u players", m_config.players) : std::string();
         const std::string sync =
             !multiplayer() ? std::string() : std::string(" | ") + (session.desynced() ? tr("Desync!") : tr("In sync"));
         snprintf(text, sizeof(text), tr("Playing%s | tick %u | sim %.2f ms/tick | moving bodies %u%s | Esc to stop"),
-                 players.c_str(), m_game->nextTick(), m_game->takeSimMsPerTick(), m_game->activeBodies(), sync.c_str());
+                 players.c_str(), perf.tick, perf.simMsPerTick, m_game->activeBodies(), sync.c_str());
         editor.setPlayStatus(text);
-        m_statusTimer = 0.0;
     }
 }
 

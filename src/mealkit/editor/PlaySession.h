@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mealkit/core/Types.h"
+#include "mealkit/game/FrameStats.h"
 #include "mealkit/game/GameInstance.h"
 #include "mealkit/game/ProjectSettings.h"
 #include "mealkit/input/Actions.h"
@@ -99,7 +100,7 @@ private:
     game::PlayOptions m_options;
     u64 m_seed = 0;
     f64 m_startTime = 0.0;
-    f64 m_statusTimer = 0.0;
+    game::FrameStats m_perf; // 플레이 상태 줄의 틱·시뮬레이션 시간 (takeSimMsPerTick은 여기서만 읽는다)
     f64 m_viewTuningTimer = 0.0;
     std::string m_failure;
 };
