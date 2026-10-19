@@ -1,14 +1,14 @@
 #pragma once
 
 #include "mealkit/core/Reflect.h"
-#include "mealkit/game/Tables.h"
+#include "mealkit/data/Tables.h"
 
 // 필드 선언(reflect::TypeInfo)을 ImGui 위젯으로 그린다. 인스펙터의 오브젝트 필드, 튜닝 패널, [표] 패널, 실시간 상태 보기가 같이 쓴다.
 namespace mealkit::editor {
 
 // 위젯이 참고하는 에디터 데이터: 행 참조(RowRef)를 고를 표 목록 (없으면 id를 글자로 고친다)
 struct FieldContext {
-    const game::TableIndexList* tables = nullptr;
+    const data::TableIndexList* tables = nullptr;
 };
 
 // 편집 가능한 필드 위젯. 값이 바뀌었으면 true. 컨테이너(Pool)는 읽기 전용으로 보여 준다.

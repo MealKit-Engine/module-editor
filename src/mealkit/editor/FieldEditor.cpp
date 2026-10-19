@@ -136,7 +136,7 @@ bool drawRowRef(const char* label, const ValueInfo& v, void* data, const FieldCo
     const reflect::RowRefView ref = reflect::rowRefOf(data);
     const std::vector<std::string>* ids = nullptr;
     if (context && context->tables)
-        for (const game::TableIndex& t : *context->tables)
+        for (const data::TableIndex& t : *context->tables)
             if (t.rowType == v.type || std::strcmp(t.rowType->name, v.type->name) == 0) ids = t.ids;
     if (!ids) return inputString(label, *ref.id);
     bool found = ref.id->empty();

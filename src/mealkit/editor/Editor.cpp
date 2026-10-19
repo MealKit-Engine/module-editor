@@ -1032,18 +1032,18 @@ void Editor::updateRowProblems(f64 dt) {
     if (m_rowCheckTimer < 0.5) return;
     m_rowCheckTimer = 0.0;
     std::vector<std::string> problems;
-    const game::TableIndexList& index = m_tablesPanel.index();
+    const data::TableIndexList& index = m_tablesPanel.index();
     if (index.empty()) {
         m_tablesPanel.setExtraProblems({});
         return;
     }
-    if (m_tuning.value.type()) game::resolveRows(*m_tuning.value.type(), m_tuning.value.data(), index, &problems, "game.tuning: ");
+    if (m_tuning.value.type()) data::resolveRows(*m_tuning.value.type(), m_tuning.value.data(), index, &problems, "game.tuning: ");
     for (const Entity& e : m_scene.entities) {
         const reflect::TypeInfo* type = entityType(e);
         if (!type || type->fields.empty() || !m_gameTypes) continue;
         reflect::Instance instance(*type);
         reflect::fromText(*type, instance.data(), e.fields);
-        game::resolveRows(*type, instance.data(), index, &problems, fileName(m_scenePath) + " " + e.name + ": ");
+        data::resolveRows(*type, instance.data(), index, &problems, fileName(m_scenePath) + " " + e.name + ": ");
     }
     m_tablesPanel.setExtraProblems(std::move(problems));
 }

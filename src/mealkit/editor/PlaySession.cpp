@@ -193,7 +193,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     if (m_ui.wantsKeyboard()) ctx.keyboardAllowed = false;
     m_settings.update(&window.input(), dt);
     m_pads.update(dt); // 패드는 게임 뷰가 키보드를 받을 때만 (다른 패널을 고치는 동안 캐릭터가 움직이지 않게)
-    m_actions.update(window.input(), ctx.keyboardAllowed ? m_pads.first() : input::PadState{}, ctx.keyboardAllowed,
+    m_actions.update(window.input(), ctx.keyboardAllowed ? m_pads.first() : PadState{}, ctx.keyboardAllowed,
                      ctx.mouseAllowed, dt);
     if (!m_game->started()) {
         m_game->start(ctx, editor.scene(), m_options);
@@ -334,7 +334,7 @@ int runPlayer(const PlayerOptions& o) {
         if (ui.wantsMouse()) ctx.mouseAllowed = false;
         if (ui.wantsKeyboard()) ctx.keyboardAllowed = false;
         playerSettings.update(&window.input(), dt);
-        actions.update(window.input(), window.focused() ? pads.first() : input::PadState{}, ctx.keyboardAllowed,
+        actions.update(window.input(), window.focused() ? pads.first() : PadState{}, ctx.keyboardAllowed,
                        ctx.mouseAllowed, dt);
         game->update(ctx, dt);
         if (!window.minimized()) {
