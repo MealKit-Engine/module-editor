@@ -1,15 +1,17 @@
 #pragma once
 
 #include "mealkit/asset/ModelCache.h"
+#include "mealkit/editor/BuildPanel.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/FeedbackPanel.h"
+#include "mealkit/editor/ProjectSettingsPanel.h"
+#include "mealkit/editor/TuningPanel.h"
 #include "mealkit/editor/UiPanel.h"
 #include "mealkit/editor/SoundPanel.h"
 #include "mealkit/editor/TablesPanel.h"
 #include "mealkit/game/FrameStats.h"
 #include "mealkit/game/SimDebug.h"
-#include "mealkit/platform/Process.h"
 #include "mealkit/render/DrawList.h"
 #include "mealkit/render/Renderer.h"
 #include "mealkit/scene/Scene.h"
@@ -29,12 +31,6 @@ namespace mealkit::editor {
 
 enum class Mode { Edit, Play };
 
-enum class BuildKind {
-    GameCode, // build.bat Editor: 게임 DLL (끝나면 앱이 바꿔 끼운다)
-    Export,   // build.bat Export: 출시용 exe + assets → export\<이름>
-    Upgrade,  // 엔진의 tools\upgrade_project.ps1: 프로젝트 템플릿 파일을 지금 엔진 버전으로 (끝나면 게임 코드 빌드)
-};
-
 class Editor {
 public:
     bool init(Window& window, render::Renderer& renderer, const std::string& scenePath, asset::ModelCache& models);
@@ -50,7 +46,7 @@ public:
     const ProjectInfo& project() const { return m_project; }
     // 프로젝트의 build.bat을 백그라운드로 실행한다 (이미 빌드 중이면 무시).
     void startBuild(BuildKind kind);
-    bool building() const { return m_build.running(); }
+    bool building() const { return m_buildPanel.running(); }
     // 게임 코드 빌드가 성공으로 끝났으면 한 번 true (앱이 DLL을 다시 불러온다)
     bool takeGameCodeBuilt();
     bool takeGameCodeBuildFailed(); // 게임 코드 빌드가 실패했으면 한 번 true
@@ -59,23 +55,23 @@ public:
     // 게임 DLL이 선언한 오브젝트 종류 (DLL을 내리기 전에 nullptr로 되돌린다)
     void setGameTypes(const scene::TypeList* types) { m_gameTypes = types; }
     // 게임 튜닝 타입 (DLL을 내리기 전에 nullptr). 편집 중인 값은 텍스트로 보존했다가 새 타입에 다시 넣는다.
-    void setTuningType(const reflect::TypeInfo* type) { setTuningDocType(m_tuning, type); }
+    void setTuningType(const reflect::TypeInfo* type) { m_tuningPanel.setTuningType(type); }
     // 플레이를 시작할 때: 저장 안 된 튜닝 값을 임시 파일로 써서 경로를 돌려준다 (타입이 없으면 빈 문자열 = 기본 파일)
-    std::string writePlayTuning() { return writePlayCopy(m_tuning, "play.tuning"); }
+    std::string writePlayTuning() { return m_tuningPanel.writePlayTuning(); }
     // 튜닝이 바뀌었으면 한 번 true (혼자 플레이 중이면 앱이 게임에 바로 적용한다)
-    bool takeTuningChanged() { return takeChanged(m_tuning); }
-    const void* tuningData() const { return m_tuning.value.data(); }
+    bool takeTuningChanged() { return m_tuningPanel.takeTuningChanged(); }
+    const void* tuningData() const { return m_tuningPanel.tuning().data; }
     // 화면용 튜닝 (GameModule::viewTuningType, assets/view.tuning): 고치면 플레이 중인 게임에 바로 보인다 (여러 명이어도).
-    void setViewTuningType(const reflect::TypeInfo* type) { setTuningDocType(m_viewTuning, type); }
-    reflect::View viewTuning() const { return {m_viewTuning.value.type(), m_viewTuning.value.data()}; }
+    void setViewTuningType(const reflect::TypeInfo* type) { m_tuningPanel.setViewTuningType(type); }
+    reflect::View viewTuning() const { return m_tuningPanel.viewTuning(); }
     // 참가 창이 읽는 화면용 튜닝 사본 (여러 명 플레이를 시작할 때 쓰고, 값이 바뀌면 다시 쓴다)
-    std::string writePlayViewTuning() { return writePlayCopy(m_viewTuning, kPlayViewTuningFile); }
-    bool takeViewTuningChanged() { return takeChanged(m_viewTuning); }
-    static constexpr const char* kPlayViewTuningFile = "play.view.tuning";
+    std::string writePlayViewTuning() { return m_tuningPanel.writePlayViewTuning(); }
+    bool takeViewTuningChanged() { return m_tuningPanel.takeViewTuningChanged(); }
+    static constexpr const char* kPlayViewTuningFile = TuningPanel::kPlayViewTuningFile;
     // 게임이 더한 프로젝트 설정 타입 (GameModule::projectSettingsType, DLL을 내리기 전에 nullptr). 값은 텍스트로 보존한다.
-    void setProjectSettingsType(const reflect::TypeInfo* type);
+    void setProjectSettingsType(const reflect::TypeInfo* type) { m_projectPanel.setGameType(type); }
     // [프로젝트 설정] 창을 연다 (자동 테스트용)
-    void openProjectSettings() { m_projectWindowOpen = true; }
+    void openProjectSettings() { m_projectPanel.open(); }
     // 게임이 등록한 정의 데이터 표 ([표] 패널, DLL을 내리기 전에 nullptr. 값은 텍스트로 보존한다)
     void setTables(const reflect::TableList* tables) { m_tablesPanel.setTables(tables); }
     // 플레이를 시작할 때: 고친 표를 저장한다 (게임은 매치를 시작할 때 파일에서 읽는다)
@@ -134,16 +130,6 @@ public:
     void selectByIndex(int index); // 자동 테스트/스크린샷용
 
 private:
-    // 튜닝 파일 하나 (assets/game.tuning, assets/view.tuning)를 게임 DLL의 타입으로 편집한다
-    struct TuningDoc {
-        const char* file = ""; // assets 안의 파일 이름
-        reflect::Instance value;
-        reflect::TextFields text; // DLL을 바꿔 끼울 때 값을 보존한다
-        bool loaded = false;
-        bool dirty = false;   // 파일과 다르다
-        bool changed = false; // 플레이 중인 게임에 아직 넘기지 않았다
-    };
-
     struct Snapshot {
         std::vector<scene::Entity> entities;
         scene::Environment environment;
@@ -158,18 +144,9 @@ private:
     void reparent(u32 entityId, u32 parentId); // 월드 위치를 지키며 부모를 바꾼다 (0 = 최상위)
     void drawInspector(bool editing);
     void drawEnvironment(bool editing);
-    void drawTuning();
     void updateRowProblems(f64 dt); // 튜닝·씬 물체의 없는 행 참조 → [표] 패널
-    void drawTuningDoc(TuningDoc& doc, bool liveInMultiplayer);
-    void setTuningDocType(TuningDoc& doc, const reflect::TypeInfo* type);
-    std::string tuningDocPath(const TuningDoc& doc) const;
-    bool loadTuningDoc(TuningDoc& doc);
-    bool saveTuningDoc(TuningDoc& doc);
-    std::string writePlayCopy(const TuningDoc& doc, const char* fileName);
-    static bool takeChanged(TuningDoc& doc);
-    void drawProjectSettings();
-    bool saveProjectSettings();
-    void revertProjectSettings();
+    void saveAll();         // Ctrl+S: 씬, 튜닝, 프로젝트 설정, 표
+    void takePanelStatus(); // 패널들이 남긴 상태 문구를 상태 표시줄로
     void drawState();
     void drawPopups();
     void drawPlayControls();
@@ -268,8 +245,7 @@ private:
     bool m_layoutReset = false;
 
     const scene::TypeList* m_gameTypes = nullptr;
-    TuningDoc m_tuning{"game.tuning"};     // 게임 튜닝 (시뮬레이션, 콘텐츠 해시)
-    TuningDoc m_viewTuning{"view.tuning"}; // 화면용 튜닝
+    TuningPanel m_tuningPanel;
     reflect::View m_stateView;
     const char* m_focusPanel = nullptr; // 앞으로 가져올 패널 (모드가 바뀔 때)
     int m_focusFrames = 0;
@@ -286,24 +262,15 @@ private:
     bool m_autosavePending = false; // 마지막 자동 저장 뒤에 바뀐 것이 있다
 
     ProjectInfo m_project;              // 디스크에 저장된 프로젝트 설정
-    game::ProjectSettings m_projectEdit; // [프로젝트 설정] 창에서 고치는 값
-    reflect::Instance m_gameProject;     // 게임 DLL의 프로젝트 설정 타입 인스턴스
-    reflect::TextFields m_gameProjectText; // 게임 타입이 없을 때(DLL을 바꿔 끼울 때) 값을 보존한다
-    bool m_projectDirty = false;
-    bool m_projectWindowOpen = false;
+    ProjectSettingsPanel m_projectPanel; // [프로젝트 설정] 창
     std::string m_engineDirectory;
     bool m_upgradeOffer = false;     // 프로젝트 템플릿이 엔진 버전과 다르다 (한 번 묻는다)
     bool m_upgradeRequested = false; // 빌드가 끝나면 업그레이드를 시작한다
-    ChildProcess m_build;
-    BuildKind m_buildKind = BuildKind::GameCode;
+    BuildPanel m_buildPanel;
     bool m_gameCodeBuilt = false;
     bool m_gameCodeFailed = false;
     bool m_gameLoaded = false;
     std::string m_gameStatus;
-    std::string m_buildLog;
-    bool m_buildLogOpen = false;
-    bool m_buildLogScroll = false;
-    f64 m_buildStart = 0.0;
     ChildProcess m_layoutCheck; // tools\check_layout.ps1 (프로젝트를 열 때)
     TablesPanel m_tablesPanel;
     bool m_tablesOpen = false;

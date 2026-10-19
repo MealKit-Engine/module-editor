@@ -29,9 +29,7 @@ constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
 constexpr const char* kHierarchyWindow = "Scene Tree###Hierarchy";
 constexpr const char* kInspectorWindow = "Inspector###Inspector";
 constexpr const char* kEnvironmentWindow = "Environment###Environment";
-constexpr const char* kTuningWindow = "Tuning###Tuning";
 constexpr const char* kStateWindow = "State###State";
-constexpr const char* kBuildLogWindow = "Build Log###BuildLog";
 constexpr size_t kUndoLimit = 100;
 constexpr f64 kAutosaveSeconds = 90.0; // 저장 안 된 변경이 있으면 이 간격으로 <씬>.autosave에 쓴다
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
@@ -211,7 +209,7 @@ void Editor::update(f64 dt) {
     drawHierarchy(editing);
     drawInspector(editing);
     drawEnvironment(editing);
-    drawTuning();
+    m_tuningPanel.draw(kEnvironmentWindow, m_mode == Mode::Play, m_playPlayers > 1, m_tablesPanel.index());
     if (m_tablesOpen) m_tablesPanel.draw(m_window->nativeHandle(), editing, &m_tablesOpen);
     if (m_soundsOpen && m_audio) m_soundPanel.draw(*m_audio, &m_soundsOpen);
     if (m_feedbackOpen) m_feedbackPanel.draw(m_feedback, m_cameraPos + cameraForward() * 10.0f, dt, &m_feedbackOpen);
@@ -226,11 +224,12 @@ void Editor::update(f64 dt) {
         m_viewTableTimer = 0.0;
     }
     updateRowProblems(dt);
-    drawProjectSettings();
+    m_projectPanel.draw(m_project, relativeTo(m_project.directory + "\\assets", m_scenePath));
     drawState();
     pollBuild();
     pollLayoutCheck();
     drawBuildLog();
+    takePanelStatus();
 
     if (editing) {
         drawGizmo();
@@ -366,7 +365,7 @@ void Editor::drawPopups() {
         }
         ImGui::EndPopup();
     }
-    if (m_upgradeRequested && !m_build.running()) {
+    if (m_upgradeRequested && !m_buildPanel.running()) {
         m_upgradeRequested = false;
         startBuild(BuildKind::Upgrade);
     }
@@ -497,7 +496,7 @@ void Editor::setupDefaultLayout(u32 dockId) {
     ImGui::DockBuilderDockWindow(kHierarchyWindow, left);
     ImGui::DockBuilderDockWindow(kInspectorWindow, right);
     ImGui::DockBuilderDockWindow(kEnvironmentWindow, rightBottom);
-    ImGui::DockBuilderDockWindow(kTuningWindow, rightBottom);
+    ImGui::DockBuilderDockWindow(TuningPanel::kWindow, rightBottom);
     ImGui::DockBuilderDockWindow(kStateWindow, right);
     ImGui::DockBuilderFinish(dockId);
 }
@@ -509,18 +508,11 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("File"), editing)) {
         if (ImGui::MenuItem(tr("New Scene"), "Ctrl+N")) newScene();
         if (ImGui::MenuItem(tr("Open..."), "Ctrl+O")) openSceneDialog();
-        if (ImGui::MenuItem(tr("Save"), "Ctrl+S")) {
-            saveScene();
-            if (m_tuning.dirty) saveTuningDoc(m_tuning);
-            if (m_viewTuning.dirty) saveTuningDoc(m_viewTuning);
-            if (m_projectDirty) saveProjectSettings();
-            std::string status;
-            if (m_tablesPanel.dirty()) m_tablesPanel.saveAll(&status);
-        }
+        if (ImGui::MenuItem(tr("Save"), "Ctrl+S")) saveAll();
         if (ImGui::MenuItem(tr("Save As..."))) saveSceneAs();
         ImGui::Separator();
         if (ImGui::MenuItem(tr("Project Settings..."), nullptr, false, !m_project.directory.empty()))
-            m_projectWindowOpen = true;
+            m_projectPanel.open();
         ImGui::Separator();
         if (ImGui::MenuItem(tr("Exit"))) m_quit = true;
         ImGui::EndMenu();
@@ -549,7 +541,7 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Build"), !m_project.directory.empty())) {
-        const bool idle = !m_build.running();
+        const bool idle = !m_buildPanel.running();
         if (ImGui::MenuItem(tr("Build Game Code (Hot Reload)"), "Ctrl+R", false, idle && editing))
             startBuild(BuildKind::GameCode);
         if (ImGui::MenuItem(tr("Release Build"), "Ctrl+B", false, idle)) startBuild(BuildKind::Export);
@@ -558,7 +550,7 @@ void Editor::drawMenuBar() {
             openInExplorer(m_project.exportDirectory());
         if (ImGui::MenuItem(tr("Open Project Folder"))) openInExplorer(m_project.directory);
         ImGui::Separator();
-        ImGui::MenuItem(tr("Build Log"), nullptr, &m_buildLogOpen);
+        ImGui::MenuItem(tr("Build Log"), nullptr, m_buildPanel.openFlag());
         ImGui::EndMenu();
     }
 
@@ -617,12 +609,7 @@ void Editor::drawStatusBar() {
             ImGui::TextDisabled("|");
             ImGui::Text(tr("%zu objects"), m_scene.entities.size());
             ImGui::TextDisabled("|");
-            if (m_build.running()) {
-                ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f),
-                                   m_buildKind == BuildKind::GameCode  ? tr("Building game code... %.0fs")
-                                   : m_buildKind == BuildKind::Upgrade ? tr("Upgrading project... %.0fs")
-                                                                       : tr("Release build... %.0fs"),
-                                   m_time - m_buildStart);
+            if (m_buildPanel.drawStatus(m_time)) {
                 ImGui::TextDisabled("|");
             } else if (!m_gameStatus.empty()) {
                 if (m_gameLoaded) ImGui::TextDisabled("%s", m_gameStatus.c_str());
@@ -894,129 +881,6 @@ void Editor::drawEnvironment(bool editing) {
     ImGui::End();
 }
 
-// ---------------------------------------------------------------- 튜닝 (assets/game.tuning, assets/view.tuning)
-
-std::string Editor::tuningDocPath(const TuningDoc& doc) const {
-    return m_project.directory.empty() ? std::string() : m_project.directory + "\\assets\\" + doc.file;
-}
-
-void Editor::setTuningDocType(TuningDoc& doc, const reflect::TypeInfo* type) {
-    if (doc.value.type()) { // 지금 값을 텍스트로 보존
-        doc.text.clear();
-        reflect::toText(*doc.value.type(), doc.value.data(), doc.text);
-    }
-    doc.value = type ? reflect::Instance(*type) : reflect::Instance();
-    if (!type) return;
-    if (!doc.loaded) {
-        loadTuningDoc(doc);
-        doc.loaded = true;
-    } else {
-        std::string unknown;
-        reflect::fromText(*type, doc.value.data(), doc.text, &unknown);
-        if (!unknown.empty()) MEALKIT_WARN("%s fields no longer declared: %s", doc.file, unknown.c_str());
-        doc.changed = true;
-    }
-}
-
-bool Editor::loadTuningDoc(TuningDoc& doc) {
-    if (!doc.value.type()) return false;
-    doc.value = reflect::Instance(*doc.value.type()); // 기본값부터
-    const std::string path = tuningDocPath(doc);
-    doc.dirty = false;
-    doc.changed = true;
-    if (path.empty() || !fileExists(path)) return false;
-    std::string error;
-    if (!reflect::loadTextFile(*doc.value.type(), doc.value.data(), path, &error)) {
-        setStatus(trf("Could not read the tuning file: %s", error.c_str()));
-        return false;
-    }
-    return true;
-}
-
-bool Editor::saveTuningDoc(TuningDoc& doc) {
-    const std::string path = tuningDocPath(doc);
-    if (!doc.value.type() || path.empty()) return false;
-    const std::string header =
-        std::string("MealKit tuning (") + doc.value.type()->name + "). Edit it in the editor's [Tuning] panel.";
-    if (!reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, header.c_str())) {
-        setStatus(trf("Could not save tuning: %s", path.c_str()));
-        return false;
-    }
-    doc.dirty = false;
-    setStatus(trf("Tuning saved: %s", (std::string("assets\\") + doc.file).c_str()));
-    return true;
-}
-
-std::string Editor::writePlayCopy(const TuningDoc& doc, const char* fileName) {
-    if (!doc.value.type() || m_project.directory.empty()) return {};
-    const std::string dir = m_project.directory + "\\build\\Editor\\play";
-    createDirectories(dir);
-    const std::string path = dir + "\\" + fileName;
-    return reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, "editor play (unsaved values)")
-               ? path
-               : std::string();
-}
-
-bool Editor::takeChanged(TuningDoc& doc) {
-    const bool changed = doc.changed;
-    doc.changed = false;
-    return changed;
-}
-
-void Editor::drawTuningDoc(TuningDoc& doc, bool liveInMultiplayer) {
-    const reflect::TypeInfo* type = doc.value.type();
-    ImGui::TextDisabled("assets\\%s (%s)%s", doc.file, type->name, doc.dirty ? " *" : "");
-    ImGui::BeginDisabled(!doc.dirty);
-    if (ImGui::Button(tr("Save"))) saveTuningDoc(doc);
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button(tr("Reload from File"))) loadTuningDoc(doc);
-    ImGui::SameLine();
-    if (ImGui::Button(tr("Defaults"))) {
-        doc.value = reflect::Instance(*type);
-        doc.dirty = doc.changed = true;
-    }
-    if (m_mode == Mode::Play && (m_playPlayers == 1 || liveInMultiplayer))
-        ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", tr("Playing: changes apply immediately"));
-    else if (m_mode == Mode::Play)
-        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.4f, 1.0f), "%s",
-                           tr("Changes do not apply during multiplayer play (from the next play)"));
-    ImGui::Separator();
-    ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
-    const FieldContext context{&m_tablesPanel.index()};
-    if (drawFields(*type, doc.value.data(), &context)) doc.dirty = doc.changed = true;
-    ImGui::PopItemWidth();
-}
-
-void Editor::drawTuning() {
-    // 예전 레이아웃 파일에는 이 창이 없다: 처음 열 때 [환경] 창과 같은 자리에 탭으로 붙인다
-    if (ImGuiWindow* env = ImGui::FindWindowByName(kEnvironmentWindow); env && env->DockId)
-        ImGui::SetNextWindowDockID(env->DockId, ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl(kTuningWindow))) {
-        ImGui::End();
-        return;
-    }
-    if (!m_tuning.value.type()) {
-        ImGui::TextDisabled("%s", tr("Tuning values appear when the game code is loaded."));
-        ImGui::End();
-        return;
-    }
-    // 게임 = 시뮬레이션 규칙 값(콘텐츠 해시), 화면 = 보이기만 하는 값(해시 밖, 여러 명 플레이 중에도 바로 적용)
-    if (ImGui::BeginTabBar("##tuningTabs")) {
-        if (ImGui::BeginTabItem(trl("Game###GameTuning"))) {
-            drawTuningDoc(m_tuning, false);
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem(trl("Display###ViewTuning"))) {
-            if (m_viewTuning.value.type()) drawTuningDoc(m_viewTuning, true);
-            else ImGui::TextDisabled("%s", tr("The game declares no view tuning (ViewTuningType)."));
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
-    }
-    ImGui::End();
-}
-
 // ---------------------------------------------------------------- 정의 데이터 표 ([표] 패널)
 
 void Editor::saveTablesForPlay() {
@@ -1037,7 +901,7 @@ void Editor::updateRowProblems(f64 dt) {
         m_tablesPanel.setExtraProblems({});
         return;
     }
-    if (m_tuning.value.type()) data::resolveRows(*m_tuning.value.type(), m_tuning.value.data(), index, &problems, "game.tuning: ");
+    m_tuningPanel.resolveRows(index, &problems);
     for (const Entity& e : m_scene.entities) {
         const reflect::TypeInfo* type = entityType(e);
         if (!type || type->fields.empty() || !m_gameTypes) continue;
@@ -1046,90 +910,6 @@ void Editor::updateRowProblems(f64 dt) {
         data::resolveRows(*type, instance.data(), index, &problems, fileName(m_scenePath) + " " + e.name + ": ");
     }
     m_tablesPanel.setExtraProblems(std::move(problems));
-}
-
-// ---------------------------------------------------------------- 프로젝트 설정 (mealkit.project)
-
-void Editor::setProjectSettingsType(const reflect::TypeInfo* type) {
-    if (m_gameProject.type()) { // 지금 값을 텍스트로 보존
-        m_gameProjectText.clear();
-        reflect::toText(*m_gameProject.type(), m_gameProject.data(), m_gameProjectText);
-    }
-    m_gameProject = type ? reflect::Instance(*type) : reflect::Instance();
-    if (type) {
-        std::string unknown;
-        reflect::fromText(*type, m_gameProject.data(), m_gameProjectText, &unknown);
-        if (!unknown.empty()) MEALKIT_WARN("Project settings not declared in %s: %s", type->name, unknown.c_str());
-    }
-}
-
-void Editor::revertProjectSettings() {
-    m_projectEdit = m_project.settings;
-    m_gameProjectText = m_project.gameFields;
-    if (m_gameProject.type()) {
-        m_gameProject = reflect::Instance(*m_gameProject.type());
-        reflect::fromText(*m_gameProject.type(), m_gameProject.data(), m_gameProjectText);
-    }
-    m_projectDirty = false;
-}
-
-bool Editor::saveProjectSettings() {
-    if (m_project.directory.empty()) return false;
-    ProjectInfo next = m_project;
-    next.settings = m_projectEdit;
-    if (m_gameProject.type()) {
-        next.gameFields.clear();
-        reflect::toText(*m_gameProject.type(), m_gameProject.data(), next.gameFields);
-    } else {
-        next.gameFields = m_gameProjectText;
-    }
-    if (!game::saveProjectFile(next.filePath(), next)) {
-        setStatus(trf("Could not save project settings: %s", next.filePath().c_str()));
-        return false;
-    }
-    if (next.settings.tickRate != m_project.settings.tickRate) game::applyTickRate(next.settings); // 다음 플레이부터
-    m_project = next;
-    m_projectDirty = false;
-    setStatus(trf("Project settings saved: %s", "mealkit.project"));
-    return true;
-}
-
-void Editor::drawProjectSettings() {
-    if (!m_projectWindowOpen || m_project.directory.empty()) return;
-    ImGui::SetNextWindowSize(ImVec2(600, 480), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl("Project Settings###ProjectSettings"), &m_projectWindowOpen)) {
-        ImGui::End();
-        return;
-    }
-    ImGui::TextDisabled("%s%s", m_project.filePath().c_str(), m_projectDirty ? " *" : "");
-    ImGui::BeginDisabled(!m_projectDirty);
-    if (ImGui::Button(tr("Save"))) saveProjectSettings();
-    ImGui::SameLine();
-    if (ImGui::Button(tr("Revert"))) revertProjectSettings();
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    const std::string current = relativeTo(m_project.directory + "\\assets", m_scenePath);
-    ImGui::BeginDisabled(current.empty() || current == m_projectEdit.scene);
-    if (ImGui::Button(tr("Use Current Scene as Start Scene"))) {
-        m_projectEdit.scene = current;
-        m_projectDirty = true;
-    }
-    ImGui::EndDisabled();
-    ImGui::TextDisabled("%s", tr("The game and the editor use these values from the next run. Gray items are managed by the tools."));
-
-    ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.4f);
-    ImGui::SeparatorText(tr("Engine"));
-    if (drawFields(reflect::typeOf<game::ProjectSettings>(), &m_projectEdit)) m_projectDirty = true;
-    ImGui::SeparatorText(tr("Game"));
-    if (!m_gameProject.type()) {
-        ImGui::TextDisabled(tr("Game items appear when the game code is loaded (%zu lines kept)."), m_gameProjectText.size());
-    } else if (m_gameProject.type()->fields.empty()) {
-        ImGui::TextDisabled(tr("The game declares no items (%s)."), m_gameProject.type()->name);
-    } else if (drawFields(*m_gameProject.type(), m_gameProject.data())) {
-        m_projectDirty = true;
-    }
-    ImGui::PopItemWidth();
-    ImGui::End();
 }
 
 // 플레이 중인 시뮬레이션 상태 (상태 필드 선언을 그대로 보여 준다)
@@ -1233,14 +1013,7 @@ void Editor::handleShortcuts() {
     if (io.WantTextInput || m_looking) return;
     auto pressed = [](ImGuiKey key) { return ImGui::IsKeyPressed(key, false); };
     if (io.KeyCtrl) {
-        if (pressed(ImGuiKey_S)) {
-            saveScene();
-            if (m_tuning.dirty) saveTuningDoc(m_tuning);
-            if (m_viewTuning.dirty) saveTuningDoc(m_viewTuning);
-            if (m_projectDirty) saveProjectSettings();
-            std::string status;
-            if (m_tablesPanel.dirty()) m_tablesPanel.saveAll(&status);
-        }
+        if (pressed(ImGuiKey_S)) saveAll();
         if (pressed(ImGuiKey_T)) m_tablesOpen = !m_tablesOpen;
         if (pressed(ImGuiKey_Z)) io.KeyShift ? redo() : undo();
         if (pressed(ImGuiKey_Y)) redo();
@@ -1599,8 +1372,8 @@ void Editor::updateTitle() {
     if (!m_project.name().empty()) title += m_project.name() + " - ";
     title += m_scenePath.empty() ? std::string(tr("Untitled")) : fileName(m_scenePath);
     if (m_dirty) title += " *";
-    if (m_tuning.dirty || m_viewTuning.dirty) title += std::string("  (") + tr("Tuning") + " *)";
-    if (m_projectDirty) title += std::string("  (") + tr("Project Settings") + " *)";
+    if (m_tuningPanel.dirty()) title += std::string("  (") + tr("Tuning") + " *)";
+    if (m_projectPanel.dirty()) title += std::string("  (") + tr("Project Settings") + " *)";
     if (m_mode == Mode::Play) title += std::string("  [") + tr("Playing") + "]";
     if (title != m_title) {
         m_window->setTitle(title.c_str());
@@ -1613,9 +1386,10 @@ void Editor::updateTitle() {
 void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
     m_tablesPanel.setProjectDirectory(project.directory);
+    m_tuningPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);
     m_uiPanel.setProject(project.settings.language);
-    revertProjectSettings();
+    m_projectPanel.revert(project);
     // 엔진 저장소 자신(engine 없음)은 묻지 않는다
     const game::ProjectSettings& s = project.settings;
     m_upgradeOffer = !s.engine.empty() && s.engineVersion != kEngineVersion;
@@ -1680,128 +1454,53 @@ bool Editor::takeGameCodeBuildFailed() {
     return failed;
 }
 
-// 프로젝트의 build.bat을 창 없이 실행한다.
-//   GameCode: build.bat Editor → build\Editor\bin\<이름>_game.dll (엔진 mealkit.dll은 이미 빌드되어 있으면 건드리지 않는다)
-//   Export:   build.bat Export → 출시용 exe만 다시 빌드하고 export\<이름>에 모은다
+// 출시본은 디스크의 assets와 mealkit.project를 복사하므로 저장 안 된 씬·프로젝트 설정을 먼저 저장한다
 void Editor::startBuild(BuildKind kind) {
-    if (m_build.running() || m_project.directory.empty()) return;
-    // 출시본은 디스크의 assets를 복사하므로 저장 안 된 씬을 먼저 저장한다
+    if (m_buildPanel.running() || m_project.directory.empty()) return;
     if (kind == BuildKind::Export && m_dirty && !m_scenePath.empty() && !saveScene()) return;
-    if (kind == BuildKind::Export && m_projectDirty && !saveProjectSettings()) return; // 출시본에 mealkit.project가 들어간다
-
-    std::string command;
-    if (kind == BuildKind::Upgrade) {
-        const std::string script = m_engineDirectory + "\\tools\\upgrade_project.ps1";
-        if (!fileExists(script)) {
-            setStatus(trf("Upgrade script not found: %s", script.c_str()));
-            return;
-        }
-        command = "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Project \"" + m_project.directory + "\"";
-        m_buildLog = "> upgrade_project.ps1\n";
-    } else {
-        const std::string script = m_project.directory + "\\build.bat";
-        if (!fileExists(script)) {
-            setStatus(trf("build.bat not found: %s", script.c_str()));
-            return;
-        }
-        const char* arg = kind == BuildKind::GameCode ? "Editor" : "Export";
-        command = "\"" + script + "\" " + arg;
-        m_buildLog = std::string("> build.bat ") + arg + "\n";
-    }
-    m_buildKind = kind;
-    m_buildLogScroll = true;
-    if (kind != BuildKind::GameCode) m_buildLogOpen = true; // 게임 코드 빌드는 실패할 때만 연다
-    if (!m_build.start(command, m_project.directory)) {
-        m_buildLog += std::string(tr("Could not start the build.")) + "\n";
-        m_buildLogOpen = true;
-        return;
-    }
-    m_buildStart = m_time;
-    MEALKIT_INFO("Build started: %s", command.c_str());
+    if (kind == BuildKind::Export && m_projectPanel.dirty() && !m_projectPanel.save(m_project)) return;
+    m_buildPanel.start(kind, m_project, m_engineDirectory, m_time);
 }
 
 void Editor::pollBuild() {
-    if (!m_build.running()) return;
-    // 실패한 명령은 ninja가 /showIncludes 줄까지 그대로 보여 준다. 에러를 찾기 쉽게 그 줄은 뺀다 (영문/한국어 MSVC).
-    std::string fresh;
-    const bool running = m_build.poll(fresh);
-    size_t start = 0;
-    for (size_t nl = fresh.find('\n'); nl != std::string::npos; nl = fresh.find('\n', start)) {
-        const std::string line = fresh.substr(start, nl + 1 - start);
-        start = nl + 1;
-        if (line.find("Note: including file:") != std::string::npos ||
-            line.find("참고: 포함 파일:") != std::string::npos) // i18n-ignore (한국어 MSVC 출력)
-            continue;
-        m_buildLog += line;
-        m_buildLogScroll = true;
-    }
-    if (running) return;
-    m_buildLogScroll = true;
-    const std::string seconds = std::to_string(static_cast<int>(m_time - m_buildStart));
-    if (m_build.exitCode() != 0) {
-        m_buildLog += "\n" + trf("Failed (exit code %d)", m_build.exitCode()) + "\n";
-        m_buildLogOpen = true;
-        setStatus(m_buildKind == BuildKind::GameCode ? tr("Game code build failed - see the build log")
-                  : m_buildKind == BuildKind::Upgrade ? tr("Upgrade failed - see the build log")
-                                                      : tr("Release build failed - see the build log"));
-        if (m_buildKind == BuildKind::GameCode) {
+    if (!m_buildPanel.poll(m_project, m_time)) return;
+    const BuildKind kind = m_buildPanel.kind();
+    if (!m_buildPanel.succeeded()) {
+        if (kind == BuildKind::GameCode) {
             m_gameCodeFailed = true;
             if (!m_gameLoaded) m_gameStatus = tr("Game code build failed - fix it and press Ctrl+R");
         }
-        MEALKIT_ERROR("Build failed with exit code %d", m_build.exitCode());
-    } else if (m_buildKind == BuildKind::Upgrade) {
-        m_buildLog += std::string("\n") + tr("Upgrade done - rebuilding the game code") + "\n";
+    } else if (kind == BuildKind::Upgrade) {
         // 업그레이드 도구가 mealkit.project의 engine·engineVersion을 고쳤다: 도구가 관리하는 값만 다시 읽는다
         ProjectInfo upgraded;
         if (loadProject(m_project.directory, upgraded)) {
-            for (game::ProjectSettings* s : {&m_project.settings, &m_projectEdit}) {
-                s->engine = upgraded.settings.engine;
-                s->engineVersion = upgraded.settings.engineVersion;
-            }
+            m_project.settings.engine = upgraded.settings.engine;
+            m_project.settings.engineVersion = upgraded.settings.engineVersion;
+            m_projectPanel.setToolValues(upgraded.settings);
         }
         MEALKIT_INFO("Project upgraded to engine %s", kEngineVersion);
         startBuild(BuildKind::GameCode); // 템플릿(CMakeLists 등)이 바뀌었으니 다시 빌드
-    } else if (m_buildKind == BuildKind::GameCode) {
-        m_buildLog += "\n" + trf("Done (%ss): game code", seconds.c_str()) + "\n";
+    } else if (kind == BuildKind::GameCode) {
         m_gameCodeBuilt = true;
-        MEALKIT_INFO("Game code build finished");
-    } else {
-        m_buildLog += "\n" + trf("Done (%ss): %s", seconds.c_str(), m_project.exportDirectory().c_str()) + "\n";
-        setStatus(trf("Release build done: %s", ("export\\" + m_project.name()).c_str()));
-        MEALKIT_INFO("Export finished: %s", m_project.exportDirectory().c_str());
     }
 }
 
 void Editor::drawBuildLog() {
-    if (!m_buildLogOpen) return;
-    ImGui::SetNextWindowSize(ImVec2(720, 360), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl(kBuildLogWindow), &m_buildLogOpen)) {
-        ImGui::End();
-        return;
-    }
-    const bool editing = m_mode == Mode::Edit;
-    ImGui::BeginDisabled(m_build.running() || m_project.directory.empty() || !editing);
-    if (ImGui::Button(tr("Build Game Code"))) startBuild(BuildKind::GameCode);
-    ImGui::SameLine();
-    if (ImGui::Button(tr("Release Build"))) startBuild(BuildKind::Export);
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!directoryExists(m_project.exportDirectory()));
-    if (ImGui::Button(tr("Open Release Folder"))) openInExplorer(m_project.exportDirectory());
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (m_build.running())
-        ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), tr("Building... %.0fs"), m_time - m_buildStart);
-    ImGui::Separator();
-    if (ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
-        ImGui::TextUnformatted(m_buildLog.data(), m_buildLog.data() + m_buildLog.size());
-        if (m_buildLogScroll) {
-            ImGui::SetScrollHereY(1.0f);
-            m_buildLogScroll = false;
-        }
-    }
-    ImGui::EndChild();
-    ImGui::End();
+    BuildKind request;
+    if (m_buildPanel.drawLog(m_mode == Mode::Edit, m_project, m_time, &request)) startBuild(request);
+}
+
+void Editor::saveAll() {
+    saveScene();
+    m_tuningPanel.saveDirty();
+    if (m_projectPanel.dirty()) m_projectPanel.save(m_project);
+    std::string status;
+    if (m_tablesPanel.dirty()) m_tablesPanel.saveAll(&status);
+}
+
+void Editor::takePanelStatus() {
+    for (std::string status : {m_tuningPanel.takeStatus(), m_projectPanel.takeStatus(), m_buildPanel.takeStatus()})
+        if (!status.empty()) setStatus(status);
 }
 
 } // namespace mealkit::editor
