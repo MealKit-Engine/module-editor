@@ -35,15 +35,13 @@ std::string playDirectory(const std::string& projectDir) { return projectDir + "
 
 u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const game::GameModule& module,
                     const std::string& tuningPath, const game::ProjectFile& project) {
-    const reflect::TypeInfo* tuningType = module.tuningType ? module.tuningType() : nullptr;
-    reflect::Instance tuning = tuningType ? reflect::Instance(*tuningType) : reflect::Instance();
-    if (tuningType) game::loadTuning(*tuningType, tuning.data(), tuningPath);
-    const reflect::TypeInfo* gameProjectType = module.projectSettingsType ? module.projectSettingsType() : nullptr;
-    reflect::Instance gameProject = gameProjectType ? reflect::Instance(*gameProjectType) : reflect::Instance();
-    if (gameProjectType) game::applyGameSettings(project, *gameProjectType, gameProject.data());
-    return game::contentHash(scene, models, module.objectTypes ? module.objectTypes() : nullptr, tuningType,
-                             tuning.data(), {&reflect::typeOf<game::ProjectSettings>(), &project.settings},
-                             {gameProjectType, gameProject.data()}, module.tables ? module.tables() : nullptr);
+    game::MatchDataOptions o;
+    o.scene = &scene;
+    o.tuningPath = tuningPath;
+    o.project = &project;
+    game::MatchData data;
+    game::loadMatchData(game::gameTypes(module), o, models, data); // 씬을 주므로 실패하지 않는다
+    return data.contentHash;
 }
 
 PlaySession::~PlaySession() { stop(); }
@@ -234,19 +232,22 @@ int runPlayer(const PlayerOptions& o) {
     asset::ModelCache models;
     models.setRenderer(&renderer);
 
-    scene::Scene scene;
-    if (!scene::load(scene, o.scenePath, &error)) {
-        MEALKIT_ERROR("Cannot load scene %s: %s", o.scenePath.c_str(), error.c_str());
-        return 1;
-    }
     GameModuleHost host;
     if (!host.load(project.gameDllPath(), error)) {
         MEALKIT_ERROR("%s", error.c_str());
         return 1;
     }
+    // 에디터가 넘긴 씬·튜닝 사본으로 방장과 같은 매치 데이터·콘텐츠 해시 (game::loadMatchData)
+    game::MatchDataOptions dataOptions;
+    dataOptions.scenePath = o.scenePath;
+    dataOptions.tuningPath = o.tuningPath;
+    dataOptions.project = &project;
+    game::MatchData data;
+    if (!game::loadMatchData(game::gameTypes(*host.module()), dataOptions, models, data)) return 1;
+    const scene::Scene& scene = data.scene;
 
     net::LockstepSession session;
-    session.setContentHash(playContentHash(scene, models, *host.module(), o.tuningPath, project));
+    session.setContentHash(data.contentHash);
     net::Address address;
     if (!net::startup() || !net::resolveAddress(o.address.c_str(), kEditorPlayPort, address)) {
         MEALKIT_ERROR("Cannot resolve %s", o.address.c_str());
