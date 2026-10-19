@@ -53,10 +53,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     stop();
     m_audio = &audio;
     m_feedback = &feedback;
-    m_actions.load(); // 에디터 플레이는 프로젝트 바인딩만 쓴다 (플레이어가 바꾼 키 파일 없음)
-    m_strings.load(editor.project().settings.language, editor.project().settings.language);
-    m_ui.closeAll();
-    m_uiReady = false; // 렌더러는 update에서 받는다
+    m_frontReady = false; // 렌더러는 update에서 받는다
     m_config = config;
     m_config.players = std::clamp(config.players, 1u, net::kMaxPlayers);
     m_host = &host;
@@ -130,6 +127,16 @@ void PlaySession::stop() {
 void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render::Renderer& renderer,
                          asset::ModelCache& models) {
     if (!m_game || !m_session || !m_failure.empty()) return;
+    if (!m_frontReady) {
+        game::FrontendConfig c; // 바인딩은 프로젝트 것만 (플레이어가 바꾼 키 파일 없음), 화면 항목은 적용하지 않는다
+        c.renderer = &renderer;
+        c.audio = m_audio;
+        c.feedback = m_feedback;
+        c.projectLanguage = editor.project().settings.language;
+        c.settingsFile = game::userFolder(editor.project().settings) + "/" + settings::kSettingsFile;
+        m_front.init(c); // 화면용 튜닝은 에디터가 넘긴다 (패널에서 고친 값)
+        m_frontReady = true;
+    }
     net::LockstepSession& session = *m_session;
     session.update(now);
     if (!m_game->started() && session.state() == net::SessionState::Lobby)
@@ -162,40 +169,14 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         editor.writePlayViewTuning();
         m_viewTuningTimer = 0.0;
     }
-    game::GameContext ctx{window,
-                          renderer,
-                          models,
-                          session,
-                          *m_audio,
-                          *m_feedback,
-                          m_actions,
-                          m_strings,
-                          m_ui,
-                          m_settings,
-                          editor.viewport(),
-                          editor.gameKeyboardAllowed(),
-                          editor.gameMouseAllowed(),
-                          editor.viewTuning(),
-                          game::userFolder(editor.project().settings)};
-    m_strings.update(dt);
-    if (!m_uiReady) {
-        m_ui.init(&renderer, &m_strings);
-        m_uiReady = true;
-        settings::Service::Targets t; // 화면 항목(창 모드·크기·수직동기)은 에디터에 적용하지 않는다
-        t.audio = m_audio;
-        t.strings = &m_strings;
-        t.ui = &m_ui;
-        t.actions = &m_actions;
-        t.projectLanguage = editor.project().settings.language;
-        m_settings.init(t, game::userFolder(editor.project().settings) + "/" + settings::kSettingsFile);
-    }
-    m_ui.update({&window.input(), &m_actions, ctx.mouseAllowed, ctx.keyboardAllowed}, ctx.viewport, dt);
-    if (m_ui.wantsMouse()) ctx.mouseAllowed = false;
-    if (m_ui.wantsKeyboard()) ctx.keyboardAllowed = false;
-    m_settings.update(&window.input(), dt);
-    m_pads.update(dt); // 패드는 게임 뷰가 키보드를 받을 때만 (다른 패널을 고치는 동안 캐릭터가 움직이지 않게)
-    m_actions.update(window.input(), ctx.keyboardAllowed ? m_pads.first() : PadState{}, ctx.keyboardAllowed,
-                     ctx.mouseAllowed, dt);
+    game::GameContext ctx = m_front.context(window, renderer, models, session);
+    ctx.viewport = editor.viewport();
+    ctx.keyboardAllowed = editor.gameKeyboardAllowed();
+    ctx.mouseAllowed = editor.gameMouseAllowed();
+    ctx.viewTuningData = editor.viewTuning();
+    ctx.userFolder = game::userFolder(editor.project().settings);
+    // 패드는 게임 뷰가 키보드를 받을 때만 (다른 패널을 고치는 동안 캐릭터가 움직이지 않게)
+    m_front.update(now, dt, window.input(), editor.gameKeyboardAllowed(), ctx);
     if (!m_game->started()) {
         m_game->start(ctx, editor.scene(), m_options);
         MEALKIT_INFO("Play mode: %u player(s), match data %u", session.playerCount(), session.matchData());
@@ -221,17 +202,16 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
 
 void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer,
                              asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
-    if (!m_game || !m_session) return;
-    game::GameContext ctx{window, renderer, models, *m_session, *m_audio, *m_feedback, m_actions, m_strings, m_ui, m_settings, editor.viewport()};
+    if (!m_game || !m_session || !m_frontReady) return;
+    game::GameContext ctx = m_front.context(window, renderer, models, *m_session);
+    ctx.viewport = editor.viewport();
     ctx.viewTuningData = editor.viewTuning();
     m_game->buildFrame(ctx, now, frame, out);
-    m_ui.setCamera(frame.viewProj); // 월드 위 UI (drawAt은 buildFrame 안에서)
-    m_audio->setListener(frame.cameraPos, frame.cameraForward);
-    m_feedback->screenTint(frame.tintColor, frame.tintAmount);
+    m_front.afterBuildFrame(frame);
 }
 
 void PlaySession::renderUi(render::Renderer& renderer) {
-    if (m_game && m_session) m_ui.render(renderer);
+    if (m_game && m_session && m_frontReady) m_front.renderUi(renderer);
 }
 
 // ---------------------------------------------------------------- 참가 창
@@ -275,36 +255,29 @@ int runPlayer(const PlayerOptions& o) {
     net::cleanup();
     if (!session.join(address)) return 1;
 
-    game::LiveTuning viewTuning; // 에디터가 고칠 때마다 다시 쓰는 사본 (없으면 assets/view.tuning)
-    if (host.module()->viewTuningType) viewTuning.open(*host.module()->viewTuningType(), o.viewTuningPath);
-
     // 참가 창은 같은 PC에서 여러 개가 뜨므로 소리를 끈 채로 시작한다 (게임 코드는 똑같이 소리를 부른다)
     audio::Engine audio;
     audio.init({project.settings.audioVoices, true});
     feedback::Player feedback(audio);
-    input::Actions actions;
-    actions.load();
-    Gamepads pads;
-    loc::Strings strings;
-    strings.load(project.settings.language, project.settings.language);
-    ui::System ui;
-    ui.init(&renderer, &strings);
-    settings::Service playerSettings; // 참가 창: 기본값, 저장하지 않는다 (같은 PC의 여러 창이 한 파일을 쓰지 않게)
+    // 화면 쪽 서비스: 프로젝트 바인딩만, 설정은 기본값으로 저장하지 않는다(같은 PC의 여러 창이 한 파일을 쓰지 않게),
+    // 화면용 튜닝은 에디터가 고칠 때마다 다시 쓰는 사본(없으면 assets/view.tuning)
+    game::Frontend front;
     {
-        settings::Service::Targets t;
-        t.audio = &audio;
-        t.strings = &strings;
-        t.ui = &ui;
-        t.actions = &actions;
-        t.projectLanguage = project.settings.language;
-        playerSettings.init(t, {});
+        game::FrontendConfig c;
+        c.renderer = &renderer;
+        c.audio = &audio;
+        c.feedback = &feedback;
+        c.projectLanguage = project.settings.language;
+        c.viewTuningType = host.module()->viewTuningType ? host.module()->viewTuningType() : nullptr;
+        c.viewTuningPath = o.viewTuningPath;
+        front.init(c);
     }
 
     game::GameInstance* game = host.create();
     game::PlayOptions options;
     options.bot = o.bot;
     options.tuningPath = o.tuningPath;
-    game::GameContext ctx{window, renderer, models, session, audio, feedback, actions, strings, ui, playerSettings};
+    game::GameContext ctx = front.context(window, renderer, models, session);
     render::DrawList drawList;
     f64 lastTime = nowSeconds();
     int exitCode = 0;
@@ -322,31 +295,20 @@ int runPlayer(const PlayerOptions& o) {
         }
         ctx.viewport = {0.0f, 0.0f, static_cast<f32>(window.width()), static_cast<f32>(window.height())};
         ctx.keyboardAllowed = ctx.mouseAllowed = window.focused();
-        viewTuning.poll(now);
-        ctx.viewTuningData = viewTuning.view();
         if (!game->started() && session.state() != net::SessionState::Running) game->lobby(session, options, {});
         if (!game->started() && session.state() == net::SessionState::Running) game->start(ctx, scene, options);
         audio.update(dt);
         feedback.update(dt);
-        pads.update(dt);
-        strings.update(dt);
-        ui.update({&window.input(), &actions, ctx.mouseAllowed, ctx.keyboardAllowed}, ctx.viewport, dt);
-        if (ui.wantsMouse()) ctx.mouseAllowed = false;
-        if (ui.wantsKeyboard()) ctx.keyboardAllowed = false;
-        playerSettings.update(&window.input(), dt);
-        actions.update(window.input(), window.focused() ? pads.first() : PadState{}, ctx.keyboardAllowed,
-                       ctx.mouseAllowed, dt);
+        front.update(now, dt, window.input(), window.focused(), ctx);
         game->update(ctx, dt);
         if (!window.minimized()) {
             render::FrameParams frame;
             drawList.clear();
             game->buildFrame(ctx, now, frame, drawList);
-            ui.setCamera(frame.viewProj);
-            audio.setListener(frame.cameraPos, frame.cameraForward);
-            feedback.screenTint(frame.tintColor, frame.tintAmount);
+            front.afterBuildFrame(frame);
             if (renderer.beginFrame(frame)) {
                 drawList.submit(renderer);
-                ui.render(renderer);
+                front.renderUi(renderer);
                 renderer.endFrame();
             }
         }

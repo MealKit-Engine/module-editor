@@ -2,13 +2,9 @@
 
 #include "mealkit/core/Types.h"
 #include "mealkit/game/FrameStats.h"
+#include "mealkit/game/Frontend.h"
 #include "mealkit/game/GameInstance.h"
 #include "mealkit/game/ProjectSettings.h"
-#include "mealkit/input/Actions.h"
-#include "mealkit/loc/Strings.h"
-#include "mealkit/settings/Settings.h"
-#include "mealkit/ui/Ui.h"
-#include "mealkit/platform/Gamepad.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/scene/Scene.h"
 
@@ -87,12 +83,10 @@ private:
     GameModuleHost* m_host = nullptr;
     audio::Engine* m_audio = nullptr;
     feedback::Player* m_feedback = nullptr;
-    input::Actions m_actions; // 에디터 창의 게임 뷰 입력 (assets/input.bindings, 플레이 중에 고치면 다시 읽는다)
-    Gamepads m_pads;
-    loc::Strings m_strings; // 게임 문자열 표 (프로젝트 기본 언어, 플레이 중에 고치면 다시 읽는다)
-    ui::System m_ui;        // 게임 화면 UI (씬 뷰 영역에 그린다)
-    bool m_uiReady = false;
-    settings::Service m_settings; // 플레이어 설정 (에디터 창의 모드는 바꾸지 않는다)
+    // 화면 쪽 서비스 (mealkit/game/Frontend.h): 게임 뷰 입력(프로젝트 바인딩만), 문자열 표, 게임 UI(씬 뷰 영역),
+    // 플레이어 설정(에디터 창의 모드는 바꾸지 않는다). 렌더러를 받는 첫 update에서 init (플레이마다 다시 읽는다)
+    game::Frontend m_front;
+    bool m_frontReady = false;
     std::unique_ptr<net::LockstepSession> m_session;
     game::GameInstance* m_game = nullptr;
     ProcessGroup m_clients;
