@@ -12,6 +12,8 @@
 #include "mealkit/editor/Strings.h"
 #include "mealkit/game/FrameStats.h"
 #include "mealkit/game/GameData.h"
+#include "mealkit/game/GameMain.h"
+#include "mealkit/game/GameOptions.h"
 #include "mealkit/input/Actions.h"
 #include "mealkit/net/Lockstep.h"
 #include "mealkit/net/Socket.h"
@@ -22,7 +24,9 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
+#include <vector>
 
 namespace mealkit::editor {
 namespace {
@@ -108,9 +112,9 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         }
         const std::string exe = executableDirectory() + "\\MealKitEditor.exe";
         for (u32 i = 2; i <= m_config.players; ++i) {
-            std::string args = "--project \"" + config.projectDir +
-                               "\" --player 127.0.0.1:" + std::to_string(kEditorPlayPort) + " --player-index " +
-                               std::to_string(i) + " --scene \"" + scenePath + "\"";
+            std::string args = "--player-window --project \"" + config.projectDir + "\" --player-index " +
+                               std::to_string(i) + " --join 127.0.0.1:" + std::to_string(kEditorPlayPort) +
+                               " --scene \"" + scenePath + "\"";
             if (!m_options.tuningPath.empty()) args += " --tuning \"" + m_options.tuningPath + "\"";
             if (!viewTuningPath.empty()) args += " --view-tuning \"" + viewTuningPath + "\"";
             if (config.clientBots) args += " --bot";
@@ -243,124 +247,55 @@ void PlaySession::renderUi(render::Renderer& renderer) {
 
 // ---------------------------------------------------------------- 참가 창
 
-int runPlayer(const PlayerOptions& o) {
+// 참가 모드 출시 exe와 같은 명령줄·루프(game::parseGameArgs, game::runGame)에 에디터 쪽 차이만 넘긴다
+int runPlayer(int argc, char** argv) {
     log::setDialogs(false);
+    std::string projectDir, viewTuningPath;
+    u32 index = 2; // 창 제목에 쓰는 번호
+    std::vector<char*> gameArgs{argv[0]};
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--player-window") continue;
+        if (a == "--project" && i + 1 < argc) projectDir = argv[++i];
+        else if (a == "--player-index" && i + 1 < argc) index = static_cast<u32>(std::atoi(argv[++i]));
+        else if (a == "--view-tuning" && i + 1 < argc) viewTuningPath = argv[++i]; // 에디터가 고칠 때마다 다시 쓰는 사본
+        else gameArgs.push_back(argv[i]);
+    }
+    game::MatchOptions match;
+    match.port = kEditorPlayPort;
+    match.inputDelayMs = kInputDelayMs;
+    game::WindowOptions window;
+    window.width = 960;
+    window.height = 540;
+    window.mute = true; // 같은 PC에서 여러 개가 뜬다 (게임 코드는 똑같이 소리를 부른다)
+    if (!game::parseGameArgs(static_cast<int>(gameArgs.size()), gameArgs.data(), match, &window)) return 1;
+
     ProjectInfo project;
     std::string error;
-    if (!loadProject(o.projectDir, project, &error)) {
+    if (!loadProject(projectDir, project, &error)) {
         MEALKIT_ERROR("Cannot open project: %s", error.c_str());
         return 1;
     }
     setProjectRoot(project.directory);
-
-    const std::string title = "MealKit - " + project.name() + " - " + trf("Player %u", static_cast<unsigned>(o.index));
-    Window window;
-    if (!window.create({title.c_str(), 960, 540, kEditorCaptionColor})) return 1;
-    render::Renderer renderer;
-    if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, o.debugLayer})) return 1;
-    asset::ModelCache models;
-    models.setRenderer(&renderer);
-
     GameModuleHost host;
     if (!host.load(project.gameDllPath(), error)) {
         MEALKIT_ERROR("%s", error.c_str());
         return 1;
     }
-    // 에디터가 넘긴 씬·튜닝 사본으로 방장과 같은 매치 데이터·콘텐츠 해시 (game::loadMatchData)
-    game::MatchDataOptions dataOptions;
-    dataOptions.scenePath = o.scenePath;
-    dataOptions.tuningPath = o.tuningPath;
-    dataOptions.project = &project;
-    game::MatchData data;
-    if (!game::loadMatchData(game::gameTypes(*host.module()), dataOptions, models, data)) return 1;
-    const scene::Scene& scene = data.scene;
 
-    game::MatchService matches;
-    {
-        game::MatchServiceConfig c;
-        c.contentHash = data.contentHash;
-        std::copy(std::begin(data.contentParts), std::end(data.contentParts), std::begin(c.contentParts));
-        c.build = host.module()->build;
-        c.gameName = project.name();
-        c.defaultPort = kEditorPlayPort;
-        c.announceRooms = false;
-        matches.init(c);
-    }
-    if (!matches.join(o.address)) return 1;
-    net::LockstepSession& session = matches.session();
-
-    // 참가 창은 같은 PC에서 여러 개가 뜨므로 소리를 끈 채로 시작한다 (게임 코드는 똑같이 소리를 부른다)
-    audio::Engine audio;
-    audio.init({project.settings.audioVoices, true});
-    feedback::Player feedback(audio);
-    // 화면 쪽 서비스: 프로젝트 바인딩만, 설정은 기본값으로 저장하지 않는다(같은 PC의 여러 창이 한 파일을 쓰지 않게),
-    // 화면용 튜닝은 에디터가 고칠 때마다 다시 쓰는 사본(없으면 assets/view.tuning)
-    game::Frontend front;
-    {
-        game::FrontendConfig c;
-        c.renderer = &renderer;
-        c.audio = &audio;
-        c.feedback = &feedback;
-        c.projectLanguage = project.settings.language;
-        c.viewTuningType = host.module()->viewTuningType ? host.module()->viewTuningType() : nullptr;
-        c.viewTuningPath = o.viewTuningPath;
-        front.init(c);
-    }
-
-    game::GameInstance* game = host.create();
-    game::PlayOptions options;
-    options.bot = o.bot;
-    options.tuningPath = o.tuningPath;
-    game::GameContext ctx = front.context(window, renderer, models, matches);
-    ctx.scene = &scene;
-    render::DrawList drawList;
-    f64 lastTime = nowSeconds();
-    int exitCode = 0;
-    bool loadingShown = false;
-    while (window.pumpMessages()) {
-        const f64 now = nowSeconds();
-        const f64 dt = std::min(now - lastTime, 0.25);
-        lastTime = now;
-        if (!game->menus() && window.input().keyPressed(key::Escape)) break;
-        if (window.consumeResize()) renderer.resize(window.width(), window.height());
-        matches.update(now);
-        if (session.state() == net::SessionState::Ended) {
-            MEALKIT_INFO("Session ended: %s", session.endReason());
-            exitCode = session.desynced() ? 2 : 0;
-            break;
-        }
-        if (matches.phase() == game::MatchPhase::Menu) break; // 게임이 [나가기]를 눌렀다
-        ctx.viewport = {0.0f, 0.0f, static_cast<f32>(window.width()), static_cast<f32>(window.height())};
-        ctx.keyboardAllowed = ctx.mouseAllowed = window.focused();
-        if (!game->started() && session.state() != net::SessionState::Running) game->lobby(session, options, {});
-        if (!game->started() && session.state() == net::SessionState::Running) {
-            if (loadingShown) game->start(ctx, scene, options);
-            loadingShown = !loadingShown;
-        } else if (game->started() && session.state() != net::SessionState::Running) {
-            game->stop(ctx);
-            loadingShown = false;
-        }
-        audio.update(dt);
-        feedback.update(dt);
-        front.update(now, dt, window.input(), window.focused(), ctx);
-        game->update(ctx, dt);
-        if (!window.minimized()) {
-            render::FrameParams frame;
-            drawList.clear();
-            game->buildFrame(ctx, now, frame, drawList);
-            front.afterBuildFrame(frame);
-            if (renderer.beginFrame(frame)) {
-                drawList.submit(renderer);
-                front.renderUi(renderer);
-                renderer.endFrame();
-            }
-        }
-    }
-    if (game->started()) game->stop(ctx);
-    host.destroy(game);
-    matches.shutdown();
+    game::GameMainSpec spec;
+    spec.module = host.module();
+    spec.build = host.module()->build;
+    game::GameRunOptions run;
+    run.project = &project;
+    run.title = "MealKit - " + project.name() + " - " + trf("Player %u", static_cast<unsigned>(index));
+    run.captionColor = kEditorCaptionColor;
+    run.viewTuningPath = viewTuningPath;
+    run.playerFiles = false; // 설정·바꾼 키는 기본값, 저장하지 않는다 (같은 PC의 여러 창이 한 파일을 쓰지 않게)
+    run.onlineService = false;
+    run.exitWhenSessionEnds = true;
+    const int exitCode = game::runGame(std::move(match), window, spec, run);
     host.unload();
-    renderer.shutdown();
     return exitCode;
 }
 

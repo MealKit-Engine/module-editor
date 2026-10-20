@@ -3,8 +3,8 @@
 //   MealKitEditor.exe                         프로젝트 관리자 (최근 프로젝트, 열기, 새 프로젝트)
 //   MealKitEditor.exe --project <폴더>        프로젝트 열기 (mealkit.project가 있는 폴더)
 //   MealKitEditor.exe --project <폴더> my.scene   다른 씬 열기
-//   MealKitEditor.exe --project <폴더> --player <주소:포트> --scene <파일> [--tuning <파일>] [--view-tuning <파일>] [--bot]
-//                                             참가 창 모드 (에디터 여러 명 플레이가 띄운다)
+//   MealKitEditor.exe --player-window --project <폴더> [--player-index n] [--view-tuning <파일>] --join <주소:포트> ...
+//                                             참가 창 모드 (에디터 여러 명 플레이가 띄운다, 나머지는 출시 exe와 같은 게임 옵션)
 //
 // 게임 코드: <프로젝트>\build\Editor\bin\<이름>_game.dll. 다시 빌드되면 편집 모드에서 자동으로 바꿔 끼운다(핫 리로드).
 // 에디터 조작: 오른쪽 드래그 + WASD/QE 카메라, 클릭 선택, W/E/R 이동·회전·크기, Ctrl+S 저장, Ctrl+Z 되돌리기, F5 플레이,
@@ -62,11 +62,6 @@ struct Options {
     bool sounds = false;          // [소리] 창을 열고 시작
     bool feedback = false;        // [연출] 창을 열고 시작
     std::string uiPreview;        // [UI] 창을 열고 이 화면(assets/ui의 파일 이름)을 미리보기
-    // 참가 창 모드
-    std::string playerAddress;
-    std::string tuningPath;
-    std::string viewTuningPath;
-    u32 playerIndex = 2;
     std::string language; // --lang: 이번 실행만 이 언어 (문서 스크린샷)
 };
 
@@ -96,11 +91,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--sounds") o.sounds = true;
         else if (a == "--feedback") o.feedback = true;
         else if (a == "--ui" && next(v)) o.uiPreview = v;
-        else if (a == "--player" && next(v)) o.playerAddress = v;
-        else if (a == "--player-index" && next(v)) o.playerIndex = static_cast<u32>(std::atoi(v));
         else if (a == "--scene" && next(v)) o.scenePath = v;
-        else if (a == "--tuning" && next(v)) o.tuningPath = v;
-        else if (a == "--view-tuning" && next(v)) o.viewTuningPath = v;
         else if (a == "--lang" && next(v)) o.language = v;
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
@@ -108,8 +99,8 @@ bool parseArgs(int argc, char** argv, Options& o) {
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
                 "              --project-settings --tables --sounds --feedback --ui <file.ui>\n"
-                "  player window: --project <folder> --player <addr:port> --scene <file> [--tuning <file>]\n"
-                "                 [--view-tuning <file>] [--bot]\n");
+                "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
+                "                 + game options (--join <addr:port> --scene <file> --tuning <file> --bot ...)\n");
             return false;
         }
     }
@@ -135,24 +126,17 @@ bool relaunchWithProject(const std::string& directory) {
 } // namespace
 
 int main(int argc, char** argv) {
+    std::string engineDir = MEALKIT_ENGINE_DIR;
+    std::replace(engineDir.begin(), engineDir.end(), '/', '\\');
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--player-window") { // 여러 명 플레이의 참가 창
+            editor::initStrings(engineDir, {});
+            return editor::runPlayer(argc, argv);
+        }
     Options opt;
     if (!parseArgs(argc, argv, opt)) return 1;
     if (opt.frames) log::setDialogs(false);
-    std::string engineDir = MEALKIT_ENGINE_DIR;
-    std::replace(engineDir.begin(), engineDir.end(), '/', '\\');
     editor::initStrings(engineDir, opt.language);
-    if (!opt.playerAddress.empty()) { // 여러 명 플레이의 참가 창
-        editor::PlayerOptions player;
-        player.projectDir = opt.projectDir;
-        player.address = opt.playerAddress;
-        player.scenePath = opt.scenePath;
-        player.tuningPath = opt.tuningPath;
-        player.viewTuningPath = opt.viewTuningPath;
-        player.index = opt.playerIndex;
-        player.bot = opt.bot;
-        player.debugLayer = opt.debugLayer;
-        return editor::runPlayer(player);
-    }
 
     Window window;
     if (!window.create({"MealKit Editor", 1600, 900, editor::kEditorCaptionColor})) return 1;

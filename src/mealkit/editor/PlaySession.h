@@ -104,17 +104,8 @@ private:
     std::string m_failure;
 };
 
-// 참가 창 모드 (MealKitEditor.exe --project <폴더> --player <주소:포트> --scene <파일> --tuning <파일> [--bot])
-struct PlayerOptions {
-    std::string projectDir;
-    std::string address;
-    std::string scenePath;
-    std::string tuningPath;
-    std::string viewTuningPath; // 에디터가 고칠 때마다 다시 쓰는 화면용 튜닝 사본 (바뀌면 다시 읽는다)
-    u32 index = 2; // 창 제목에 쓰는 번호
-    bool bot = false;
-    bool debugLayer = false;
-};
-int runPlayer(const PlayerOptions& options);
+// 참가 창 모드: MealKitEditor.exe --player-window --project <폴더> [--player-index n] [--view-tuning <파일>] + 게임 옵션.
+// 에디터 항목 셋을 뺀 나머지는 출시 exe와 같은 명령줄(game::parseGameArgs)로 읽어 game::runGame에 넘긴다
+int runPlayer(int argc, char** argv);
 
 } // namespace mealkit::editor
