@@ -342,6 +342,10 @@ ImportServer::Response ImportServer::serveFile(const std::string& name) const {
         const std::string base = "http://127.0.0.1:" + std::to_string(m_listener.localPort()) + "/" + m_token + "/";
         for (size_t at = r.body.find("__MEALKIT_BASE__"); at != std::string::npos; at = r.body.find("__MEALKIT_BASE__", at + base.size()))
             r.body.replace(at, 16, base);
+        // Penpot은 아이콘을 "플러그인 출처 + / + 값"으로 읽는다: 출처 기준 경로 (앞의 /는 Penpot이 붙인다)
+        const std::string path = m_token + "/";
+        for (size_t at = r.body.find("__MEALKIT_PATH__"); at != std::string::npos; at = r.body.find("__MEALKIT_PATH__", at + path.size()))
+            r.body.replace(at, 16, path);
         return r;
     }
     r.status = 404;
@@ -498,6 +502,8 @@ ImportServer::Response ImportServer::importFiles(const std::string& body) {
             target = root + "/art/ui/" + p;
         } else if (k == "boxes" && endsWith(p, ".boxes") && p.find('/') == std::string::npos) {
             target = root + "/art/ui/boxes/" + p;
+        } else if (k == "preview" && endsWith(p, ".png") && p.find('/') == std::string::npos) {
+            target = root + "/art/ui/preview/" + p; // 픽셀 비교 (보조 검사)
         } else {
             errors.push_back("not allowed: " + k + " " + p);
             continue;

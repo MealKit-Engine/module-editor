@@ -13,7 +13,7 @@
 //   POST /<토큰>/api/export                                    받은 .ui·PNG·문자열·테마·Penpot 원본·배치 상자를 프로젝트에 쓴다
 // 보안: 127.0.0.1에만 열고, 에디터를 켤 때마다 무작위 토큰을 경로에 넣는다(플러그인 설치 주소에 들어 있다).
 // Origin이 있으면 Penpot(https://*.penpot.app, 직접 띄운 localhost)이나 이 서버여야 하고, 쓰기(POST)는 이 서버의 패널만.
-// 쓰는 경로는 assets/ui/ 아래 .ui·.png, art/ui/ 아래 .penpot·.boxes, 프로젝트 기본 언어의 문자열 표뿐이다(".." 거절).
+// 쓰는 경로는 assets/ui/ 아래 .ui·.png, art/ui/ 아래 .penpot·boxes/*.boxes·preview/*.png, 프로젝트 기본 언어의 문자열 표뿐이다(".." 거절).
 namespace mealkit::editor {
 
 inline constexpr u16 kImportPort = 27220; // 쓰고 있으면 다음 9개 포트

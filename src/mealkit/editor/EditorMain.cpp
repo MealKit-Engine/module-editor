@@ -66,6 +66,7 @@ struct Options {
     std::string language; // --lang: 이번 실행만 이 언어 (문서 스크린샷)
     std::string penpotToken; // --penpot-token: Penpot 가져오기 서버 토큰 (자동 시험, 비면 무작위)
     bool uiCheck = false;    // --ui-check: Penpot에서 내보낸 화면의 배치를 Penpot 상자와 비교하고 끝 (창 없음)
+    std::string uiRender, uiRenderOut; // --ui-render <ui/x.ui> <png>: 화면 하나만 그려 저장하고 끝 (픽셀 비교)
 };
 
 bool parseArgs(int argc, char** argv, Options& o) {
@@ -98,12 +99,13 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--lang" && next(v)) o.language = v;
         else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
         else if (a == "--ui-check") o.uiCheck = true;
+        else if (a == "--ui-render" && i + 2 < argc) o.uiRender = argv[++i], o.uiRenderOut = argv[++i];
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --feedback --ui <file.ui> --ui-check\n"
+                "              --project-settings --tables --sounds --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
                 "                 + game options (--join <addr:port> --scene <file> --tuning <file> --bot ...)\n");
             return false;
@@ -142,7 +144,7 @@ int main(int argc, char** argv) {
     if (!parseArgs(argc, argv, opt)) return 1;
     if (opt.frames) log::setDialogs(false);
     editor::initStrings(engineDir, opt.language);
-    if (opt.uiCheck) {
+    if (opt.uiCheck || !opt.uiRender.empty()) {
         log::setDialogs(false);
         editor::ProjectInfo project;
         std::string error;
@@ -150,7 +152,9 @@ int main(int argc, char** argv) {
             std::printf("Cannot open project: %s\n", error.c_str());
             return 1;
         }
-        return editor::runUiCheck(project.directory, project.settings.language);
+        const std::string language = opt.language.empty() ? project.settings.language : opt.language;
+        if (!opt.uiRender.empty()) return editor::runUiRender(project.directory, language, opt.uiRender, opt.uiRenderOut);
+        return editor::runUiCheck(project.directory, language);
     }
 
     Window window;
