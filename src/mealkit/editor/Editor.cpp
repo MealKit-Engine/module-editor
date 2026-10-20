@@ -179,6 +179,12 @@ void Editor::update(f64 dt) {
     m_time += dt;
     m_perf.update(dt, {});
 
+    m_import.update();
+    for (const std::string& e : m_import.takeEvents()) {
+        setStatus(e);
+        m_uiPanel.refresh(); // 새 .ui 파일 (고친 파일은 ui::System이 다시 읽는다)
+    }
+
     m_imgui.newFrame();
     ImGuizmo::BeginFrame();
     if (!m_editActive) m_pending = capture();
@@ -1389,6 +1395,15 @@ void Editor::setProject(const ProjectInfo& project) {
     m_tuningPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);
     m_uiPanel.setProject(project.settings.language);
+    if (!m_engineDirectory.empty()) {
+        ImportProject ip;
+        ip.engineDir = m_engineDirectory;
+        ip.projectDir = project.directory;
+        ip.name = project.name();
+        ip.language = project.settings.language;
+        m_import.start(ip, m_penpotToken);
+        m_uiPanel.setPenpotUrl(m_import.pluginUrl());
+    }
     m_projectPanel.revert(project);
     // 엔진 저장소 자신(engine 없음)은 묻지 않는다
     const game::ProjectSettings& s = project.settings;

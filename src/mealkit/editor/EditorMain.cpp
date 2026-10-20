@@ -24,6 +24,7 @@
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/ProjectManager.h"
 #include "mealkit/editor/Strings.h"
+#include "mealkit/editor/UiCheck.h"
 #include "mealkit/game/GameInstance.h"
 #include "mealkit/net/Lockstep.h"
 #include "mealkit/platform/Paths.h"
@@ -63,6 +64,8 @@ struct Options {
     bool feedback = false;        // [연출] 창을 열고 시작
     std::string uiPreview;        // [UI] 창을 열고 이 화면(assets/ui의 파일 이름)을 미리보기
     std::string language; // --lang: 이번 실행만 이 언어 (문서 스크린샷)
+    std::string penpotToken; // --penpot-token: Penpot 가져오기 서버 토큰 (자동 시험, 비면 무작위)
+    bool uiCheck = false;    // --ui-check: Penpot에서 내보낸 화면의 배치를 Penpot 상자와 비교하고 끝 (창 없음)
 };
 
 bool parseArgs(int argc, char** argv, Options& o) {
@@ -93,12 +96,14 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--ui" && next(v)) o.uiPreview = v;
         else if (a == "--scene" && next(v)) o.scenePath = v;
         else if (a == "--lang" && next(v)) o.language = v;
+        else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
+        else if (a == "--ui-check") o.uiCheck = true;
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --feedback --ui <file.ui>\n"
+                "              --project-settings --tables --sounds --feedback --ui <file.ui> --ui-check\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
                 "                 + game options (--join <addr:port> --scene <file> --tuning <file> --bot ...)\n");
             return false;
@@ -137,6 +142,16 @@ int main(int argc, char** argv) {
     if (!parseArgs(argc, argv, opt)) return 1;
     if (opt.frames) log::setDialogs(false);
     editor::initStrings(engineDir, opt.language);
+    if (opt.uiCheck) {
+        log::setDialogs(false);
+        editor::ProjectInfo project;
+        std::string error;
+        if (!editor::loadProject(opt.projectDir.empty() ? "." : opt.projectDir, project, &error)) {
+            std::printf("Cannot open project: %s\n", error.c_str());
+            return 1;
+        }
+        return editor::runUiCheck(project.directory, project.settings.language);
+    }
 
     Window window;
     if (!window.create({"MealKit Editor", 1600, 900, editor::kEditorCaptionColor})) return 1;
@@ -177,6 +192,7 @@ int main(int argc, char** argv) {
     engineTables.insert(engineTables.end(), input::engineTables().begin(), input::engineTables().end());
     editor.setEngineTables(engineTables);
     editor.setEngineDirectory(engineDirectory());
+    editor.setPenpotToken(opt.penpotToken);
     editor.setProject(project);
     if (opt.select >= 0) editor.selectByIndex(opt.select);
     if (opt.players > 1) editor.setPlayPlayers(opt.players);

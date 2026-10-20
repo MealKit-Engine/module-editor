@@ -7,6 +7,7 @@
 #include "mealkit/editor/FeedbackPanel.h"
 #include "mealkit/editor/ProjectSettingsPanel.h"
 #include "mealkit/editor/TuningPanel.h"
+#include "mealkit/editor/ImportServer.h"
 #include "mealkit/editor/UiPanel.h"
 #include "mealkit/editor/SoundPanel.h"
 #include "mealkit/editor/TablesPanel.h"
@@ -38,6 +39,8 @@ public:
     // 열린 프로젝트: [빌드] 메뉴, 창 제목.
     void setProject(const ProjectInfo& project);
     void setEngineDirectory(const std::string& directory) { m_engineDirectory = directory; }
+    // Penpot 가져오기 서버의 토큰 (setProject 전에, 자동 시험용. 비면 무작위)
+    void setPenpotToken(const std::string& token) { m_penpotToken = token; }
     // [업그레이드]를 누른 것과 같다 (자동 테스트용)
     void requestUpgrade() {
         m_upgradeRequested = true;
@@ -86,7 +89,10 @@ public:
     void setEventType(const reflect::TypeInfo* type) { m_feedbackPanel.setEventType(type); }
     void openFeedback() { m_feedbackOpen = true; } // 자동 테스트용
     // 게임 화면 UI 미리보기 ([UI] 패널): 게임의 뷰 모델 목록, 편집 모드에서 씬 뷰 위에 그리기
-    void setViewModels(const std::vector<const reflect::TypeInfo*>* types) { m_uiPanel.setViewModels(types); }
+    void setViewModels(const std::vector<const reflect::TypeInfo*>* types) {
+        m_uiPanel.setViewModels(types);
+        m_import.setViewModels(types);
+    }
     void openUiPanel(const std::string& file = {}) {
         m_uiPanelOpen = true;
         if (!file.empty()) m_uiPanel.select(file);
@@ -282,6 +288,8 @@ private:
     bool m_feedbackOpen = false;
     UiPanel m_uiPanel;
     bool m_uiPanelOpen = false;
+    ImportServer m_import; // Penpot 플러그인 가져오기 (프로젝트를 열면 시작)
+    std::string m_penpotToken;
     bool m_viewTableDirty = false;
     f64 m_viewTableTimer = 0.0;
     f64 m_rowCheckTimer = 0.0;
