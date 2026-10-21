@@ -184,6 +184,7 @@ void Editor::update(f64 dt) {
         setStatus(e);
         m_uiPanel.refresh(); // 새 .ui 파일 (고친 파일은 ui::System이 다시 읽는다)
     }
+    updateHotReload(dt);
 
     m_imgui.newFrame();
     ImGuizmo::BeginFrame();
@@ -323,6 +324,35 @@ void Editor::focusPanel(const char* window) {
 void Editor::focusPanelNow() {
     ImGui::SetNextWindowFocus();
     if (--m_focusFrames <= 0) m_focusPanel = nullptr;
+}
+
+// 에셋 핫 리로드: 외부 도구(Blender 등)가 내보낸 모델과 밖에서 고친 씬을 다시 읽는다. 플레이 중에는 하지 않는다
+// (모델의 충돌 껍질은 시뮬레이션에 닿으므로 매치 중에 바꾸면 피어가 갈린다). 플레이가 끝나면 그때 바뀐 것을 읽는다
+void Editor::updateHotReload(f64 dt) {
+    constexpr f64 kHotReloadSeconds = 0.5; // 파일 시각을 보는 간격
+    m_hotReloadTimer -= dt;
+    if (m_hotReloadTimer > 0.0 || m_mode != Mode::Edit) return;
+    m_hotReloadTimer = kHotReloadSeconds;
+
+    for (const std::string& path : m_models->reloadChanged()) {
+        MEALKIT_INFO("Hot reload: model %s", path.c_str());
+        setStatus(trf("Reloaded model: %s", path.c_str()));
+    }
+
+    if (m_scenePath.empty()) return;
+    const unsigned long long time = fileWriteTime(m_scenePath);
+    if (time == m_sceneTime || time == 0) return;
+    if (m_dirty) { // 고친 것이 있으면 덮어쓰지 않는다 (저장하면 디스크 쪽이 덮인다)
+        if (!m_sceneChangedWarned) setStatus(tr("The scene file changed on disk; you have unsaved changes"));
+        m_sceneChangedWarned = true;
+        return;
+    }
+    const u32 selected = m_selected;
+    if (loadScene(m_scenePath)) {
+        if (m_scene.find(selected)) m_selected = selected; // 같은 id가 있으면 선택을 지킨다
+        MEALKIT_INFO("Hot reload: scene %s", m_scenePath.c_str());
+        setStatus(trf("Reloaded scene: %s", fileName(m_scenePath).c_str()));
+    }
 }
 
 void Editor::updateAutosave(f64 dt) {
@@ -1301,6 +1331,8 @@ bool Editor::loadScene(const std::string& path) {
     }
     m_scene = std::move(loaded);
     m_scenePath = path;
+    m_sceneTime = fileWriteTime(path);
+    m_sceneChangedWarned = false;
     m_dirty = false;
     m_autosavePending = false;
     // 지난번에 저장하지 않고 끝났거나 크래시가 났으면 자동 저장본이 더 새롭다
@@ -1321,6 +1353,8 @@ bool Editor::saveScene() {
         return false;
     }
     m_dirty = false;
+    m_sceneTime = fileWriteTime(m_scenePath);
+    m_sceneChangedWarned = false;
     m_autosavePending = false;
     removeFile(m_scenePath + ".autosave"); // 저장했으니 자동 저장본은 필요 없다
     setStatus(trf("Saved: %s", fileName(m_scenePath).c_str()));

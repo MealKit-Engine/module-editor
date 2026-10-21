@@ -158,6 +158,7 @@ private:
     void drawPlayControls();
     void reportSimProblems();
     void updateAutosave(f64 dt);
+    void updateHotReload(f64 dt); // 바뀐 모델·씬 파일 다시 읽기 (편집 모드)
     void focusPanel(const char* window);
     void focusPanelNow(); // 그 창의 Begin 직전에 부른다
     void drawGizmo();
@@ -265,6 +266,9 @@ private:
     std::string m_message;     // 알림 창 내용
     std::string m_recoverPath; // 복구할지 물어볼 자동 저장 파일
     f64 m_autosaveTimer = 0.0;
+    f64 m_hotReloadTimer = 0.0;
+    unsigned long long m_sceneTime = 0; // 열거나 저장할 때 씬 파일 시각 (밖에서 바뀌었는지)
+    bool m_sceneChangedWarned = false;
     bool m_autosavePending = false; // 마지막 자동 저장 뒤에 바뀐 것이 있다
 
     ProjectInfo m_project;              // 디스크에 저장된 프로젝트 설정
