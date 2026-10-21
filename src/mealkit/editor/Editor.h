@@ -107,6 +107,10 @@ public:
     void update(f64 dt);
     // 편집 모드의 3D 장면(씬 물체 + 선택 강조)과 카메라를 채운다.
     void buildSceneView(render::FrameParams& frame, render::DrawList& drawList) const;
+    // 그래픽 회귀 테스트 (--render-golden): 씬을 열고, 정한 카메라(도)로 창 전체에 UI 없이 그린다
+    bool openSceneForShot(const std::string& path) { return loadScene(path); }
+    void buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 width, f32 height, render::FrameParams& frame,
+                   render::DrawList& drawList);
     // 3D를 그린 뒤 endFrame 전에 호출. 렌더러 프레임이 열리지 않았으면 frameActive = false.
     void renderUi(bool frameActive);
 

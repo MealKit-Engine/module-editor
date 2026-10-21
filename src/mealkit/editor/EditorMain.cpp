@@ -34,6 +34,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <sstream>
+#include <vector>
 #include <cstdlib>
 #include <ctime>
 #include <memory>
@@ -67,7 +69,32 @@ struct Options {
     std::string penpotToken; // --penpot-token: Penpot 가져오기 서버 토큰 (자동 시험, 비면 무작위)
     bool uiCheck = false;    // --ui-check: Penpot에서 내보낸 화면의 배치를 Penpot 상자와 비교하고 끝 (창 없음)
     std::string uiRender, uiRenderOut; // --ui-render <ui/x.ui> <png>: 화면 하나만 그려 저장하고 끝 (픽셀 비교)
+    std::string goldenShots, goldenOut; // --render-golden <shots.txt> <폴더>: 기준 장면을 UI 없이 그려 저장하고 끝 (그래픽 회귀 테스트)
 };
+
+// 그래픽 회귀 테스트의 장면 목록 (engine/tests/golden/shots.txt): "이름 씬 x y z yaw pitch" 줄 (각도는 도, # 주석)
+struct GoldenShot {
+    std::string name, scene;
+    Vec3 position;
+    f32 yaw = 0.0f, pitch = 0.0f;
+};
+
+bool loadGoldenShots(const std::string& path, std::vector<GoldenShot>& out) {
+    std::string text;
+    if (!readTextFile(path, text)) return false;
+    size_t start = 0;
+    while (start < text.size()) {
+        size_t end = text.find('\n', start);
+        if (end == std::string::npos) end = text.size();
+        std::string line = text.substr(start, end - start);
+        start = end + 1;
+        if (const size_t hash = line.find('#'); hash != std::string::npos) line.resize(hash);
+        std::istringstream in(line);
+        GoldenShot s;
+        if (in >> s.name >> s.scene >> s.position.x >> s.position.y >> s.position.z >> s.yaw >> s.pitch) out.push_back(s);
+    }
+    return !out.empty();
+}
 
 bool parseArgs(int argc, char** argv, Options& o) {
     for (int i = 1; i < argc; ++i) {
@@ -100,6 +127,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
         else if (a == "--ui-check") o.uiCheck = true;
         else if (a == "--ui-render" && i + 2 < argc) o.uiRender = argv[++i], o.uiRenderOut = argv[++i];
+        else if (a == "--render-golden" && i + 2 < argc) o.goldenShots = argv[++i], o.goldenOut = argv[++i];
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
             std::printf(
@@ -266,11 +294,50 @@ int main(int argc, char** argv) {
     f64 reloadTimer = 0.0;
     u32 frame = 0;
 
+    // --render-golden: 장면마다 몇 프레임 그려(모델·아틀라스가 올라간 뒤) 마지막 프레임을 <이름>.png로. 게임 DLL의 씬 종류가 필요하다
+    std::vector<GoldenShot> goldenShots;
+    int goldenExit = 0;
+    if (!opt.goldenShots.empty()) {
+        if (!loadGoldenShots(opt.goldenShots, goldenShots)) MEALKIT_FATAL("Cannot read golden shots: %s", opt.goldenShots.c_str());
+        if (!host.loaded()) MEALKIT_FATAL("--render-golden needs the game code (build the editor first)");
+        createDirectories(opt.goldenOut);
+    }
+    constexpr u32 kGoldenFrames = 4;
+    size_t goldenIndex = 0;
+    u32 goldenFrame = 0;
+
     while (window.pumpMessages() && !editor.quitRequested()) {
         const f64 now = nowSeconds();
         const f64 dt = std::min(now - lastTime, 0.25);
         lastTime = now;
         if (window.consumeResize()) renderer.resize(window.width(), window.height());
+
+        if (!goldenShots.empty()) { // 그래픽 회귀 테스트: 편집기 UI 없이 정한 카메라로만
+            const GoldenShot& shot = goldenShots[goldenIndex];
+            if (goldenFrame == 0 && !editor.openSceneForShot(findAsset("assets/" + shot.scene))) {
+                std::printf("GOLDEN %s cannot open %s\n", shot.name.c_str(), shot.scene.c_str());
+                goldenExit = 1;
+                break;
+            }
+            const std::string png = opt.goldenOut + "/" + shot.name + ".png";
+            if (goldenFrame + 1 == kGoldenFrames) renderer.requestCapture(png.c_str());
+            render::FrameParams params;
+            drawList.clear();
+            editor.buildShot(shot.position, shot.yaw, shot.pitch, static_cast<f32>(renderer.width()),
+                             static_cast<f32>(renderer.height()), params, drawList);
+            if (renderer.beginFrame(params)) {
+                drawList.submit(renderer);
+                renderer.endFrame();
+            }
+            if (++goldenFrame == kGoldenFrames) {
+                std::printf("GOLDEN %s %ux%u -> %s\n", shot.name.c_str(), renderer.width(), renderer.height(),
+                            fileExists(png) ? png.c_str() : "failed");
+                if (!fileExists(png)) goldenExit = 1;
+                goldenFrame = 0;
+                if (++goldenIndex == goldenShots.size()) break;
+            }
+            continue;
+        }
 
         editor.update(dt);
 
@@ -372,5 +439,5 @@ int main(int argc, char** argv) {
     host.unload();
     editor.shutdown();
     renderer.shutdown();
-    return 0;
+    return goldenExit; // --render-golden이 아니면 0
 }

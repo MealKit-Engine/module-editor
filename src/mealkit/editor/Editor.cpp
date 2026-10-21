@@ -493,6 +493,19 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
     }
 }
 
+void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 width, f32 height, render::FrameParams& frame,
+                       render::DrawList& drawList) {
+    constexpr f32 kDegrees = 3.14159265f / 180.0f;
+    m_cameraPos = position;
+    m_cameraYaw = yawDegrees * kDegrees;
+    m_cameraPitch = pitchDegrees * kDegrees;
+    m_selected = 0; // 선택 강조 없이
+    m_viewport = {0.0f, 0.0f, width, height};
+    m_proj = perspectiveReversedZ(kFovY, width / std::max(height, 1.0f), 0.1f, 2000.0f);
+    m_view = lookAtLH(m_cameraPos, m_cameraPos + cameraForward(), {0, 1, 0});
+    buildSceneView(frame, drawList);
+}
+
 void Editor::setMode(Mode mode) {
     m_mode = mode;
     m_looking = false;
