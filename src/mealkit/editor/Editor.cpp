@@ -334,6 +334,17 @@ void Editor::updateHotReload(f64 dt) {
     if (m_hotReloadTimer > 0.0 || m_mode != Mode::Edit) return;
     m_hotReloadTimer = kHotReloadSeconds;
 
+    // 프로젝트 설정 창에서 바꾼 에셋 예산 (저장하면 m_project가 바뀐다)
+    asset::ModelBudget budgets[asset::kModelKindCount];
+    game::modelBudgets(m_project.settings, budgets);
+    for (u32 k = 0; k < asset::kModelKindCount; ++k) {
+        const asset::ModelBudget& now = m_models->budget(static_cast<asset::ModelKind>(k));
+        if (std::memcmp(&now, &budgets[k], sizeof(now)) != 0) {
+            m_models->setBudgets(budgets);
+            break;
+        }
+    }
+
     for (const std::string& path : m_models->reloadChanged()) {
         MEALKIT_INFO("Hot reload: model %s", path.c_str());
         setStatus(trf("Reloaded model: %s", path.c_str()));
@@ -832,9 +843,22 @@ void Editor::drawInspector(bool editing) {
                 ImGui::TextDisabled("%s", tr("Default box"));
             } else {
                 ImGui::TextUnformatted(e->model.c_str());
-                if (const asset::Model* model = m_models->get(e->model))
+                if (const asset::Model* model = m_models->get(e->model)) {
                     ImGui::TextDisabled(tr("%u triangles · %u LODs"), model->triangles[0], model->lodCount);
-                else ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", tr("Could not load (see the log)"));
+                    // 에셋 예산: 종류(폴더)의 한도 대비 사용량, 넘으면 빨강 (mealkit.project budget*)
+                    const asset::ModelBudget& b = m_models->budget(model->kind);
+                    const ImVec4 red(1.0f, 0.45f, 0.4f, 1.0f);
+                    const auto usage = [&](u32 used, u32 limit, const char* what) {
+                        const ImVec4 color = used > limit ? red : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+                        ImGui::TextColored(color, "%s %u / %u", what, used, limit);
+                    };
+                    const char* kind = model->kind == asset::ModelKind::Character     ? tr("characters")
+                                       : model->kind == asset::ModelKind::Environment ? tr("environment")
+                                                                                      : tr("props");
+                    ImGui::TextDisabled("%s", trf("Budget: %s", kind).c_str());
+                    usage(model->triangles[0], b.triangles, tr("Triangles"));
+                    usage(model->materials, b.materials, tr("Materials"));
+                } else ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", tr("Could not load (see the log)"));
             }
             if (ImGui::Button(tr("Choose Model..."))) {
                 const std::string path = chooseModel();

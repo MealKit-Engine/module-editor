@@ -181,6 +181,11 @@ int main(int argc, char** argv) {
 
     asset::ModelCache models;
     models.setRenderer(&renderer);
+    {
+        asset::ModelBudget budgets[asset::kModelKindCount]; // 프로젝트 설정 창에서 바꾸면 Editor::setProject가 다시 넘긴다
+        game::modelBudgets(project.settings, budgets);
+        models.setBudgets(budgets);
+    }
 
     // 소리: 플레이 중인 게임과 [소리] 패널 미리듣기가 같이 쓴다
     audio::Engine audio;
