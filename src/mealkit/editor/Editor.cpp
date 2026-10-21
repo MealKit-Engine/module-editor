@@ -8,6 +8,7 @@
 #include "mealkit/platform/FileDialog.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Window.h"
+#include "mealkit/rhi/GpuCapture.h"
 
 #include <algorithm>
 #include <cctype>
@@ -237,6 +238,7 @@ void Editor::update(f64 dt) {
     pollLayoutCheck();
     drawBuildLog();
     takePanelStatus();
+    if (ImGui::IsKeyPressed(ImGuiKey_F11, false) && rhi::gpuCaptureTool()) captureGpuFrame(); // 편집·플레이 모두
 
     if (editing) {
         drawGizmo();
@@ -462,6 +464,7 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
     frame.groundColor = env.groundColor;
     frame.fogColor = env.fogColor;
     frame.fogDensity = env.fogDensity;
+    frame.debugView = m_debugView;
 
     const render::MeshId box = m_models->boxMesh();
     for (const Entity& e : m_scene.entities) {
@@ -489,7 +492,13 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
         inst.flags = e.flags;
         if (e.id == m_selected) inst.flags |= render::kInstanceHighlight;
         const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model);
-        out.add(model ? m_models->pickLod(*model, m_cameraPos, world.position, world.scale) : box, inst);
+        const render::MeshId mesh = model ? m_models->pickLod(*model, m_cameraPos, world.position, world.scale) : box;
+        if (model && m_debugView != render::DebugView::None) { // 보기 모드: 그린 LOD 단계, 예산 초과
+            for (u32 lod = 0; lod < model->lodCount; ++lod)
+                if (model->lods[lod] == mesh) inst.flags |= lod << render::kInstanceLodShift;
+            if (!model->budgetProblems.empty()) inst.flags |= render::kInstanceOverBudget;
+        }
+        out.add(mesh, inst);
     }
 }
 
@@ -504,6 +513,10 @@ void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 widt
     m_proj = perspectiveReversedZ(kFovY, width / std::max(height, 1.0f), 0.1f, 2000.0f);
     m_view = lookAtLH(m_cameraPos, m_cameraPos + cameraForward(), {0, 1, 0});
     buildSceneView(frame, drawList);
+}
+
+void Editor::captureGpuFrame() {
+    if (rhi::captureNextGpuFrame()) setStatus(trf("GPU capture: next frame -> %s", rhi::gpuCaptureFolder().c_str()));
 }
 
 void Editor::setMode(Mode mode) {
@@ -598,6 +611,22 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem(tr("Feedback"), nullptr, &m_feedbackOpen);
         ImGui::MenuItem(tr("UI"), nullptr, &m_uiPanelOpen);
         if (ImGui::MenuItem(tr("Reset Layout"))) m_layoutReset = true;
+        ImGui::Separator();
+        // 보기 모드: 무엇이 비싼지 색으로 (편집 화면, 출시 빌드에는 없다)
+        if (ImGui::BeginMenu(tr("View Mode"))) {
+            const char* names[] = {tr("Lit"), tr("Wireframe"), tr("Normals"), tr("LOD Level"), tr("Overdraw"),
+                                   tr("Over Budget")};
+            for (u32 i = 0; i < static_cast<u32>(render::DebugView::Count); ++i) {
+                const auto view = static_cast<render::DebugView>(i);
+                if (ImGui::MenuItem(names[i], nullptr, m_debugView == view, m_renderer->supportsDebugView(view)))
+                    m_debugView = view;
+            }
+            ImGui::EndMenu();
+        }
+        // GPU 캡처 (--gpu-capture로 RenderDoc·PIX를 불러왔을 때만)
+        if (const char* tool = rhi::gpuCaptureTool()) {
+            if (ImGui::MenuItem(trf("GPU Capture (%s)", tool).c_str(), "F11")) captureGpuFrame();
+        }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Build"), !m_project.directory.empty())) {

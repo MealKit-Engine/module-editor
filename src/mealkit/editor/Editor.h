@@ -107,6 +107,7 @@ public:
     void update(f64 dt);
     // 편집 모드의 3D 장면(씬 물체 + 선택 강조)과 카메라를 채운다.
     void buildSceneView(render::FrameParams& frame, render::DrawList& drawList) const;
+    void setDebugView(render::DebugView view) { m_debugView = view; } // --view-mode (자동 캡처)
     // 그래픽 회귀 테스트 (--render-golden): 씬을 열고, 정한 카메라(도)로 창 전체에 UI 없이 그린다
     bool openSceneForShot(const std::string& path) { return loadScene(path); }
     void buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 width, f32 height, render::FrameParams& frame,
@@ -199,6 +200,7 @@ private:
     void redo();
     void markChanged() { m_changed = true; }
     void setStatus(const std::string& text);
+    void captureGpuFrame(); // 보기 메뉴·F11 (rhi/GpuCapture.h)
     Vec3 cameraForward() const;
     void updateTitle();
     void pollBuild();
@@ -216,6 +218,7 @@ private:
     u32 m_selected = 0; // 엔티티 id (0 = 없음)
 
     Mode m_mode = Mode::Edit;
+    render::DebugView m_debugView = render::DebugView::None; // [보기] > 보기 모드 (편집 화면만)
     bool m_playRequest = false;
     bool m_stopRequest = false;
     bool m_quit = false;

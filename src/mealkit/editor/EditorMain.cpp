@@ -50,6 +50,8 @@ struct Options {
     std::string scenePath;
     u32 bodies = 0; // --bodies: 매치 데이터 (게임이 정한다)
     bool debugLayer = false;
+    bool gpuCapture = false; // --gpu-capture: RenderDoc·PIX (보기 메뉴의 GPU 캡처, F11)
+    u32 viewMode = 0;        // --view-mode <n>: 보기 모드로 시작 (render::DebugView, 문서·시험 캡처)
     // 자동 테스트/스크린샷용
     u32 frames = 0; // 이 프레임 수만큼 돌고 종료
     std::string capturePath;
@@ -108,6 +110,8 @@ bool parseArgs(int argc, char** argv, Options& o) {
         if (a == "--project" && next(v)) o.projectDir = v;
         else if (a == "--bodies" && next(v)) o.bodies = static_cast<u32>(std::atoi(v));
         else if (a == "--debug") o.debugLayer = true;
+        else if (a == "--gpu-capture") o.gpuCapture = true;
+        else if (a == "--view-mode" && next(v)) o.viewMode = static_cast<u32>(std::atoi(v)); // render::DebugView 번호 (자동 캡처)
         else if (a == "--frames" && next(v)) o.frames = static_cast<u32>(std::atoi(v));
         else if (a == "--capture" && next(v)) o.capturePath = v;
         else if (a == "--select" && next(v)) o.select = std::atoi(v);
@@ -188,7 +192,7 @@ int main(int argc, char** argv) {
     Window window;
     if (!window.create({"MealKit Editor", 1600, 900, editor::kEditorCaptionColor})) return 1;
     render::Renderer renderer;
-    if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer}))
+    if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer, opt.gpuCapture}))
         MEALKIT_FATAL("Renderer initialization failed.\n%s", renderer.initError());
 
     // ---- 프로젝트 고르기
@@ -232,6 +236,7 @@ int main(int argc, char** argv) {
     editor.setPenpotToken(opt.penpotToken);
     editor.setProject(project);
     if (opt.select >= 0) editor.selectByIndex(opt.select);
+    if (opt.viewMode < static_cast<u32>(render::DebugView::Count)) editor.setDebugView(static_cast<render::DebugView>(opt.viewMode));
     if (opt.players > 1) editor.setPlayPlayers(opt.players);
     if (opt.upgrade) editor.requestUpgrade();
     if (opt.projectSettings) editor.openProjectSettings();
