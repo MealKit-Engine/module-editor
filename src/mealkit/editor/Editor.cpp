@@ -469,6 +469,9 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
     frame.groundColor = env.groundColor;
     frame.fogColor = env.fogColor;
     frame.fogDensity = env.fogDensity;
+    frame.environment = m_models->environment(env.hdri);
+    frame.environmentIntensity = env.hdriIntensity;
+    frame.environmentRotation = env.hdriRotation * (3.14159265f / 180.0f);
     frame.debugView = m_debugView;
 
     const render::MeshId box = m_models->boxMesh();
@@ -1013,6 +1016,17 @@ void Editor::drawEnvironment(bool editing) {
     c |= ImGui::ColorEdit3(tr("Ground bounce"), &env.groundColor.x, hdr);
     c |= ImGui::ColorEdit3(tr("Fog / background"), &env.fogColor.x, hdr);
     c |= ImGui::DragFloat(tr("Fog density"), &env.fogDensity, 0.0002f, 0.0f, 0.1f, "%.4f");
+    // 하늘 HDRI: assets/textures/ 아래의 .hdr 하나 (없음 = 위의 색 그라디언트). 처음 고르면 굽느라 잠깐 멈춘다
+    if (ImGui::BeginCombo(tr("Sky HDRI"), env.hdri.empty() ? tr("None (sky colors)") : env.hdri.c_str())) {
+        if (ImGui::Selectable(tr("None (sky colors)"), env.hdri.empty())) env.hdri.clear(), c = true;
+        for (const std::string& h : asset::listHdris(asset::ModelCache::assetsRoot()))
+            if (ImGui::Selectable(h.c_str(), env.hdri == h)) env.hdri = h, c = true;
+        ImGui::EndCombo();
+    }
+    ImGui::BeginDisabled(env.hdri.empty());
+    c |= ImGui::DragFloat(tr("HDRI intensity"), &env.hdriIntensity, 0.01f, 0.0f, 16.0f, "%.2f");
+    c |= ImGui::DragFloat(tr("HDRI rotation"), &env.hdriRotation, 1.0f, -360.0f, 360.0f, "%.0f");
+    ImGui::EndDisabled();
     ImGui::PopItemWidth();
     if (c) markChanged();
     ImGui::TextDisabled("%s", tr("Colors are linear values."));
