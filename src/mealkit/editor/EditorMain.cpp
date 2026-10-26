@@ -34,6 +34,7 @@
 #include "mealkit/render/Renderer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <sstream>
 #include <vector>
@@ -82,7 +83,19 @@ struct GoldenShot {
     std::string name, scene;
     Vec3 position;
     f32 yaw = 0.0f, pitch = 0.0f;
+    std::string lighting; // 조명 모델 (pbr, toon, unlit). 비면 프로젝트 설정
 };
+
+// 장면의 조명 모델: 줄 끝의 pbr / toon / unlit (없으면 프로젝트 설정 그대로)
+bool goldenLighting(const std::string& name, render::LightingModel& out) {
+    const char* const names[render::kLightingModelCount] = {"pbr", "toon", "unlit"};
+    for (u32 i = 0; i < render::kLightingModelCount; ++i)
+        if (name == names[i]) {
+            out = static_cast<render::LightingModel>(i);
+            return true;
+        }
+    return false;
+}
 
 bool loadGoldenShots(const std::string& path, std::vector<GoldenShot>& out) {
     std::string text;
@@ -96,7 +109,12 @@ bool loadGoldenShots(const std::string& path, std::vector<GoldenShot>& out) {
         if (const size_t hash = line.find('#'); hash != std::string::npos) line.resize(hash);
         std::istringstream in(line);
         GoldenShot s;
-        if (in >> s.name >> s.scene >> s.position.x >> s.position.y >> s.position.z >> s.yaw >> s.pitch) out.push_back(s);
+        if (in >> s.name >> s.scene >> s.position.x >> s.position.y >> s.position.z >> s.yaw >> s.pitch) {
+            in >> s.lighting;
+            render::LightingModel model;
+            if (!s.lighting.empty() && !goldenLighting(s.lighting, model)) return false;
+            out.push_back(s);
+        }
     }
     return !out.empty();
 }
@@ -340,6 +358,9 @@ int main(int argc, char** argv) {
                 goldenExit = 1;
                 break;
             }
+            render::LightingModel lighting = static_cast<render::LightingModel>(project.settings.lightingModel);
+            goldenLighting(shot.lighting, lighting);
+            renderer.setLightingModel(lighting);
             const std::string png = opt.goldenOut + "/" + shot.name + ".png";
             if (goldenFrame + 1 == kGoldenFrames) renderer.requestCapture(png.c_str());
             render::FrameParams params;
@@ -428,6 +449,7 @@ int main(int argc, char** argv) {
             editor.buildSceneView(frameParams, drawList);
             feedback.screenTint(frameParams.tintColor, frameParams.tintAmount); // 편집 중 미리보기의 번쩍임
         }
+        frameParams.time = static_cast<f32>(std::fmod(now, 4096.0)); // 바람 흔들림 (편집 중에도 움직인다)
 
         // 자동 테스트: --frames는 빌드를 기다리는 동안 세지 않는다 (빌드 결과를 화면으로 확인할 수 있게)
         const bool last = opt.frames && frame + 1 >= opt.frames;

@@ -13,6 +13,7 @@
 #include "mealkit/editor/SoundPanel.h"
 #include "mealkit/editor/TablesPanel.h"
 #include "mealkit/game/FrameStats.h"
+#include "mealkit/game/RenderStyle.h"
 #include "mealkit/game/SimDebug.h"
 #include "mealkit/render/DrawList.h"
 #include "mealkit/render/Renderer.h"
@@ -276,6 +277,7 @@ private:
     std::string m_recoverPath; // 복구할지 물어볼 자동 저장 파일
     f64 m_autosaveTimer = 0.0;
     f64 m_hotReloadTimer = 0.0;
+    game::RenderStyleState m_renderStyle; // 프로젝트 설정의 조명 모델·툰 램프 (핫 리로드가 바뀌면 다시 넘긴다)
     unsigned long long m_sceneTime = 0; // 열거나 저장할 때 씬 파일 시각 (밖에서 바뀌었는지)
     bool m_sceneChangedWarned = false;
     bool m_autosavePending = false; // 마지막 자동 저장 뒤에 바뀐 것이 있다

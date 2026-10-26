@@ -337,6 +337,9 @@ void Editor::updateHotReload(f64 dt) {
     if (m_hotReloadTimer > 0.0 || m_mode != Mode::Edit) return;
     m_hotReloadTimer = kHotReloadSeconds;
 
+    // 프로젝트 설정 창에서 바꾼 조명 모델·툰 램프, 밖에서 고친 램프 그림
+    if (m_renderer) game::applyRenderStyle(m_project.settings, *m_renderer, m_renderStyle);
+
     // 프로젝트 설정 창에서 바꾼 에셋 예산 (저장하면 m_project가 바뀐다)
     asset::ModelBudget budgets[asset::kModelKindCount];
     game::modelBudgets(m_project.settings, budgets);
@@ -616,7 +619,8 @@ void Editor::drawMenuBar() {
         // 보기 모드: 무엇이 비싼지 색으로 (편집 화면, 출시 빌드에는 없다)
         if (ImGui::BeginMenu(tr("View Mode"))) {
             const char* names[] = {tr("Lit"), tr("Wireframe"), tr("Normals"), tr("LOD Level"), tr("Overdraw"),
-                                   tr("Over Budget")};
+                                   tr("Over Budget"), tr("Material Features")};
+            static_assert(std::size(names) == static_cast<size_t>(render::DebugView::Count));
             for (u32 i = 0; i < static_cast<u32>(render::DebugView::Count); ++i) {
                 const auto view = static_cast<render::DebugView>(i);
                 if (ImGui::MenuItem(names[i], nullptr, m_debugView == view, m_renderer->supportsDebugView(view)))
@@ -1519,6 +1523,7 @@ void Editor::setProject(const ProjectInfo& project) {
     m_tuningPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);
     m_uiPanel.setProject(project.settings.language);
+    if (m_renderer) game::applyRenderStyle(project.settings, *m_renderer, m_renderStyle);
     live::ServerConfig lc;
     lc.kind = "editor";
     lc.projectDir = project.directory;
