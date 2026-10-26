@@ -246,9 +246,7 @@ int main(int argc, char** argv) {
     if (!editor.init(window, renderer, scenePath, models)) MEALKIT_FATAL("Editor initialization failed");
     editor.setAudio(&audio);
     editor.setFeedback(&feedback);
-    reflect::TableList engineTables = audio::engineTables(); // [표] 패널에 나오는 엔진 표: 소리 이벤트, 입력 바인딩
-    engineTables.insert(engineTables.end(), input::engineTables().begin(), input::engineTables().end());
-    editor.setEngineTables(engineTables);
+    editor.setEngineTables(input::engineTables()); // [표] 패널에 나오는 엔진 표: 입력 바인딩 (소리 이벤트는 MealKit Audio)
     editor.setEngineDirectory(engineDirectory());
     editor.setPenpotToken(opt.penpotToken);
     editor.setToolPaths(opt.toolPaths);

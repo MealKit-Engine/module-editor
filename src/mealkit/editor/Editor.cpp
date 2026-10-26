@@ -1527,6 +1527,7 @@ void Editor::setProject(const ProjectInfo& project) {
     lc.token = m_penpotToken;
     m_live.start(lc);
     m_live.addTopic("stats"); // 에디터 상태 표시줄의 성능 숫자 (game::FrameStats::json)
+    audio::addLiveService(m_live, [this] { return m_audio; }); // MealKit Audio: 에디터에서 재생, 다시 읽기, 상태
     m_tools = findTools(m_toolPaths);
     if (!m_engineDirectory.empty()) {
         ImportProject ip;
