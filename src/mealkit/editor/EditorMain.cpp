@@ -74,6 +74,7 @@ struct Options {
     std::string penpotToken; // --penpot-token: 라이브 연결 서버 토큰 (Penpot 가져오기 자동 시험, 비면 무작위)
     std::vector<std::string> toolPaths; // --tool-path: [도구] 메뉴가 더 찾을 폴더 (만드는 중인 도구의 빌드 폴더)
     bool listTools = false;             // --list-tools: 찾은 도구를 출력하고 끝 (창 없음)
+    bool builtinManager = false;        // --builtin-manager: 설치한 MealKit Manager 대신 에디터 안의 프로젝트 관리자
     bool uiCheck = false;    // --ui-check: Penpot에서 내보낸 화면의 배치를 Penpot 상자와 비교하고 끝 (창 없음)
     std::string uiRender, uiRenderOut; // --ui-render <ui/x.ui> <png>: 화면 하나만 그려 저장하고 끝 (픽셀 비교)
     std::string goldenShots, goldenOut; // --render-golden <shots.txt> <폴더>: 기준 장면을 UI 없이 그려 저장하고 끝 (그래픽 회귀 테스트)
@@ -154,6 +155,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
         else if (a == "--tool-path" && next(v)) o.toolPaths.push_back(v);
         else if (a == "--list-tools") o.listTools = true;
+        else if (a == "--builtin-manager") o.builtinManager = true;
         else if (a == "--ui-check") o.uiCheck = true;
         else if (a == "--ui-render" && i + 2 < argc) o.uiRender = argv[++i], o.uiRenderOut = argv[++i];
         else if (a == "--render-golden" && i + 2 < argc) o.goldenShots = argv[++i], o.goldenOut = argv[++i];
@@ -164,6 +166,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
                 "              --project-settings --tables --sounds --lookdev --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
+                "  without --project: starts MealKit Manager if installed (%%LOCALAPPDATA%%\\MealKit\\manager), --builtin-manager for the old one\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
                 "                 + game options (--join <addr:port> --scene <file> --tuning <file> --bot ...)\n");
             return false;
@@ -186,6 +189,16 @@ std::string engineDirectory() {
 bool relaunchWithProject(const std::string& directory) {
     std::string exe = executableDirectory() + "\\MealKitEditor.exe";
     return launchDetached(exe, "--project \"" + directory + "\"", directory);
+}
+
+// 프로젝트 없이 열면 별도 저장소의 허브 앱 MealKit Manager(MealKit-Manager, build.bat install)를 띄운다.
+// 이 엔진 폴더를 --engine으로 넘겨 Manager의 엔진 목록에 넣는다. 없으면 false (에디터 안의 프로젝트 관리자)
+bool startManager(const std::string& engineDir) {
+    const std::string exe = editor::editorUserDirectory() + "\\manager\\MealKitManager.exe";
+    if (!fileExists(exe)) return false;
+    if (!launchDetached(exe, "--engine \"" + engineDir + "\"", engineDir)) return false;
+    MEALKIT_INFO("Started MealKit Manager: %s", exe.c_str());
+    return true;
 }
 
 } // namespace
@@ -225,6 +238,9 @@ int main(int argc, char** argv) {
         if (!opt.uiRender.empty()) return editor::runUiRender(project.directory, language, opt.uiRender, opt.uiRenderOut);
         return editor::runUiCheck(project.directory, language);
     }
+
+    // 자동 실행(--frames)은 늘 에디터 안의 관리자를 쓴다 (설치 여부에 따라 시험이 달라지지 않게)
+    if (opt.projectDir.empty() && !opt.builtinManager && !opt.frames && startManager(engineDir)) return 0;
 
     Window window;
     if (!window.create({"MealKit Editor", 1600, 900, editor::kEditorCaptionColor})) return 1;
