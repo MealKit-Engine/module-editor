@@ -223,6 +223,7 @@ void Editor::update(f64 dt) {
     if (m_soundsOpen && m_audio) m_soundPanel.draw(*m_audio, &m_soundsOpen);
     if (m_feedbackOpen) m_feedbackPanel.draw(m_feedback, m_cameraPos + cameraForward() * 10.0f, dt, &m_feedbackOpen);
     if (m_uiPanelOpen) m_uiPanel.draw(&m_uiPanelOpen);
+    if (m_lookdevOpen && m_renderer) m_lookdev.draw(*m_renderer, &m_lookdevOpen);
     // 소리 이벤트 표(화면 전용)를 고치면 저장해 바로 들리게 한다 (오디오가 파일을 다시 읽는다)
     m_viewTableDirty |= m_tablesPanel.takeViewTableChanged();
     m_viewTableTimer += dt;
@@ -519,6 +520,13 @@ void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 widt
     buildSceneView(frame, drawList);
 }
 
+void Editor::renderLookdev(render::Renderer& renderer, f64 dt) {
+    if (!m_lookdevOpen || !m_models) return;
+    // 고른 물체의 모델을 따라간다 (모델 없는 물체를 고르면 앞의 모델을 그대로 둔다)
+    if (const Entity* e = selected(); e && !e->model.empty()) m_lookdev.setModel(e->model);
+    m_lookdev.render(renderer, *m_models, static_cast<render::LightingModel>(m_project.settings.lightingModel), dt);
+}
+
 void Editor::captureGpuFrame() {
     if (rhi::captureNextGpuFrame()) setStatus(trf("GPU capture: next frame -> %s", rhi::gpuCaptureFolder().c_str()));
 }
@@ -614,6 +622,7 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem(tr("Sounds"), nullptr, &m_soundsOpen, m_audio != nullptr);
         ImGui::MenuItem(tr("Feedback"), nullptr, &m_feedbackOpen);
         ImGui::MenuItem(tr("UI"), nullptr, &m_uiPanelOpen);
+        ImGui::MenuItem(tr("Look Dev"), nullptr, &m_lookdevOpen);
         if (ImGui::MenuItem(tr("Reset Layout"))) m_layoutReset = true;
         ImGui::Separator();
         // 보기 모드: 무엇이 비싼지 색으로 (편집 화면, 출시 빌드에는 없다)

@@ -8,6 +8,7 @@
 #include "mealkit/editor/ProjectSettingsPanel.h"
 #include "mealkit/editor/TuningPanel.h"
 #include "mealkit/editor/ImportServer.h"
+#include "mealkit/editor/LookdevPanel.h"
 #include "mealkit/editor/Tools.h"
 #include "mealkit/editor/UiPanel.h"
 #include "mealkit/editor/SoundPanel.h"
@@ -103,6 +104,9 @@ public:
     void renderUiPreview(render::Renderer& renderer, f64 dt) {
         if (m_uiPanelOpen && m_mode == Mode::Edit) m_uiPanel.render(renderer, m_viewport, dt);
     }
+    // [룩데브] 창의 오프스크린 그림: 본 화면 3D 다음, UI 전에 (창이 열려 있을 때만)
+    void renderLookdev(render::Renderer& renderer, f64 dt);
+    void openLookdev() { m_lookdevOpen = true; } // --lookdev (자동 캡처)
     // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
     void setStateView(reflect::View view) { m_stateView = view; }
 
@@ -277,7 +281,9 @@ private:
     std::string m_recoverPath; // 복구할지 물어볼 자동 저장 파일
     f64 m_autosaveTimer = 0.0;
     f64 m_hotReloadTimer = 0.0;
-    game::RenderStyleState m_renderStyle; // 프로젝트 설정의 조명 모델·툰 램프 (핫 리로드가 바뀌면 다시 넘긴다)
+    game::RenderStyleState m_renderStyle;
+    LookdevPanel m_lookdev; // [룩데브] 창: 고른 물체의 모델을 고정 조명·받침대에서
+    bool m_lookdevOpen = false; // 프로젝트 설정의 조명 모델·툰 램프 (핫 리로드가 바뀌면 다시 넘긴다)
     unsigned long long m_sceneTime = 0; // 열거나 저장할 때 씬 파일 시각 (밖에서 바뀌었는지)
     bool m_sceneChangedWarned = false;
     bool m_autosavePending = false; // 마지막 자동 저장 뒤에 바뀐 것이 있다

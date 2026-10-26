@@ -67,6 +67,7 @@ struct Options {
     bool projectSettings = false; // [프로젝트 설정] 창을 열고 시작
     bool tables = false;          // [표] 창을 열고 시작
     bool sounds = false;          // [소리] 창을 열고 시작
+    bool lookdev = false;         // --lookdev: [룩데브] 창을 열고 시작 (고른 물체의 모델, --select와 같이)
     bool feedback = false;        // [연출] 창을 열고 시작
     std::string uiPreview;        // [UI] 창을 열고 이 화면(assets/ui의 파일 이름)을 미리보기
     std::string language; // --lang: 이번 실행만 이 언어 (문서 스크린샷)
@@ -145,6 +146,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--project-settings") o.projectSettings = true;
         else if (a == "--tables") o.tables = true;
         else if (a == "--sounds") o.sounds = true;
+        else if (a == "--lookdev") o.lookdev = true;
         else if (a == "--feedback") o.feedback = true;
         else if (a == "--ui" && next(v)) o.uiPreview = v;
         else if (a == "--scene" && next(v)) o.scenePath = v;
@@ -160,7 +162,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
+                "              --project-settings --tables --sounds --lookdev --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
                 "                 + game options (--join <addr:port> --scene <file> --tuning <file> --bot ...)\n");
@@ -276,6 +278,7 @@ int main(int argc, char** argv) {
     if (opt.projectSettings) editor.openProjectSettings();
     if (opt.tables) editor.openTables();
     if (opt.sounds) editor.openSounds();
+    if (opt.lookdev) editor.openLookdev();
     if (opt.feedback) editor.openFeedback();
     if (!opt.uiPreview.empty()) editor.openUiPanel(opt.uiPreview);
     if (opt.play) editor.requestPlay();
@@ -457,6 +460,7 @@ int main(int argc, char** argv) {
 
         const bool active = !window.minimized() && renderer.beginFrame(frameParams);
         if (active) drawList.submit(renderer);
+        if (active) editor.renderLookdev(renderer, dt); // 오프스크린: 본 화면 3D 다음, UI 전에
         if (active && playing && play.active()) play.renderUi(renderer);
         if (active) editor.renderUiPreview(renderer, dt);
         editor.renderUi(active);
