@@ -351,6 +351,7 @@ void Editor::updateHotReload(f64 dt) {
             break;
         }
     }
+    m_models->setProbeLimit(m_project.settings.probeMaxCount);
 
     for (const std::string& path : m_models->reloadChanged()) {
         MEALKIT_INFO("Hot reload: model %s", path.c_str());
@@ -458,10 +459,7 @@ void Editor::drawPopups() {
 
 void Editor::renderUi(bool frameActive) { m_imgui.render(*m_renderer, frameActive); }
 
-void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) const {
-    frame.viewport = m_viewport;
-    frame.viewProj = m_view * m_proj;
-    frame.cameraPos = m_cameraPos;
+void Editor::fillEnvironment(render::FrameParams& frame) const {
     const scene::Environment& env = m_scene.environment;
     frame.sunDirection = env.sunDirection;
     frame.sunColor = env.sunColor;
@@ -472,14 +470,30 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
     frame.environment = m_models->environment(env.hdri);
     frame.environmentIntensity = env.hdriIntensity;
     frame.environmentRotation = env.hdriRotation * (3.14159265f / 180.0f);
-    frame.debugView = m_debugView;
+}
 
+u32 Editor::probeMaxCount() const { return std::clamp<u32>(m_project.settings.probeMaxCount, 1, render::kMaxReflectionProbes); }
+
+void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) const {
+    frame.viewport = m_viewport;
+    frame.viewProj = m_view * m_proj;
+    frame.cameraPos = m_cameraPos;
+    fillEnvironment(frame);
+    m_models->probes(m_scene, m_probeList);
+    frame.probes = m_probeList.data();
+    frame.probeCount = static_cast<u32>(m_probeList.size());
+    frame.debugView = m_debugView;
+    addSceneObjects(out, m_cameraPos, false);
+}
+
+void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) const {
     const render::MeshId box = m_models->boxMesh();
     for (const Entity& e : m_scene.entities) {
+        if (gameView && !scene::visibleInGame(e, m_gameTypes)) continue;
         const scene::Transform world = scene::worldTransform(m_scene, e);
         if (isArea(e)) { // 보이지 않는 영역: 안이 가려지지 않게 모서리만
             Vec3 centers[12], halves[12];
-            const f32 thickness = std::max(0.05f, length(world.position - m_cameraPos) * kAreaEdgeDraw);
+            const f32 thickness = std::max(0.05f, length(world.position - eye) * kAreaEdgeDraw);
             areaEdges(world.scale * 0.5f, thickness, centers, halves);
             for (int i = 0; i < 12; ++i) {
                 render::InstanceData edge;
@@ -498,16 +512,95 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
         inst.scale = isMarker(e) ? kSpawnSize : world.scale;
         inst.color = e.color;
         inst.flags = e.flags;
-        if (e.id == m_selected) inst.flags |= render::kInstanceHighlight;
+        if (e.id == m_selected && !gameView) inst.flags |= render::kInstanceHighlight;
         const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model);
-        const render::MeshId mesh = model ? m_models->pickLod(*model, m_cameraPos, world.position, world.scale) : box;
-        if (model && m_debugView != render::DebugView::None) { // 보기 모드: 그린 LOD 단계, 예산 초과
+        const render::MeshId mesh = model ? m_models->pickLod(*model, eye, world.position, world.scale) : box;
+        if (model && m_debugView != render::DebugView::None && !gameView) { // 보기 모드: 그린 LOD 단계, 예산 초과
             for (u32 lod = 0; lod < model->lodCount; ++lod)
                 if (model->lods[lod] == mesh) inst.flags |= lod << render::kInstanceLodShift;
             if (!model->budgetProblems.empty()) inst.flags |= render::kInstanceOverBudget;
         }
         out.add(mesh, inst);
     }
+}
+
+void Editor::bakeProbes(u32 onlyId) {
+    m_probeQueue.clear();
+    m_probeFace = 0;
+    m_probeCapturePending = false;
+    for (const Entity& e : m_scene.entities)
+        if (e.is(scene::kTypeProbe) && (!onlyId || e.id == onlyId)) m_probeQueue.push_back(e.id);
+    if (m_probeQueue.empty()) setStatus(tr("No reflection probes to bake"));
+}
+
+void Editor::renderProbeBake(render::Renderer& renderer) {
+    if (m_probeQueue.empty() || !m_models) return;
+    u32 size = 16; // 2의 거듭제곱 (밉이 반씩 줄어든다)
+    while (size * 2 <= std::clamp<u32>(m_project.settings.probeSize, 16, 512)) size *= 2;
+    if (!m_probeTarget || m_probeTargetSize != size) {
+        m_probeTarget = renderer.createRenderTarget(size, size); // 크기를 바꾸면 옛 대상은 남는다 (렌더러가 지우지 않는다)
+        m_probeTargetSize = size;
+        m_probeFace = 0;
+        m_probeCapturePending = false;
+    }
+    if (m_probeCapturePending) { // 지난 프레임에 그린 면: sRGB 8비트 → 선형
+        m_probeCapturePending = false;
+        m_probeFaces.resize(static_cast<size_t>(size) * size * 18);
+        if (m_probeCapture.width == size && m_probeCapture.height == size) {
+            f32* dst = &m_probeFaces[static_cast<size_t>(m_probeFace) * size * size * 3];
+            for (size_t i = 0; i < static_cast<size_t>(size) * size; ++i)
+                for (u32 c = 0; c < 3; ++c) {
+                    const f32 v = static_cast<f32>(m_probeCapture.rgba[i * 4 + c]) / 255.0f;
+                    dst[i * 3 + c] = v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
+                }
+        }
+        if (++m_probeFace == 6) {
+            m_probeFace = 0;
+            const u32 id = m_probeQueue.front();
+            m_probeQueue.erase(m_probeQueue.begin());
+            if (Entity* e = m_scene.find(id)) {
+                asset::ProbeMap probe;
+                asset::bakeProbe(m_probeFaces.data(), size, probe);
+                std::string stem = m_scenePath.empty() ? std::string("untitled") : fileName(m_scenePath);
+                if (const size_t dot = stem.find_last_of('.'); dot != std::string::npos) stem.resize(dot);
+                const std::string path = scene::probeFileFor(stem, *e);
+                if (asset::saveProbe(asset::ModelCache::assetsRoot() + "/" + path, probe)) {
+                    if (scene::probeFile(*e) != path) {
+                        std::erase_if(e->fields, [](const auto& f) { return f.first == scene::kProbeFileField; });
+                        e->fields.emplace_back(scene::kProbeFileField, path);
+                        markChanged();
+                    }
+                    m_models->reloadChanged(); // 같은 경로를 다시 구웠으면 다시 올린다
+                    MEALKIT_INFO("Reflection probe baked: %s (%u, %u mips)", path.c_str(), probe.size, probe.mips);
+                    setStatus(trf("Baked reflection probe: %s", path.c_str()));
+                } else {
+                    setStatus(trf("Could not write: %s", path.c_str()));
+                }
+            }
+            if (m_probeQueue.empty()) return;
+        }
+    }
+    const Entity* e = m_scene.find(m_probeQueue.front());
+    if (!e) {
+        m_probeQueue.erase(m_probeQueue.begin());
+        m_probeFace = 0;
+        return;
+    }
+    // 큐브 면 방향 (asset::cubeDirection과 같은 배치: 왼손 lookAt의 오른쪽 = cross(위, 앞))
+    static const Vec3 kForward[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    static const Vec3 kUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
+    const Vec3 eye = scene::worldTransform(m_scene, *e).position;
+    render::FrameParams frame;
+    frame.viewProj = lookAtLH(eye, eye + kForward[m_probeFace], kUp[m_probeFace]) *
+                     perspectiveReversedZ(3.14159265f * 0.5f, 1.0f, 0.05f, 2000.0f);
+    frame.cameraPos = eye;
+    frame.cameraForward = kForward[m_probeFace];
+    fillEnvironment(frame); // 프로브는 쓰지 않는다 (다른 프로브의 옛 그림이 섞이지 않게)
+    render::DrawList list;
+    addSceneObjects(list, eye, true);
+    renderer.drawToTarget(m_probeTarget, frame, list, static_cast<render::LightingModel>(m_project.settings.lightingModel));
+    renderer.captureTarget(m_probeTarget, &m_probeCapture);
+    m_probeCapturePending = true;
 }
 
 void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 width, f32 height, render::FrameParams& frame,
@@ -918,6 +1011,22 @@ void Editor::drawInspector(bool editing) {
             ImGui::EndCombo();
         }
         drawObjectFields(*e);
+
+        if (e->is(scene::kTypeProbe)) { // 반사 프로브: 굽기 (편집 모드, 구운 파일은 assets/probes/)
+            ImGui::SeparatorText(tr("Reflection probe"));
+            const std::string file = scene::probeFile(*e);
+            ImGui::TextDisabled("%s", file.empty() ? tr("Not baked") : file.c_str());
+            ImGui::BeginDisabled(bakingProbes());
+            if (ImGui::Button(tr("Bake"))) bakeProbes(e->id);
+            ImGui::SameLine();
+            if (ImGui::Button(tr("Bake all probes"))) bakeProbes();
+            ImGui::EndDisabled();
+            u32 count = 0;
+            for (const Entity& other : m_scene.entities) count += other.is(scene::kTypeProbe) ? 1u : 0u;
+            if (count > probeMaxCount())
+                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), tr("%u probes, only the first %u are used (project settings)"), count,
+                                   probeMaxCount());
+        }
 
         if (!isMarker(*e)) {
             ImGui::SeparatorText(tr("Model"));

@@ -16,6 +16,7 @@
 #include "mealkit/game/FrameStats.h"
 #include "mealkit/game/RenderStyle.h"
 #include "mealkit/game/SimDebug.h"
+#include "mealkit/platform/Image.h"
 #include "mealkit/render/DrawList.h"
 #include "mealkit/render/Renderer.h"
 #include "mealkit/scene/Scene.h"
@@ -107,6 +108,10 @@ public:
     // [룩데브] 창의 오프스크린 그림: 본 화면 3D 다음, UI 전에 (창이 열려 있을 때만)
     void renderLookdev(render::Renderer& renderer, f64 dt);
     void openLookdev() { m_lookdevOpen = true; } // --lookdev (자동 캡처)
+    // 반사 프로브 굽기: 본 화면 3D 다음, UI 전에. 한 프레임에 큐브 면 하나를 오프스크린으로 그리고 endFrame에서 읽는다
+    void renderProbeBake(render::Renderer& renderer);
+    void bakeProbes(u32 onlyId = 0); // 0 = 씬의 모든 반사 프로브 (--bake-probes)
+    bool bakingProbes() const { return !m_probeQueue.empty(); }
     // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
     void setStateView(reflect::View view) { m_stateView = view; }
 
@@ -282,6 +287,17 @@ private:
     f64 m_autosaveTimer = 0.0;
     f64 m_hotReloadTimer = 0.0;
     game::RenderStyleState m_renderStyle;
+    std::vector<u32> m_probeQueue;     // 구울 프로브 물체 id (앞에서부터)
+    u32 m_probeFace = 0;               // 지금 그리는 면 (0..5)
+    bool m_probeCapturePending = false; // 지난 프레임에 그린 면을 endFrame이 m_probeCapture로 읽었다
+    rhi::RenderTarget m_probeTarget;
+    u32 m_probeTargetSize = 0;
+    Image m_probeCapture;
+    std::vector<f32> m_probeFaces; // 면 6 × 크기² × rgb 선형
+    mutable std::vector<render::ReflectionProbe> m_probeList; // buildSceneView가 프레임마다 채운다
+    void addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) const; // gameView: 게임에 보이는 것만, 강조 없이
+    void fillEnvironment(render::FrameParams& frame) const;
+    u32 probeMaxCount() const;
     LookdevPanel m_lookdev; // [룩데브] 창: 고른 물체의 모델을 고정 조명·받침대에서
     bool m_lookdevOpen = false; // 프로젝트 설정의 조명 모델·툰 램프 (핫 리로드가 바뀌면 다시 넘긴다)
     unsigned long long m_sceneTime = 0; // 열거나 저장할 때 씬 파일 시각 (밖에서 바뀌었는지)

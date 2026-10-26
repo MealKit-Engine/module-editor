@@ -67,6 +67,7 @@ struct Options {
     bool projectSettings = false; // [프로젝트 설정] 창을 열고 시작
     bool tables = false;          // [표] 창을 열고 시작
     bool sounds = false;          // [소리] 창을 열고 시작
+    bool bakeProbes = false;      // --bake-probes: 씬의 반사 프로브를 모두 굽는다 (프레임 6개씩, --frames와 같이)
     bool lookdev = false;         // --lookdev: [룩데브] 창을 열고 시작 (고른 물체의 모델, --select와 같이)
     bool feedback = false;        // [연출] 창을 열고 시작
     std::string uiPreview;        // [UI] 창을 열고 이 화면(assets/ui의 파일 이름)을 미리보기
@@ -148,6 +149,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--tables") o.tables = true;
         else if (a == "--sounds") o.sounds = true;
         else if (a == "--lookdev") o.lookdev = true;
+        else if (a == "--bake-probes") o.bakeProbes = true;
         else if (a == "--feedback") o.feedback = true;
         else if (a == "--ui" && next(v)) o.uiPreview = v;
         else if (a == "--scene" && next(v)) o.scenePath = v;
@@ -164,7 +166,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --lookdev --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
+                "              --project-settings --tables --sounds --lookdev --bake-probes --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
                 "  without --project: starts MealKit Manager if installed (%%LOCALAPPDATA%%\\MealKit\\manager), --builtin-manager for the old one\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
@@ -270,6 +272,7 @@ int main(int argc, char** argv) {
         asset::ModelBudget budgets[asset::kModelKindCount]; // 프로젝트 설정 창에서 바꾸면 Editor::setProject가 다시 넘긴다
         game::modelBudgets(project.settings, budgets);
         models.setBudgets(budgets);
+        models.setProbeLimit(project.settings.probeMaxCount);
     }
 
     // 소리: 플레이 중인 게임과 [소리] 패널 미리듣기가 같이 쓴다
@@ -295,6 +298,7 @@ int main(int argc, char** argv) {
     if (opt.tables) editor.openTables();
     if (opt.sounds) editor.openSounds();
     if (opt.lookdev) editor.openLookdev();
+    if (opt.bakeProbes) editor.bakeProbes();
     if (opt.feedback) editor.openFeedback();
     if (!opt.uiPreview.empty()) editor.openUiPanel(opt.uiPreview);
     if (opt.play) editor.requestPlay();
@@ -477,12 +481,13 @@ int main(int argc, char** argv) {
         const bool active = !window.minimized() && renderer.beginFrame(frameParams);
         if (active) drawList.submit(renderer);
         if (active) editor.renderLookdev(renderer, dt); // 오프스크린: 본 화면 3D 다음, UI 전에
+        if (active && !playing) editor.renderProbeBake(renderer);
         if (active && playing && play.active()) play.renderUi(renderer);
         if (active) editor.renderUiPreview(renderer, dt);
         editor.renderUi(active);
         if (active) renderer.endFrame();
 
-        if (!editor.building()) ++frame;
+        if (!editor.building() && !editor.bakingProbes()) ++frame;
         MEALKIT_FRAME_MARK();
         if (last) break;
     }
