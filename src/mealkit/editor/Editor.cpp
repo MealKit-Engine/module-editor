@@ -9,6 +9,7 @@
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/platform/Window.h"
+#include "mealkit/render/SceneLights.h"
 #include "mealkit/rhi/GpuCapture.h"
 
 #include <algorithm>
@@ -470,6 +471,10 @@ void Editor::fillEnvironment(render::FrameParams& frame) const {
     frame.environment = m_models->environment(env.hdri);
     frame.environmentIntensity = env.hdriIntensity;
     frame.environmentRotation = env.hdriRotation * (3.14159265f / 180.0f);
+    m_lightList.clear();
+    render::addSceneLights(m_scene, m_lightList);
+    frame.lights = m_lightList.data();
+    frame.lightCount = static_cast<u32>(m_lightList.size());
 }
 
 u32 Editor::probeMaxCount() const { return std::clamp<u32>(m_project.settings.probeMaxCount, 1, render::kMaxReflectionProbes); }
@@ -512,6 +517,10 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
         inst.scale = isMarker(e) ? kSpawnSize : world.scale;
         inst.color = e.color;
         inst.flags = e.flags;
+        if (e.is(scene::kTypePointLight)) { // 점광원: 빛 색의 작은 상자 (빛을 가리지 않게)
+            inst.scale = {0.2f, 0.2f, 0.2f};
+            inst.color = scene::readObject<scene::PointLightFields>(e).color.value;
+        }
         if (e.id == m_selected && !gameView) inst.flags |= render::kInstanceHighlight;
         const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model);
         const render::MeshId mesh = model ? m_models->pickLod(*model, eye, world.position, world.scale) : box;

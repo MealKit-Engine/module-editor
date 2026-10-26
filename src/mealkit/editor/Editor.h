@@ -295,6 +295,7 @@ private:
     Image m_probeCapture;
     std::vector<f32> m_probeFaces; // 면 6 × 크기² × rgb 선형
     mutable std::vector<render::ReflectionProbe> m_probeList; // buildSceneView가 프레임마다 채운다
+    mutable std::vector<render::PointLight> m_lightList;      // 씬 점광원 (buildSceneView·프로브 굽기)
     void addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) const; // gameView: 게임에 보이는 것만, 강조 없이
     void fillEnvironment(render::FrameParams& frame) const;
     u32 probeMaxCount() const;
