@@ -178,6 +178,7 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
 void Editor::shutdown() { m_imgui.shutdown(); }
 
 void Editor::update(f64 dt) {
+    m_animTime += dt;
     MEALKIT_ZONE("Editor UI");
     m_time += dt;
     if (m_perf.update(dt, {}) && m_live.listening("stats")) m_live.publish("stats", m_perf.json());
@@ -529,7 +530,8 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
                 if (model->lods[lod] == mesh) inst.flags |= lod << render::kInstanceLodShift;
             if (!model->budgetProblems.empty()) inst.flags |= render::kInstanceOverBudget;
         }
-        out.add(mesh, inst);
+        if (model) asset::addModel(out, *model, mesh, inst, scene::animField(e), m_animTime); // 스킨 모델은 anim 필드의 클립
+        else out.add(mesh, inst);
     }
 }
 
@@ -619,6 +621,7 @@ void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 widt
     m_cameraYaw = yawDegrees * kDegrees;
     m_cameraPitch = pitchDegrees * kDegrees;
     m_selected = 0; // 선택 강조 없이
+    m_animTime = 0.0; // 애니메이션은 클립의 어긋남(anim 필드)만
     m_viewport = {0.0f, 0.0f, width, height};
     m_proj = perspectiveReversedZ(kFovY, width / std::max(height, 1.0f), 0.1f, 2000.0f);
     m_view = lookAtLH(m_cameraPos, m_cameraPos + cameraForward(), {0, 1, 0});
@@ -1020,6 +1023,28 @@ void Editor::drawInspector(bool editing) {
             ImGui::EndCombo();
         }
         drawObjectFields(*e);
+
+        if (const asset::Model* model = e->model.empty() ? nullptr : m_models->get(e->model); model && model->skinned()) {
+            // 스킨 모델: 화면용 반복 클립 (씬 필드 anim, 게임 화면도 같이 재생한다)
+            ImGui::SeparatorText(tr("Animation"));
+            ImGui::TextDisabled(tr("%u joints, %u clips"), model->bones, static_cast<u32>(model->clips.size()));
+            const std::string current = scene::animField(*e);
+            const std::string currentClip = current.substr(0, current.find(' '));
+            if (ImGui::BeginCombo(tr("Clip"), currentClip.empty() ? tr("(rest pose)") : currentClip.c_str())) {
+                const auto set = [&](const std::string& value) {
+                    std::erase_if(e->fields, [](const auto& f) { return f.first == scene::kAnimField; });
+                    if (!value.empty()) e->fields.emplace_back(scene::kAnimField, value);
+                    markChanged();
+                };
+                if (ImGui::Selectable(tr("(rest pose)"), currentClip.empty())) set({});
+                for (const asset::AnimationClip& c : model->clips) {
+                    char label[160];
+                    std::snprintf(label, sizeof(label), "%s (%.2f s)", c.name.c_str(), static_cast<double>(c.duration));
+                    if (ImGui::Selectable(label, c.name == currentClip)) set(c.name);
+                }
+                ImGui::EndCombo();
+            }
+        }
 
         if (e->is(scene::kTypeProbe)) { // 반사 프로브: 굽기 (편집 모드, 구운 파일은 assets/probes/)
             ImGui::SeparatorText(tr("Reflection probe"));
