@@ -6,45 +6,20 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
-#include <random>
 
 namespace mealkit::editor {
 namespace {
 
-constexpr size_t kMaxRequest = 64u << 20; // 받는 요청 크기 상한 (구운 PNG, Penpot 원본 포함)
-constexpr u32 kIdleFrames = 1800;         // 이만큼 프레임 동안 조용한 연결은 닫는다
 constexpr const char* kImportMagic = "MEALKIT-IMPORT 1";
+
+using live::jsonList;
+using live::jsonString;
+using live::Response;
 
 std::string lower(std::string s) {
     for (char& c : s)
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     return s;
-}
-
-std::string jsonString(const std::string& s) {
-    std::string out = "\"";
-    for (const char c : s) {
-        switch (c) {
-        case '"': out += "\\\""; break;
-        case '\\': out += "\\\\"; break;
-        case '\n': out += "\\n"; break;
-        case '\r': out += "\\r"; break;
-        case '\t': out += "\\t"; break;
-        default:
-            if (static_cast<u8>(c) < 0x20) {
-                char buf[8];
-                std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(c));
-                out += buf;
-            } else out += c;
-        }
-    }
-    return out + "\"";
-}
-
-std::string jsonList(const std::vector<std::string>& items) {
-    std::string out = "[";
-    for (size_t i = 0; i < items.size(); ++i) out += (i ? "," : "") + jsonString(items[i]);
-    return out + "]";
 }
 
 // 받은 파일 경로: 상대 경로, 영문자·숫자·_-./, ".." 없음
@@ -110,6 +85,7 @@ std::string mergeTheme(const std::string& existing, const std::string& incoming)
         return line.substr(0, b == std::string::npos ? line.size() : b);
     };
     pos = 0;
+    bool header = lines.empty(); // 새 파일: 첫 토큰 앞의 머리말·형식 줄을 그대로 쓴다
     while (pos < incoming.size()) {
         size_t end = incoming.find('\n', pos);
         if (end == std::string::npos) end = incoming.size();
@@ -117,9 +93,10 @@ std::string mergeTheme(const std::string& existing, const std::string& incoming)
         pos = end + 1;
         const std::string key = keyOf(line);
         if (key.empty()) {
-            if (lines.empty() && !line.empty()) lines.push_back(line); // 새 파일: 머리말
+            if (header && !line.empty()) lines.push_back(line);
             continue;
         }
+        header = false;
         bool replaced = false;
         for (std::string& l : lines)
             if (keyOf(l) == key) l = line, replaced = true;
@@ -131,42 +108,34 @@ std::string mergeTheme(const std::string& existing, const std::string& incoming)
     return out;
 }
 
-} // namespace
-
-ImportServer::~ImportServer() { stop(); }
-
-bool ImportServer::start(const ImportProject& project, const std::string& token) {
-    stop();
-    m_project = project;
-    if (!net::startup()) return false;
-    m_token = token;
-    if (m_token.empty()) {
-        std::random_device rd; // 에디터 실행마다 다른 값 (시뮬레이션과 무관)
-        char buf[33];
-        std::snprintf(buf, sizeof(buf), "%08x%08x%08x%08x", rd(), rd(), rd(), rd());
-        m_token = buf;
+// Penpot이 플러그인 코드를 부르는 출처 (https://*.penpot.app, 직접 띄운 Penpot은 localhost)
+bool penpotOrigin(const std::string& origin) {
+    const std::string o = lower(origin);
+    if (startsWith(o, "https://")) {
+        const std::string host = o.substr(8);
+        if (host == "penpot.app" || endsWith(host, ".penpot.app")) return true;
     }
-    for (u16 port = kImportPort; port < kImportPort + 10; ++port)
-        if (m_listener.open(port, true)) break;
-    if (!m_listener.isOpen()) {
-        MEALKIT_WARN("Penpot import server: no free port in %u-%u", kImportPort, kImportPort + 9);
-        net::cleanup();
-        return false;
-    }
-    MEALKIT_INFO("Penpot import server: %s", pluginUrl().c_str());
-    return true;
+    for (const char* local : {"http://localhost", "http://127.0.0.1", "https://localhost"})
+        if (o == local || startsWith(o, (std::string(local) + ":").c_str())) return true;
+    return false;
 }
 
-void ImportServer::stop() {
-    if (!m_listener.isOpen()) return;
-    m_connections.clear();
-    m_listener.close();
-    net::cleanup();
+} // namespace
+
+void ImportServer::attach(live::Server& server, const ImportProject& project) {
+    m_server = &server;
+    m_project = project;
+    live::Service s;
+    s.name = "penpot";
+    s.allowOrigin = penpotOrigin;
+    s.handle = [this](const live::Request& r) { return handle(r); };
+    server.addService(std::move(s));
+    if (server.running()) MEALKIT_INFO("Penpot plugin: %s", pluginUrl().c_str());
 }
 
 std::string ImportServer::pluginUrl() const {
-    if (!running()) return {};
-    return "http://127.0.0.1:" + std::to_string(m_listener.localPort()) + "/" + m_token + "/manifest.json";
+    if (!m_server || !m_server->running()) return {};
+    return m_server->baseUrl() + "penpot/manifest.json";
 }
 
 std::vector<std::string> ImportServer::takeEvents() {
@@ -175,158 +144,25 @@ std::vector<std::string> ImportServer::takeEvents() {
     return out;
 }
 
-void ImportServer::update() {
-    if (!running()) return;
-    for (int i = 0; i < 8; ++i) {
-        Connection c;
-        if (!m_listener.accept(c.stream)) break;
-        m_connections.push_back(std::move(c));
-    }
-    char buffer[65536];
-    for (Connection& c : m_connections) {
-        ++c.idleFrames;
-        if (!c.responded) {
-            for (;;) {
-                const i32 got = c.stream.receive(buffer, sizeof(buffer));
-                if (got < 0) {
-                    c.stream.close();
-                    break;
-                }
-                if (got == 0) break;
-                c.in.append(buffer, static_cast<size_t>(got));
-                c.idleFrames = 0;
-                if (c.in.size() > kMaxRequest) {
-                    c.stream.close();
-                    break;
-                }
-            }
-            const size_t headerEnd = c.in.find("\r\n\r\n");
-            if (c.stream.isOpen() && headerEnd != std::string::npos) {
-                Request req;
-                size_t contentLength = 0;
-                size_t lineStart = 0;
-                bool firstLine = true;
-                while (lineStart < headerEnd) {
-                    size_t lineEnd = c.in.find("\r\n", lineStart);
-                    if (lineEnd == std::string::npos || lineEnd > headerEnd) lineEnd = headerEnd;
-                    const std::string line = c.in.substr(lineStart, lineEnd - lineStart);
-                    lineStart = lineEnd + 2;
-                    if (firstLine) {
-                        firstLine = false;
-                        const size_t a = line.find(' '), b = line.find(' ', a + 1);
-                        if (a != std::string::npos && b != std::string::npos) {
-                            req.method = line.substr(0, a);
-                            req.path = line.substr(a + 1, b - a - 1);
-                        }
-                        continue;
-                    }
-                    const size_t colon = line.find(':');
-                    if (colon == std::string::npos) continue;
-                    const std::string name = lower(line.substr(0, colon));
-                    std::string value = line.substr(colon + 1);
-                    while (!value.empty() && value.front() == ' ') value.erase(0, 1);
-                    if (name == "content-length") contentLength = static_cast<size_t>(std::strtoull(value.c_str(), nullptr, 10));
-                    else if (name == "origin") req.origin = value;
-                    else if (name == "access-control-request-private-network") req.privateNetworkPreflight = lower(value) == "true";
-                }
-                if (contentLength > kMaxRequest) {
-                    c.stream.close();
-                } else if (c.in.size() >= headerEnd + 4 + contentLength) {
-                    req.body = c.in.substr(headerEnd + 4, contentLength);
-                    const Response r = handle(req);
-                    const char* reason = r.status == 200 ? "OK" : r.status == 204 ? "No Content" : r.status == 403 ? "Forbidden" : r.status == 404 ? "Not Found" : "Bad Request";
-                    std::string head = "HTTP/1.1 " + std::to_string(r.status) + " " + reason + "\r\n";
-                    head += "Content-Type: " + r.contentType + "\r\nContent-Length: " + std::to_string(r.body.size()) + "\r\n";
-                    head += "Cache-Control: no-store\r\nConnection: close\r\n";
-                    if (!r.allowOrigin.empty()) {
-                        head += "Access-Control-Allow-Origin: " + r.allowOrigin + "\r\nVary: Origin\r\n";
-                        head += "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n";
-                    }
-                    if (r.privateNetwork) head += "Access-Control-Allow-Private-Network: true\r\n";
-                    c.out = head + "\r\n" + r.body;
-                    c.responded = true;
-                    c.in.clear();
-                }
-            }
-        }
-        if (c.responded && c.stream.isOpen()) {
-            while (c.sent < c.out.size()) {
-                const u32 chunk = static_cast<u32>(std::min<size_t>(c.out.size() - c.sent, 1u << 20));
-                const i32 n = c.stream.send(c.out.data() + c.sent, chunk);
-                if (n < 0) {
-                    c.stream.close();
-                    break;
-                }
-                if (n == 0) break;
-                c.sent += static_cast<size_t>(n);
-                c.idleFrames = 0;
-            }
-            if (c.sent >= c.out.size()) c.stream.close();
-        }
-        if (c.idleFrames > kIdleFrames) c.stream.close();
-    }
-    m_connections.erase(std::remove_if(m_connections.begin(), m_connections.end(), [](const Connection& c) { return !c.stream.isOpen(); }),
-                        m_connections.end());
-}
-
-bool ImportServer::originAllowed(const std::string& origin) const {
-    if (origin.empty()) return true; // 주소창·iframe 열기는 Origin이 없다 (토큰이 지킨다)
-    const std::string o = lower(origin);
-    if (o == "http://127.0.0.1:" + std::to_string(m_listener.localPort())) return true;
-    if (startsWith(o, "https://")) {
-        const std::string host = o.substr(8);
-        if (host == "penpot.app" || endsWith(host, ".penpot.app")) return true;
-    }
-    // 직접 띄운 Penpot (Docker 등)
-    for (const char* local : {"http://localhost", "http://127.0.0.1", "https://localhost"})
-        if (o == local || startsWith(o, (std::string(local) + ":").c_str())) return true;
-    return false;
-}
-
-ImportServer::Response ImportServer::handle(const Request& req) {
-    Response r;
-    if (!originAllowed(req.origin)) {
-        r.status = 403;
-        r.body = "{\"error\":\"origin not allowed\"}";
-        return r;
-    }
-    if (!req.origin.empty()) r.allowOrigin = req.origin;
-    if (req.method == "OPTIONS") { // CORS 미리 묻기 (Chrome 사설망 접근 포함)
-        r.status = 204;
-        r.privateNetwork = req.privateNetworkPreflight;
-        return r;
-    }
-    std::string path = req.path.substr(0, req.path.find('?'));
-    const std::string prefix = "/" + m_token + "/";
-    if (m_token.empty() || !startsWith(path, prefix.c_str())) {
-        r.status = 404;
-        r.allowOrigin.clear();
-        r.body = "{\"error\":\"not found\"}";
-        return r;
-    }
-    path = path.substr(prefix.size());
-    if (req.method == "GET" && path == "api/project") return project();
-    if (req.method == "POST" && path == "api/export") {
-        if (req.origin != "http://127.0.0.1:" + std::to_string(m_listener.localPort())) { // 이 서버가 준 플러그인 패널만 쓴다
+Response ImportServer::handle(const live::Request& req) {
+    if (req.method == "GET" && req.path == "api/project") return project();
+    if (req.method == "POST" && req.path == "api/export") {
+        if (!m_server || req.origin != m_server->origin()) { // 이 서버가 준 플러그인 패널만 쓴다
+            Response r;
             r.status = 403;
             r.body = "{\"error\":\"export must come from the plugin panel\"}";
             return r;
         }
-        Response w = importFiles(req.body);
-        w.allowOrigin = r.allowOrigin;
-        return w;
+        return importFiles(req.body);
     }
-    if (req.method == "GET") {
-        Response f = serveFile(path.empty() ? "ui.html" : path);
-        f.allowOrigin = r.allowOrigin;
-        return f;
-    }
+    if (req.method == "GET") return serveFile(req.path.empty() ? "ui.html" : req.path);
+    Response r;
     r.status = 404;
     r.body = "{\"error\":\"not found\"}";
     return r;
 }
 
-ImportServer::Response ImportServer::serveFile(const std::string& name) const {
+Response ImportServer::serveFile(const std::string& name) const {
     Response r;
     static const std::pair<const char*, const char*> files[] = {
         {"manifest.json", "application/json"},
@@ -338,12 +174,12 @@ ImportServer::Response ImportServer::serveFile(const std::string& name) const {
         if (name != file) continue;
         if (!readTextFile(m_project.engineDir + "/tools/penpot-plugin/dist/" + file, r.body)) break;
         r.contentType = type;
-        // 플러그인 코드·아이콘·패널 주소는 이 서버의 토큰 경로 (Penpot이 상대 주소를 어디에 붙일지 기대지 않는다)
-        const std::string base = "http://127.0.0.1:" + std::to_string(m_listener.localPort()) + "/" + m_token + "/";
+        // 플러그인 코드·아이콘·패널 주소는 이 서비스의 토큰 경로 (Penpot이 상대 주소를 어디에 붙일지 기대지 않는다)
+        const std::string base = m_server ? m_server->baseUrl() + "penpot/" : std::string();
         for (size_t at = r.body.find("__MEALKIT_BASE__"); at != std::string::npos; at = r.body.find("__MEALKIT_BASE__", at + base.size()))
             r.body.replace(at, 16, base);
         // Penpot은 아이콘을 "플러그인 출처 + / + 값"으로 읽는다: 출처 기준 경로 (앞의 /는 Penpot이 붙인다)
-        const std::string path = m_token + "/";
+        const std::string path = (m_server ? m_server->token() : std::string()) + "/penpot/";
         for (size_t at = r.body.find("__MEALKIT_PATH__"); at != std::string::npos; at = r.body.find("__MEALKIT_PATH__", at + path.size()))
             r.body.replace(at, 16, path);
         return r;
@@ -353,7 +189,7 @@ ImportServer::Response ImportServer::serveFile(const std::string& name) const {
     return r;
 }
 
-ImportServer::Response ImportServer::project() const {
+Response ImportServer::project() const {
     std::vector<std::string> fonts;
     for (const char* ext : {".ttf", ".otf"})
         for (const std::string& f : listFiles(m_project.projectDir + "/assets/fonts", ext)) fonts.push_back(f.substr(0, f.size() - 4));
@@ -398,7 +234,7 @@ ImportServer::Response ImportServer::project() const {
     return r;
 }
 
-ImportServer::Response ImportServer::importFiles(const std::string& body) {
+Response ImportServer::importFiles(const std::string& body) {
     std::vector<std::string> written, errors, warnings, cleanDirs;
     size_t pos = body.find('\n');
     if (pos == std::string::npos || body.compare(0, pos, kImportMagic) != 0) {

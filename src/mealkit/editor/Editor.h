@@ -8,6 +8,7 @@
 #include "mealkit/editor/ProjectSettingsPanel.h"
 #include "mealkit/editor/TuningPanel.h"
 #include "mealkit/editor/ImportServer.h"
+#include "mealkit/editor/Tools.h"
 #include "mealkit/editor/UiPanel.h"
 #include "mealkit/editor/SoundPanel.h"
 #include "mealkit/editor/TablesPanel.h"
@@ -41,6 +42,7 @@ public:
     void setEngineDirectory(const std::string& directory) { m_engineDirectory = directory; }
     // Penpot 가져오기 서버의 토큰 (setProject 전에, 자동 시험용. 비면 무작위)
     void setPenpotToken(const std::string& token) { m_penpotToken = token; }
+    void setToolPaths(const std::vector<std::string>& folders) { m_toolPaths = folders; } // --tool-path
     // [업그레이드]를 누른 것과 같다 (자동 테스트용)
     void requestUpgrade() {
         m_upgradeRequested = true;
@@ -299,7 +301,10 @@ private:
     bool m_feedbackOpen = false;
     UiPanel m_uiPanel;
     bool m_uiPanelOpen = false;
-    ImportServer m_import; // Penpot 플러그인 가져오기 (프로젝트를 열면 시작)
+    ImportServer m_import; // Penpot 플러그인 가져오기 (라이브 연결 서버의 penpot/ 서비스)
+    live::Server m_live;   // 라이브 연결 (도구 사이 약속, 프로젝트를 열면 시작. m_import보다 먼저 닫힌다)
+    std::vector<ToolInfo> m_tools; // [도구] 메뉴 (프로젝트를 열 때와 [다시 찾기]에서 찾는다)
+    std::vector<std::string> m_toolPaths;
     std::string m_penpotToken;
     bool m_viewTableDirty = false;
     f64 m_viewTableTimer = 0.0;

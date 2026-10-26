@@ -7,6 +7,7 @@
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/FileDialog.h"
 #include "mealkit/platform/Paths.h"
+#include "mealkit/platform/Process.h"
 #include "mealkit/platform/Window.h"
 #include "mealkit/rhi/GpuCapture.h"
 
@@ -178,9 +179,9 @@ void Editor::shutdown() { m_imgui.shutdown(); }
 void Editor::update(f64 dt) {
     MEALKIT_ZONE("Editor UI");
     m_time += dt;
-    m_perf.update(dt, {});
+    if (m_perf.update(dt, {}) && m_live.listening("stats")) m_live.publish("stats", m_perf.json());
 
-    m_import.update();
+    m_live.update();
     for (const std::string& e : m_import.takeEvents()) {
         setStatus(e);
         m_uiPanel.refresh(); // 새 .ui 파일 (고친 파일은 ui::System이 다시 읽는다)
@@ -640,6 +641,29 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem(tr("Open Project Folder"))) openInExplorer(m_project.directory);
         ImGui::Separator();
         ImGui::MenuItem(tr("Build Log"), nullptr, m_buildPanel.openFlag());
+        ImGui::EndMenu();
+    }
+    // 도구 제품군 (editor/Tools.h): 별도 저장소의 MealKit 도구를 이 프로젝트로 연다
+    if (ImGui::BeginMenu(tr("Tools"), !m_project.directory.empty())) {
+        if (m_tools.empty()) ImGui::MenuItem(tr("No tools installed"), nullptr, false, false);
+        for (const ToolInfo& t : m_tools) {
+            const std::string label = t.version.empty() ? t.name : t.name + "  " + t.version;
+            if (ImGui::MenuItem(label.c_str(), nullptr, false, t.problem == ToolInfo::Problem::None))
+                launchTool(t, m_project.directory);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                if (t.problem == ToolInfo::Problem::Protocol)
+                    ImGui::SetTooltip("%s", trf("Needs tool protocol %u, this editor has %u", t.protocol, live::kProtocol).c_str());
+                else if (t.problem == ToolInfo::Problem::MissingExe)
+                    ImGui::SetTooltip("%s", trf("Program not found: %s", t.exe.c_str()).c_str());
+                else ImGui::SetTooltip("%s", t.folder.c_str());
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem(tr("Open Tools Folder"))) {
+            createDirectories(defaultToolsFolder());
+            openInExplorer(defaultToolsFolder());
+        }
+        if (ImGui::MenuItem(tr("Rescan Tools"))) m_tools = findTools(m_toolPaths);
         ImGui::EndMenu();
     }
 
@@ -1495,13 +1519,22 @@ void Editor::setProject(const ProjectInfo& project) {
     m_tuningPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);
     m_uiPanel.setProject(project.settings.language);
+    live::ServerConfig lc;
+    lc.kind = "editor";
+    lc.projectDir = project.directory;
+    lc.projectName = project.name();
+    lc.port = live::kEditorPort;
+    lc.token = m_penpotToken;
+    m_live.start(lc);
+    m_live.addTopic("stats"); // 에디터 상태 표시줄의 성능 숫자 (game::FrameStats::json)
+    m_tools = findTools(m_toolPaths);
     if (!m_engineDirectory.empty()) {
         ImportProject ip;
         ip.engineDir = m_engineDirectory;
         ip.projectDir = project.directory;
         ip.name = project.name();
         ip.language = project.settings.language;
-        m_import.start(ip, m_penpotToken);
+        m_import.attach(m_live, ip);
         m_uiPanel.setPenpotUrl(m_import.pluginUrl());
     }
     m_projectPanel.revert(project);

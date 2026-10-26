@@ -41,7 +41,7 @@ bool TuningPanel::load(Doc& doc) {
     doc.changed = true;
     if (path.empty() || !fileExists(path)) return false;
     std::string error;
-    if (!reflect::loadTextFile(*doc.value.type(), doc.value.data(), path, &error)) {
+    if (!reflect::loadTextFile(*doc.value.type(), doc.value.data(), path, text::kTuning, &error)) {
         m_status = trf("Could not read the tuning file: %s", error.c_str());
         return false;
     }
@@ -53,7 +53,7 @@ bool TuningPanel::save(Doc& doc) {
     if (!doc.value.type() || path.empty()) return false;
     const std::string header =
         std::string("MealKit tuning (") + doc.value.type()->name + "). Edit it in the editor's [Tuning] panel.";
-    if (!reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, header.c_str())) {
+    if (!reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, text::kTuning, header.c_str())) {
         m_status = trf("Could not save tuning: %s", path.c_str());
         return false;
     }
@@ -76,7 +76,7 @@ std::string TuningPanel::writePlayCopy(const Doc& doc, const char* fileName) {
     const std::string dir = m_projectDir + "\\build\\" + editorBuildName() + "\\play";
     createDirectories(dir);
     const std::string path = dir + "\\" + fileName;
-    return reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, "editor play (unsaved values)")
+    return reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, text::kTuning, "editor play (unsaved values)")
                ? path
                : std::string();
 }

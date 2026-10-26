@@ -116,7 +116,18 @@ const char* currentLanguage() { return current().code.c_str(); }
 void setLanguage(const char* code) {
     g_current = &tableFor(code);
     createDirectories(editorUserDirectory());
-    writeTextFile(settingsPath(), std::string("language ") + code + "\n");
+    // language 줄만 바꾸고 다른 줄(toolPath 등, editor/Tools.h)은 그대로 둔다
+    std::string old, out;
+    readTextFile(settingsPath(), old);
+    size_t pos = 0;
+    while (pos < old.size()) {
+        size_t end = old.find('\n', pos);
+        if (end == std::string::npos) end = old.size();
+        const std::string line = old.substr(pos, end - pos);
+        pos = end + 1;
+        if (!line.empty() && line.rfind("language ", 0) != 0) out += line + "\n";
+    }
+    writeTextFile(settingsPath(), std::string("language ") + code + "\n" + out);
 }
 
 const char* tr(const char* text) {

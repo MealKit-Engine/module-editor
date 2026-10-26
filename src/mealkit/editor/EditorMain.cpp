@@ -24,6 +24,7 @@
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/ProjectManager.h"
 #include "mealkit/editor/Strings.h"
+#include "mealkit/editor/Tools.h"
 #include "mealkit/editor/UiCheck.h"
 #include "mealkit/game/GameInstance.h"
 #include "mealkit/net/Lockstep.h"
@@ -68,7 +69,9 @@ struct Options {
     bool feedback = false;        // [연출] 창을 열고 시작
     std::string uiPreview;        // [UI] 창을 열고 이 화면(assets/ui의 파일 이름)을 미리보기
     std::string language; // --lang: 이번 실행만 이 언어 (문서 스크린샷)
-    std::string penpotToken; // --penpot-token: Penpot 가져오기 서버 토큰 (자동 시험, 비면 무작위)
+    std::string penpotToken; // --penpot-token: 라이브 연결 서버 토큰 (Penpot 가져오기 자동 시험, 비면 무작위)
+    std::vector<std::string> toolPaths; // --tool-path: [도구] 메뉴가 더 찾을 폴더 (만드는 중인 도구의 빌드 폴더)
+    bool listTools = false;             // --list-tools: 찾은 도구를 출력하고 끝 (창 없음)
     bool uiCheck = false;    // --ui-check: Penpot에서 내보낸 화면의 배치를 Penpot 상자와 비교하고 끝 (창 없음)
     std::string uiRender, uiRenderOut; // --ui-render <ui/x.ui> <png>: 화면 하나만 그려 저장하고 끝 (픽셀 비교)
     std::string goldenShots, goldenOut; // --render-golden <shots.txt> <폴더>: 기준 장면을 UI 없이 그려 저장하고 끝 (그래픽 회귀 테스트)
@@ -129,6 +132,8 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--scene" && next(v)) o.scenePath = v;
         else if (a == "--lang" && next(v)) o.language = v;
         else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
+        else if (a == "--tool-path" && next(v)) o.toolPaths.push_back(v);
+        else if (a == "--list-tools") o.listTools = true;
         else if (a == "--ui-check") o.uiCheck = true;
         else if (a == "--ui-render" && i + 2 < argc) o.uiRender = argv[++i], o.uiRenderOut = argv[++i];
         else if (a == "--render-golden" && i + 2 < argc) o.goldenShots = argv[++i], o.goldenOut = argv[++i];
@@ -138,6 +143,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
                 "              --project-settings --tables --sounds --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
+                "  tools: --tool-path <folder> (repeatable) --list-tools\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
                 "                 + game options (--join <addr:port> --scene <file> --tuning <file> --bot ...)\n");
             return false;
@@ -176,6 +182,17 @@ int main(int argc, char** argv) {
     if (!parseArgs(argc, argv, opt)) return 1;
     if (opt.frames) log::setDialogs(false);
     editor::initStrings(engineDir, opt.language);
+    if (opt.listTools) { // [도구] 메뉴가 찾는 것 (editor/Tools.h)
+        const std::vector<editor::ToolInfo> tools = editor::findTools(opt.toolPaths);
+        for (const editor::ToolInfo& t : tools) {
+            const char* problem = t.problem == editor::ToolInfo::Problem::Protocol     ? " (protocol differs)"
+                                  : t.problem == editor::ToolInfo::Problem::MissingExe ? " (program not found)"
+                                                                                       : "";
+            std::printf("tool: %s %s protocol %u %s%s\n", t.name.c_str(), t.version.c_str(), t.protocol, t.exe.c_str(), problem);
+        }
+        std::printf("%zu tool(s)\n", tools.size());
+        return 0;
+    }
     if (opt.uiCheck || !opt.uiRender.empty()) {
         log::setDialogs(false);
         editor::ProjectInfo project;
@@ -234,6 +251,7 @@ int main(int argc, char** argv) {
     editor.setEngineTables(engineTables);
     editor.setEngineDirectory(engineDirectory());
     editor.setPenpotToken(opt.penpotToken);
+    editor.setToolPaths(opt.toolPaths);
     editor.setProject(project);
     if (opt.select >= 0) editor.selectByIndex(opt.select);
     if (opt.viewMode < static_cast<u32>(render::DebugView::Count)) editor.setDebugView(static_cast<render::DebugView>(opt.viewMode));
