@@ -2,6 +2,7 @@
 
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/BuildPanel.h"
+#include "mealkit/editor/LogPanel.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/FeedbackPanel.h"
@@ -326,6 +327,7 @@ private:
     bool m_upgradeOffer = false;     // 프로젝트 템플릿이 엔진 버전과 다르다 (한 번 묻는다)
     bool m_upgradeRequested = false; // 빌드가 끝나면 업그레이드를 시작한다
     BuildPanel m_buildPanel;
+    LogPanel m_logPanel;
     bool m_gameCodeBuilt = false;
     bool m_gameCodeFailed = false;
     bool m_gameLoaded = false;

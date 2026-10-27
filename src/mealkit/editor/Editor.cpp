@@ -33,7 +33,7 @@ constexpr const char* kHierarchyWindow = "Scene Tree###Hierarchy";
 constexpr const char* kInspectorWindow = "Inspector###Inspector";
 constexpr const char* kStateWindow = "State###State";
 // 아래 가로 칸에 탭으로 붙는 창 (기본 레이아웃)
-const char* const kBottomWindows[] = {BuildPanel::kWindow, TablesPanel::kWindow};
+const char* const kBottomWindows[] = {LogPanel::kWindow, BuildPanel::kWindow, TablesPanel::kWindow};
 constexpr size_t kUndoLimit = 100;
 constexpr f64 kAutosaveSeconds = 90.0; // 저장 안 된 변경이 있으면 이 간격으로 <씬>.autosave에 쓴다
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
@@ -241,6 +241,7 @@ void Editor::update(f64 dt) {
     pollBuild();
     pollLayoutCheck();
     drawBuildLog();
+    m_logPanel.draw();
     takePanelStatus();
     if (ImGui::IsKeyPressed(ImGuiKey_F11, false) && rhi::gpuCaptureTool()) captureGpuFrame(); // 편집·플레이 모두
 
@@ -831,6 +832,7 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem(tr("Open Project Folder"))) openInExplorer(m_project.directory);
         ImGui::Separator();
         ImGui::MenuItem(tr("Build Log"), nullptr, m_buildPanel.openFlag());
+        ImGui::MenuItem(tr("Log"), nullptr, m_logPanel.openFlag());
         ImGui::EndMenu();
     }
     // 도구 제품군 (editor/Tools.h): 별도 저장소의 MealKit 도구를 이 프로젝트로 연다
