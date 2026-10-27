@@ -472,6 +472,7 @@ void Editor::fillEnvironment(render::FrameParams& frame) const {
     frame.environment = m_models->environment(env.hdri);
     frame.environmentIntensity = env.hdriIntensity;
     frame.environmentRotation = env.hdriRotation * (3.14159265f / 180.0f);
+    frame.post = m_models->postParams(env.post);
     m_lightList.clear();
     render::addSceneLights(m_scene, m_lightList);
     frame.lights = m_lightList.data();
@@ -607,11 +608,53 @@ void Editor::renderProbeBake(render::Renderer& renderer) {
     frame.cameraPos = eye;
     frame.cameraForward = kForward[m_probeFace];
     fillEnvironment(frame); // 프로브는 쓰지 않는다 (다른 프로브의 옛 그림이 섞이지 않게)
+    frame.post.toneMapping = false; // 반사는 선형 값 그대로 (톤 매핑은 그 반사를 받는 화면에서 한 번)
     render::DrawList list;
     addSceneObjects(list, eye, true);
     renderer.drawToTarget(m_probeTarget, frame, list, static_cast<render::LightingModel>(m_project.settings.lightingModel));
     renderer.captureTarget(m_probeTarget, &m_probeCapture);
     m_probeCapturePending = true;
+}
+
+void Editor::renderGradeCapture(render::Renderer& renderer) {
+    if (m_gradeCapturePending) { // 지난 프레임에 그린 것을 endFrame이 읽었다
+        m_gradeCapturePending = false;
+        std::string stem = m_scenePath.empty() ? std::string("untitled") : fileName(m_scenePath);
+        if (const size_t dot = stem.find_last_of('.'); dot != std::string::npos) stem.resize(dot);
+        const std::string folder = projectRoot() + "/art/grading";
+        const std::string png = folder + "/" + stem + ".png", cube = folder + "/neutral.cube";
+        createDirectories(folder);
+        if (!fileExists(cube)) asset::saveNeutralCubeLut(cube);
+        if (m_gradeCapture.width && savePng(png, m_gradeCapture)) {
+            MEALKIT_INFO("Grading capture saved: %s", png.c_str());
+            setStatus(trf("Grading capture saved: %s", png.c_str()));
+        } else {
+            setStatus(trf("Could not write: %s", png.c_str()));
+        }
+        return;
+    }
+    if (!m_gradeRequested || !m_models || bakingProbes()) return;
+    m_gradeRequested = false;
+    const u32 w = std::max(64u, static_cast<u32>(m_viewport.width)), h = std::max(64u, static_cast<u32>(m_viewport.height));
+    if (!m_gradeTarget || m_gradeTargetSize[0] != w || m_gradeTargetSize[1] != h) { // 크기가 바뀌면 옛 대상은 남는다
+        m_gradeTarget = renderer.createRenderTarget(w, h);
+        m_gradeTargetSize[0] = w;
+        m_gradeTargetSize[1] = h;
+    }
+    render::FrameParams frame;
+    render::DrawList list;
+    frame.viewProj = m_view * m_proj;
+    frame.cameraPos = m_cameraPos;
+    frame.cameraForward = cameraForward();
+    fillEnvironment(frame);
+    m_models->probes(m_scene, m_probeList);
+    frame.probes = m_probeList.data();
+    frame.probeCount = static_cast<u32>(m_probeList.size());
+    frame.post.lut = 0; // 보정 전 그림 (톤 매핑까지)
+    addSceneObjects(list, m_cameraPos, true);
+    renderer.drawToTarget(m_gradeTarget, frame, list, static_cast<render::LightingModel>(m_project.settings.lightingModel));
+    renderer.captureTarget(m_gradeTarget, &m_gradeCapture);
+    m_gradeCapturePending = true;
 }
 
 void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 width, f32 height, render::FrameParams& frame,
@@ -1169,6 +1212,31 @@ void Editor::drawEnvironment(bool editing) {
     ImGui::BeginDisabled(env.hdri.empty());
     c |= ImGui::DragFloat(tr("HDRI intensity"), &env.hdriIntensity, 0.01f, 0.0f, 16.0f, "%.2f");
     c |= ImGui::DragFloat(tr("HDRI rotation"), &env.hdriRotation, 1.0f, -360.0f, 360.0f, "%.0f");
+    ImGui::EndDisabled();
+
+    // 포스트 프로세싱 (scene::PostFields → render::PostParams). 화면용 값, 플레이어 설정이 효과를 끌 수 있다
+    ImGui::SeparatorText(tr("Post processing"));
+    scene::PostFields& post = env.post;
+    c |= ImGui::Checkbox(tr("Tone mapping (AgX)"), &post.toneMapping);
+    ImGui::BeginDisabled(!post.toneMapping);
+    c |= ImGui::DragFloat(tr("Exposure (EV)"), &post.exposure, 0.02f, -6.0f, 6.0f, "%.2f");
+    if (ImGui::BeginCombo(tr("Color LUT"), post.lut.empty() ? tr("None") : post.lut.c_str())) {
+        if (ImGui::Selectable(tr("None"), post.lut.empty())) post.lut.clear(), c = true;
+        for (const std::string& l : asset::listLuts(asset::ModelCache::assetsRoot()))
+            if (ImGui::Selectable(l.c_str(), post.lut == l)) post.lut = l, c = true;
+        ImGui::EndCombo();
+    }
+    if (ImGui::Button(tr("Grading capture"))) m_gradeRequested = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", tr("Saves the scene view without the LUT to art/grading/ with a neutral .cube. Grade it in DaVinci "
+                                   "Resolve or Photoshop, export a 32-point .cube into assets/lut/ and pick it above."));
+    c |= ImGui::DragFloat(tr("Bloom intensity"), &post.bloomIntensity, 0.01f, 0.0f, 2.0f, "%.2f");
+    c |= ImGui::DragFloat(tr("Bloom threshold"), &post.bloomThreshold, 0.02f, 0.0f, 16.0f, "%.2f");
+    c |= ImGui::ColorEdit3(tr("Bloom tint"), &post.bloomTint.x, hdr);
+    c |= ImGui::SliderFloat(tr("Vignette"), &post.vignette, 0.0f, 1.0f, "%.2f");
+    c |= ImGui::SliderFloat(tr("Vignette start"), &post.vignetteSmoothness, 0.0f, 1.0f, "%.2f");
+    c |= ImGui::SliderFloat(tr("Film grain"), &post.grain, 0.0f, 1.0f, "%.2f");
+    c |= ImGui::SliderFloat(tr("Chromatic aberration"), &post.chromaticAberration, 0.0f, 0.05f, "%.3f");
     ImGui::EndDisabled();
     ImGui::PopItemWidth();
     if (c) markChanged();

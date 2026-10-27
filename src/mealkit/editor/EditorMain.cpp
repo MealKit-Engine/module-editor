@@ -483,6 +483,7 @@ int main(int argc, char** argv) {
         if (active) drawList.submit(renderer);
         if (active) editor.renderLookdev(renderer, dt); // 오프스크린: 본 화면 3D 다음, UI 전에
         if (active && !playing) editor.renderProbeBake(renderer);
+        if (active && !playing) editor.renderGradeCapture(renderer);
         if (active && playing && play.active()) play.renderUi(renderer);
         if (active) editor.renderUiPreview(renderer, dt);
         editor.renderUi(active);

@@ -111,6 +111,9 @@ public:
     // 반사 프로브 굽기: 본 화면 3D 다음, UI 전에. 한 프레임에 큐브 면 하나를 오프스크린으로 그리고 endFrame에서 읽는다
     void renderProbeBake(render::Renderer& renderer);
     void bakeProbes(u32 onlyId = 0); // 0 = 씬의 모든 반사 프로브 (--bake-probes)
+    // 색 보정용 캡처 ([환경] 패널 단추): 씬 뷰 카메라로 LUT 없이 그린 화면을 art/grading/<씬>.png로, 중립 LUT를 그 옆에.
+    // 외부 도구(DaVinci Resolve·Photoshop 등)에서 보정해 .cube로 내보내 assets/lut/ 아래에 둔다. 본 화면 3D 다음, UI 전에
+    void renderGradeCapture(render::Renderer& renderer);
     bool bakingProbes() const { return !m_probeQueue.empty(); }
     // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
     void setStateView(reflect::View view) { m_stateView = view; }
@@ -294,6 +297,10 @@ private:
     u32 m_probeTargetSize = 0;
     Image m_probeCapture;
     std::vector<f32> m_probeFaces; // 면 6 × 크기² × rgb 선형
+    bool m_gradeRequested = false, m_gradeCapturePending = false; // 보정용 캡처: 단추를 눌렀다 / 지난 프레임에 그렸다
+    rhi::RenderTarget m_gradeTarget;
+    u32 m_gradeTargetSize[2] = {};
+    Image m_gradeCapture;
     mutable std::vector<render::ReflectionProbe> m_probeList; // buildSceneView가 프레임마다 채운다
     mutable std::vector<render::PointLight> m_lightList;      // 씬 점광원 (buildSceneView·프로브 굽기)
     f64 m_animTime = 0.0; // 스킨 모델 미리보기 시계 (편집 모드에서 흐른다, 그래픽 회귀 테스트는 0)
