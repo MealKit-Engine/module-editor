@@ -31,8 +31,9 @@ using scene::Entity;
 constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
 constexpr const char* kHierarchyWindow = "Scene Tree###Hierarchy";
 constexpr const char* kInspectorWindow = "Inspector###Inspector";
-constexpr const char* kEnvironmentWindow = "Environment###Environment";
 constexpr const char* kStateWindow = "State###State";
+// 아래 가로 칸에 탭으로 붙는 창 (기본 레이아웃)
+const char* const kBottomWindows[] = {BuildPanel::kWindow, TablesPanel::kWindow};
 constexpr size_t kUndoLimit = 100;
 constexpr f64 kAutosaveSeconds = 90.0; // 저장 안 된 변경이 있으면 이 간격으로 <씬>.autosave에 쓴다
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
@@ -200,7 +201,7 @@ void Editor::update(f64 dt) {
 
     const ImGuiID dockId = ImGui::GetID("MealKitDockSpace");
     if (m_layoutReset || !ImGui::DockBuilderGetNode(dockId)) {
-        setupDefaultLayout(dockId);
+        setupDefaultLayout(dockId, m_layoutPreset);
         m_layoutReset = false;
     }
     ImGui::DockSpaceOverViewport(dockId, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
@@ -219,8 +220,7 @@ void Editor::update(f64 dt) {
     const bool editing = m_mode == Mode::Edit;
     drawHierarchy(editing);
     drawInspector(editing);
-    drawEnvironment(editing);
-    m_tuningPanel.draw(kEnvironmentWindow, m_mode == Mode::Play, m_playPlayers > 1, m_tablesPanel.index());
+    m_tuningPanel.draw(kInspectorWindow, m_mode == Mode::Play, m_playPlayers > 1, m_tablesPanel.index());
     if (m_tablesOpen) m_tablesPanel.draw(m_window->nativeHandle(), editing, &m_tablesOpen);
     if (m_soundsOpen && m_audio) m_soundPanel.draw(*m_audio, &m_soundsOpen);
     if (m_feedbackOpen) m_feedbackPanel.draw(m_feedback, m_cameraPos + cameraForward() * 10.0f, dt, &m_feedbackOpen);
@@ -714,27 +714,43 @@ void Editor::saveBackupIfDirty() {
 }
 
 void Editor::selectByIndex(int index) {
+    if (index == -2) { // 씬 줄 (인스펙터 = 환경)
+        m_selected = 0;
+        m_sceneRow = true;
+        return;
+    }
     if (index >= 0 && static_cast<size_t>(index) < m_scene.entities.size())
         m_selected = m_scene.entities[static_cast<size_t>(index)].id;
 }
 
 // ---------------------------------------------------------------- UI
 
-void Editor::setupDefaultLayout(u32 dockId) {
+// 미리 정한 레이아웃: 왼쪽 씬 트리, 오른쪽 기둥 하나(인스펙터 + [상태]·[튜닝] 탭), 아래 가로 칸(빌드 로그·표).
+// 플레이는 아래 칸을 줄이고 [상태]를 앞으로, 룩데브는 오른쪽 위에 [룩데브] 창을 크게 둔다.
+void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::DockBuilderRemoveNode(dockId);
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockId, viewport->WorkSize);
     ImGuiID center = dockId;
-    const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.19f, nullptr, &center);
-    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.27f, nullptr, &center);
-    const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.38f, nullptr, &right);
+    const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.17f, nullptr, &center);
+    const f32 rightShare = preset == LayoutPreset::LookDev ? 0.42f : 0.27f;
+    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, rightShare, nullptr, &center);
+    const f32 bottomShare = preset == LayoutPreset::Play ? 0.18f : 0.26f;
+    const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, bottomShare, nullptr, &center);
     ImGui::DockBuilderDockWindow(kHierarchyWindow, left);
+    if (preset == LayoutPreset::LookDev) {
+        const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
+        ImGui::DockBuilderDockWindow(LookdevPanel::kWindow, right);
+        right = rightBottom;
+        m_lookdevOpen = true;
+    }
     ImGui::DockBuilderDockWindow(kInspectorWindow, right);
-    ImGui::DockBuilderDockWindow(kEnvironmentWindow, rightBottom);
-    ImGui::DockBuilderDockWindow(TuningPanel::kWindow, rightBottom);
     ImGui::DockBuilderDockWindow(kStateWindow, right);
+    ImGui::DockBuilderDockWindow(TuningPanel::kWindow, right);
+    for (const char* w : kBottomWindows) ImGui::DockBuilderDockWindow(w, bottom);
     ImGui::DockBuilderFinish(dockId);
+    focusPanel(preset == LayoutPreset::Play ? kStateWindow : kInspectorWindow);
 }
 
 void Editor::drawMenuBar() {
@@ -774,7 +790,17 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem(tr("Feedback"), nullptr, &m_feedbackOpen);
         ImGui::MenuItem(tr("UI"), nullptr, &m_uiPanelOpen);
         ImGui::MenuItem(tr("Look Dev"), nullptr, &m_lookdevOpen);
-        if (ImGui::MenuItem(tr("Reset Layout"))) m_layoutReset = true;
+        if (ImGui::BeginMenu(tr("Layout"))) {
+            const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev")};
+            for (int i = 0; i < 3; ++i)
+                if (ImGui::MenuItem(names[i], nullptr, static_cast<int>(m_layoutPreset) == i)) {
+                    m_layoutPreset = static_cast<LayoutPreset>(i);
+                    m_layoutReset = true;
+                }
+            ImGui::Separator();
+            if (ImGui::MenuItem(tr("Reset Layout"))) m_layoutReset = true;
+            ImGui::EndMenu();
+        }
         ImGui::Separator();
         // 보기 모드: 무엇이 비싼지 색으로 (편집 화면, 출시 빌드에는 없다)
         if (ImGui::BeginMenu(tr("View Mode"))) {
@@ -937,6 +963,13 @@ void Editor::drawHierarchy(bool editing) {
             else roots.push_back(i);
         }
         m_treeAction = {};
+        // 맨 위 고정 줄 "씬": 고르면 인스펙터가 씬 환경을 보여 준다 (docs/DECISIONS.md 2026-10-28)
+        const std::string sceneName = m_scenePath.empty() ? tr("Untitled") : fileName(m_scenePath);
+        const std::string sceneLabel = trf("Scene: %s", sceneName.c_str());
+        if (ImGui::Selectable(sceneLabel.c_str(), m_sceneRow && m_selected == 0, ImGuiSelectableFlags_SpanAvailWidth)) {
+            m_selected = 0;
+            m_sceneRow = true;
+        }
         for (size_t i : roots) drawEntityNode(i, children);
         // 빈 곳에 놓으면 최상위로
         const ImVec2 rest = ImGui::GetContentRegionAvail();
@@ -1039,8 +1072,11 @@ void Editor::drawInspector(bool editing) {
         return;
     }
     ImGui::BeginDisabled(!editing);
+    if (m_selected != 0) m_sceneRow = false; // 물체를 고르면 씬 줄 선택은 풀린다
     Entity* e = selected();
-    if (!e) {
+    if (!e && m_sceneRow) {
+        drawEnvironment();
+    } else if (!e) {
         ImGui::TextDisabled("%s", tr("Nothing selected."));
         ImGui::TextDisabled("%s", tr("Click in the viewport or pick from the scene tree."));
     } else {
@@ -1186,12 +1222,9 @@ void Editor::drawInspector(bool editing) {
     ImGui::End();
 }
 
-void Editor::drawEnvironment(bool editing) {
-    if (!ImGui::Begin(trl(kEnvironmentWindow))) {
-        ImGui::End();
-        return;
-    }
-    ImGui::BeginDisabled(!editing);
+// 씬 환경 (인스펙터에서 씬 줄을 골랐을 때)
+void Editor::drawEnvironment() {
+    ImGui::SeparatorText(tr("Environment"));
     scene::Environment& env = m_scene.environment;
     const ImGuiColorEditFlags hdr = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR;
     bool c = false;
@@ -1241,8 +1274,6 @@ void Editor::drawEnvironment(bool editing) {
     ImGui::PopItemWidth();
     if (c) markChanged();
     ImGui::TextDisabled("%s", tr("Colors are linear values."));
-    ImGui::EndDisabled();
-    ImGui::End();
 }
 
 // ---------------------------------------------------------------- 정의 데이터 표 ([표] 패널)

@@ -35,6 +35,7 @@ class Window;
 namespace mealkit::editor {
 
 enum class Mode { Edit, Play };
+enum class LayoutPreset { Edit, Play, LookDev }; // [보기] > [레이아웃]
 
 class Editor {
 public:
@@ -155,7 +156,7 @@ public:
     bool quitRequested() const { return m_quit; }
     void saveBackupIfDirty();
 
-    void selectByIndex(int index); // 자동 테스트/스크린샷용
+    void selectByIndex(int index); // 자동 테스트/스크린샷용 (-2 = 씬 줄)
 
 private:
     void applyRenderStyle(const game::ProjectSettings& settings);
@@ -172,7 +173,7 @@ private:
     void drawEntityNode(size_t index, const std::unordered_map<u32, std::vector<size_t>>& children);
     void reparent(u32 entityId, u32 parentId); // 월드 위치를 지키며 부모를 바꾼다 (0 = 최상위)
     void drawInspector(bool editing);
-    void drawEnvironment(bool editing);
+    void drawEnvironment(); // 인스펙터 안, 씬 줄을 골랐을 때
     void updateRowProblems(f64 dt); // 튜닝·씬 물체의 없는 행 참조 → [표] 패널
     void saveAll();         // Ctrl+S: 씬, 튜닝, 프로젝트 설정, 표
     void takePanelStatus(); // 패널들이 남긴 상태 문구를 상태 표시줄로
@@ -186,7 +187,7 @@ private:
     void focusPanelNow(); // 그 창의 Begin 직전에 부른다
     void drawGizmo();
     void drawBuildLog();
-    void setupDefaultLayout(u32 dockId);
+    void setupDefaultLayout(u32 dockId, LayoutPreset preset);
 
     void updateCamera(f64 dt);
     void handleShortcuts();
@@ -275,6 +276,8 @@ private:
     u32 m_nameBufferId = 0;
     std::string m_title;
     bool m_layoutReset = false;
+    LayoutPreset m_layoutPreset = LayoutPreset::Edit;
+    bool m_sceneRow = false; // 씬 트리의 "씬" 줄을 골랐다 (인스펙터 = 환경)
 
     const scene::TypeList* m_gameTypes = nullptr;
     TuningPanel m_tuningPanel;
