@@ -33,6 +33,7 @@ constexpr const char* kHierarchyWindow = "Scene Tree###Hierarchy";
 constexpr const char* kInspectorWindow = "Inspector###Inspector";
 constexpr const char* kStateWindow = "State###State";
 // 아래 가로 칸에 탭으로 붙는 창 (기본 레이아웃)
+const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // 플레이 중 메뉴 막대
 const char* const kBottomWindows[] = {LogPanel::kWindow, BuildPanel::kWindow, TablesPanel::kWindow};
 constexpr size_t kUndoLimit = 100;
 constexpr f64 kAutosaveSeconds = 90.0; // 저장 안 된 변경이 있으면 이 간격으로 <씬>.autosave에 쓴다
@@ -243,6 +244,9 @@ void Editor::update(f64 dt) {
     drawBuildLog();
     m_logPanel.draw();
     takePanelStatus();
+    drawNotices();
+    drawPlayFrame();
+    drawEmptyViewport();
     if (ImGui::IsKeyPressed(ImGuiKey_F11, false) && rhi::gpuCaptureTool()) captureGpuFrame(); // 편집·플레이 모두
 
     if (editing) {
@@ -445,7 +449,7 @@ void Editor::drawPopups() {
                 m_dirty = true;
                 setStatus(tr("Autosave recovered - save to write it to the scene file"));
             } else {
-                setStatus(trf("Could not read the autosave: %s", error.c_str()));
+                setStatus(trf("Could not read the autosave: %s", error.c_str()), true);
             }
             m_recoverPath.clear();
             ImGui::CloseCurrentPopup();
@@ -587,7 +591,7 @@ void Editor::renderProbeBake(render::Renderer& renderer) {
                     MEALKIT_INFO("Reflection probe baked: %s (%u, %u mips)", path.c_str(), probe.size, probe.mips);
                     setStatus(trf("Baked reflection probe: %s", path.c_str()));
                 } else {
-                    setStatus(trf("Could not write: %s", path.c_str()));
+                    setStatus(trf("Could not write: %s", path.c_str()), true);
                 }
             }
             if (m_probeQueue.empty()) return;
@@ -630,7 +634,7 @@ void Editor::renderGradeCapture(render::Renderer& renderer) {
             MEALKIT_INFO("Grading capture saved: %s", png.c_str());
             setStatus(trf("Grading capture saved: %s", png.c_str()));
         } else {
-            setStatus(trf("Could not write: %s", png.c_str()));
+            setStatus(trf("Could not write: %s", png.c_str()), true);
         }
         return;
     }
@@ -755,8 +759,11 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
 }
 
 void Editor::drawMenuBar() {
-    if (!ImGui::BeginMainMenuBar()) return;
     const bool editing = m_mode == Mode::Edit;
+    if (!editing) ImGui::PushStyleColor(ImGuiCol_MenuBarBg, kPlayColor); // 플레이 중인 것을 헷갈리지 않게
+    const bool open = ImGui::BeginMainMenuBar();
+    if (!editing) ImGui::PopStyleColor();
+    if (!open) return;
 
     if (ImGui::BeginMenu(tr("File"), editing)) {
         if (ImGui::MenuItem(tr("New Scene"), "Ctrl+N")) newScene();
@@ -1073,6 +1080,8 @@ void Editor::drawInspector(bool editing) {
         ImGui::End();
         return;
     }
+    if (!editing)
+        ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.35f, 1.0f), "%s", tr("Playing - scene values go back when you stop"));
     ImGui::BeginDisabled(!editing);
     if (m_selected != 0) m_sceneRow = false; // 물체를 고르면 씬 줄 선택은 풀린다
     Entity* e = selected();
@@ -1597,7 +1606,7 @@ void Editor::addModelEntity() {
     if (path.empty()) return;
     const asset::Model* model = m_models->get(path);
     if (!model) {
-        setStatus(trf("Could not load the model: %s", path.c_str()));
+        setStatus(trf("Could not load the model: %s", path.c_str()), true);
         return;
     }
     addEntity(scene::kTypeSolid);
@@ -1687,7 +1696,7 @@ bool Editor::loadScene(const std::string& path) {
     std::string error;
     if (!scene::load(loaded, path, &error)) {
         MEALKIT_ERROR("Cannot open scene %s: %s", path.c_str(), error.c_str());
-        setStatus(trf("Could not open: %s", error.c_str()));
+        setStatus(trf("Could not open: %s", error.c_str()), true);
         return false;
     }
     m_scene = std::move(loaded);
@@ -1710,7 +1719,7 @@ bool Editor::loadScene(const std::string& path) {
 bool Editor::saveScene() {
     if (m_scenePath.empty()) return saveSceneAs();
     if (!scene::save(m_scene, m_scenePath)) {
-        setStatus(trf("Could not save: %s", m_scenePath.c_str()));
+        setStatus(trf("Could not save: %s", m_scenePath.c_str()), true);
         return false;
     }
     m_dirty = false;
@@ -1763,9 +1772,11 @@ void Editor::redo() {
     setStatus(tr("Redo"));
 }
 
-void Editor::setStatus(const std::string& text) {
+void Editor::setStatus(const std::string& text, bool failed, NoticeOpen open) {
     m_status = text;
     m_statusTime = m_time;
+    if (m_notices.size() >= 5) m_notices.erase(m_notices.begin());
+    m_notices.push_back({text, m_time, failed, failed ? open : NoticeOpen::None});
 }
 
 void Editor::updateTitle() {
@@ -1859,6 +1870,7 @@ void Editor::pollLayoutCheck() {
 }
 
 void Editor::setGameCodeStatus(bool loaded, const std::string& text) {
+    if (loaded && m_gameLoaded && text != m_gameStatus) setStatus(text); // 핫 리로드
     m_gameLoaded = loaded;
     m_gameStatus = text;
 }
@@ -1920,8 +1932,79 @@ void Editor::saveAll() {
 }
 
 void Editor::takePanelStatus() {
-    for (std::string status : {m_tuningPanel.takeStatus(), m_projectPanel.takeStatus(), m_buildPanel.takeStatus()})
+    for (std::string status : {m_tuningPanel.takeStatus(), m_projectPanel.takeStatus()})
         if (!status.empty()) setStatus(status);
+    if (std::string status = m_buildPanel.takeStatus(); !status.empty())
+        setStatus(status, !m_buildPanel.running() && !m_buildPanel.succeeded(), NoticeOpen::BuildLog);
+}
+
+// 뷰포트 오른쪽 아래 알림: 성공은 4초 뒤 사라지고, 실패는 닫을 때까지 남는다. 빌드 중에는 진행 표시
+void Editor::drawNotices() {
+    std::erase_if(m_notices, [&](const Notice& n) { return !n.failed && m_time - n.time > 4.0; });
+    const bool building = m_buildPanel.running();
+    if (m_notices.empty() && !building) return;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                                   ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove;
+    ImGui::SetNextWindowPos(ImVec2(m_viewport.x + m_viewport.width - 12.0f, m_viewport.y + m_viewport.height - 12.0f),
+                            ImGuiCond_Always, ImVec2(1.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.85f);
+    if (ImGui::Begin("##Notices", nullptr, flags)) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+        for (size_t i = 0; i < m_notices.size(); ++i) {
+            Notice& n = m_notices[i];
+            ImGui::PushID(static_cast<int>(i));
+            if (n.failed) {
+                if (ImGui::SmallButton("x")) n.time = -1.0;
+                ImGui::SameLine();
+            }
+            ImGui::TextColored(n.failed ? ImVec4(1.0f, 0.50f, 0.45f, 1.0f) : ImVec4(0.60f, 0.88f, 0.60f, 1.0f), "%s",
+                               n.text.c_str());
+            if (n.open != NoticeOpen::None && ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            if (n.open != NoticeOpen::None && ImGui::IsItemClicked()) {
+                const bool build = n.open == NoticeOpen::BuildLog;
+                *(build ? m_buildPanel.openFlag() : m_logPanel.openFlag()) = true;
+                focusPanel(build ? BuildPanel::kWindow : LogPanel::kWindow);
+                n.time = -1.0;
+            }
+            ImGui::PopID();
+        }
+        if (building) {
+            if (!m_notices.empty()) ImGui::Separator();
+            m_buildPanel.drawStatus(m_time);
+            // 끝을 모르는 진행 막대 (음수 = 왕복 애니메이션)
+            ImGui::ProgressBar(-static_cast<f32>(m_time), ImVec2(ImGui::GetFontSize() * 14.0f, 0.0f), "");
+        }
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::End();
+    std::erase_if(m_notices, [](const Notice& n) { return n.time < 0.0; });
+}
+
+void Editor::drawPlayFrame() {
+    if (m_mode != Mode::Play) return;
+    const ImVec2 a(m_viewport.x, m_viewport.y), b(m_viewport.x + m_viewport.width, m_viewport.y + m_viewport.height);
+    ImGui::GetBackgroundDrawList()->AddRect(a, b, ImGui::GetColorU32(ImVec4(0.95f, 0.55f, 0.15f, 1.0f)), 0.0f, 0, 4.0f);
+}
+
+void Editor::drawEmptyViewport() {
+    if (m_mode != Mode::Edit || m_gameLoaded || m_project.directory.empty()) return;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove;
+    ImGui::SetNextWindowPos(ImVec2(m_viewport.x + m_viewport.width * 0.5f, m_viewport.y + m_viewport.height * 0.5f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    if (ImGui::Begin("##NoGameCode", nullptr, flags)) {
+        ImGui::TextUnformatted(tr("The game code is not built yet. Build it to play."));
+        ImGui::BeginDisabled(m_buildPanel.running());
+        if (ImGui::Button(tr("Build Game Code"))) startBuild(BuildKind::GameCode);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button(tr("Build Log"))) {
+            *m_buildPanel.openFlag() = true;
+            focusPanel(BuildPanel::kWindow);
+        }
+    }
+    ImGui::End();
 }
 
 void Editor::applyRenderStyle(const game::ProjectSettings& settings) {

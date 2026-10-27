@@ -219,7 +219,12 @@ private:
     void undo();
     void redo();
     void markChanged() { m_changed = true; }
-    void setStatus(const std::string& text);
+    // 상태 표시줄 + 뷰포트 오른쪽 아래 알림. 실패는 닫을 때까지 남고, 누르면 그 창(빌드 로그·로그)을 연다
+    enum class NoticeOpen : u8 { None, Log, BuildLog };
+    void setStatus(const std::string& text, bool failed = false, NoticeOpen open = NoticeOpen::Log);
+    void drawNotices();
+    void drawPlayFrame();     // 플레이 중 뷰포트 테두리
+    void drawEmptyViewport(); // 게임 DLL이 아직 없을 때 다음에 할 일
     void captureGpuFrame(); // 보기 메뉴·F11 (rhi/GpuCapture.h)
     Vec3 cameraForward() const;
     void updateTitle();
@@ -245,6 +250,13 @@ private:
     std::string m_playStatus;
     std::string m_status;
     f64 m_statusTime = -100.0;
+    struct Notice {
+        std::string text;
+        f64 time = 0.0;
+        bool failed = false;
+        NoticeOpen open = NoticeOpen::None;
+    };
+    std::vector<Notice> m_notices;
     f64 m_time = 0.0;
     game::FrameStats m_perf; // 상태 표시줄 fps (mealkit/game/FrameStats.h)
 
