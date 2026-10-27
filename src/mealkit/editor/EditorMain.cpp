@@ -472,6 +472,7 @@ int main(int argc, char** argv) {
             editor.buildSceneView(frameParams, drawList);
             feedback.screenTint(frameParams.tintColor, frameParams.tintAmount); // 편집 중 미리보기의 번쩍임
         }
+        feedback.addParticles(drawList); // 플레이 중 연출과 [연출] 패널 미리보기의 파티클
         frameParams.time = static_cast<f32>(std::fmod(now, 4096.0)); // 바람 흔들림 (편집 중에도 움직인다)
 
         // 자동 테스트: --frames는 빌드를 기다리는 동안 세지 않는다 (빌드 결과를 화면으로 확인할 수 있게)
