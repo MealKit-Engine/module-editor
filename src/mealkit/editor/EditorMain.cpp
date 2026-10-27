@@ -30,6 +30,7 @@
 #include "mealkit/net/Lockstep.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Process.h"
+#include "mealkit/platform/System.h"
 #include "mealkit/platform/Window.h"
 #include "mealkit/render/Renderer.h"
 
@@ -206,6 +207,7 @@ bool startManager(const std::string& engineDir) {
 } // namespace
 
 int main(int argc, char** argv) {
+    attachParentConsole(); // 창 프로그램이다 (뒤에 콘솔 창이 뜨지 않게)
     std::string engineDir = MEALKIT_ENGINE_DIR;
     std::replace(engineDir.begin(), engineDir.end(), '/', '\\');
     for (int i = 1; i < argc; ++i)
