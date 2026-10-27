@@ -123,6 +123,8 @@ public:
     // 편집 모드의 3D 장면(씬 물체 + 선택 강조)과 카메라를 채운다.
     void buildSceneView(render::FrameParams& frame, render::DrawList& drawList) const;
     void setDebugView(render::DebugView view) { m_debugView = view; } // --view-mode (자동 캡처)
+    // 자동 실행(--frames, --render-golden): 동적 해상도를 끈다 (GPU 속도에 그림이 달라지지 않게, 게임의 자동 실행과 같다)
+    void setAutomated(bool automated) { m_automated = automated; }
     // 그래픽 회귀 테스트 (--render-golden): 씬을 열고, 정한 카메라(도)로 창 전체에 UI 없이 그린다
     bool openSceneForShot(const std::string& path) { return loadScene(path); }
     void buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 width, f32 height, render::FrameParams& frame,
@@ -156,6 +158,7 @@ public:
     void selectByIndex(int index); // 자동 테스트/스크린샷용
 
 private:
+    void applyRenderStyle(const game::ProjectSettings& settings);
     struct Snapshot {
         std::vector<scene::Entity> entities;
         scene::Environment environment;
@@ -290,6 +293,7 @@ private:
     f64 m_autosaveTimer = 0.0;
     f64 m_hotReloadTimer = 0.0;
     game::RenderStyleState m_renderStyle;
+    bool m_automated = false;
     std::vector<u32> m_probeQueue;     // 구울 프로브 물체 id (앞에서부터)
     u32 m_probeFace = 0;               // 지금 그리는 면 (0..5)
     bool m_probeCapturePending = false; // 지난 프레임에 그린 면을 endFrame이 m_probeCapture로 읽었다

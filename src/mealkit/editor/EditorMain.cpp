@@ -291,6 +291,7 @@ int main(int argc, char** argv) {
     editor.setEngineDirectory(engineDirectory());
     editor.setPenpotToken(opt.penpotToken);
     editor.setToolPaths(opt.toolPaths);
+    editor.setAutomated(opt.frames > 0 || !opt.goldenShots.empty());
     editor.setProject(project);
     if (opt.select >= 0) editor.selectByIndex(opt.select);
     if (opt.viewMode < static_cast<u32>(render::DebugView::Count)) editor.setDebugView(static_cast<render::DebugView>(opt.viewMode));

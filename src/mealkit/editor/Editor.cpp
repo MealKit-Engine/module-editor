@@ -341,7 +341,7 @@ void Editor::updateHotReload(f64 dt) {
     m_hotReloadTimer = kHotReloadSeconds;
 
     // 프로젝트 설정 창에서 바꾼 조명 모델·툰 램프, 밖에서 고친 램프 그림
-    if (m_renderer) game::applyRenderStyle(m_project.settings, *m_renderer, m_renderStyle);
+    applyRenderStyle(m_project.settings);
 
     // 프로젝트 설정 창에서 바꾼 에셋 예산 (저장하면 m_project가 바뀐다)
     asset::ModelBudget budgets[asset::kModelKindCount];
@@ -1757,7 +1757,7 @@ void Editor::setProject(const ProjectInfo& project) {
     m_tuningPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);
     m_uiPanel.setProject(project.settings.language);
-    if (m_renderer) game::applyRenderStyle(project.settings, *m_renderer, m_renderStyle);
+    applyRenderStyle(project.settings);
     live::ServerConfig lc;
     lc.kind = "editor";
     lc.projectDir = project.directory;
@@ -1889,6 +1889,15 @@ void Editor::saveAll() {
 void Editor::takePanelStatus() {
     for (std::string status : {m_tuningPanel.takeStatus(), m_projectPanel.takeStatus(), m_buildPanel.takeStatus()})
         if (!status.empty()) setStatus(status);
+}
+
+void Editor::applyRenderStyle(const game::ProjectSettings& settings) {
+    if (!m_renderer) return;
+    game::applyRenderStyle(settings, *m_renderer, m_renderStyle);
+    if (m_automated) {
+        const render::ResolutionSettings& r = m_renderer->resolution();
+        m_renderer->setDynamicResolution(false, r.minScale, r.budgetMs, r.sharpness);
+    }
 }
 
 } // namespace mealkit::editor
