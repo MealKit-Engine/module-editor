@@ -22,6 +22,7 @@
 #include "mealkit/render/Renderer.h"
 #include "mealkit/scene/Scene.h"
 
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -157,6 +158,7 @@ public:
     bool quitRequested() const { return m_quit; }
     void saveBackupIfDirty();
 
+    void openPalette(const std::string& text); // 자동 테스트/스크린샷용 (--palette)
     void selectByIndex(int index); // 자동 테스트/스크린샷용 (-2 = 씬 줄)
 
 private:
@@ -191,7 +193,6 @@ private:
     void setupDefaultLayout(u32 dockId, LayoutPreset preset);
 
     void updateCamera(f64 dt);
-    void handleShortcuts();
     void handlePicking();
 
     scene::Entity* selected();
@@ -221,6 +222,25 @@ private:
     void markChanged() { m_changed = true; }
     // 상태 표시줄 + 뷰포트 오른쪽 아래 알림. 실패는 닫을 때까지 남고, 누르면 그 창(빌드 로그·로그)을 연다
     enum class NoticeOpen : u8 { None, Log, BuildLog };
+    // 명령 표 (EditorCommands.cpp): 메뉴·단축키·팔레트·F1이 같이 쓴다. name은 영어 원문(tr 키)
+    struct Command {
+        const char* name;
+        int chord;  // ImGuiKeyChord (0 = 단축키 없음)
+        int chord2; // 같은 일을 하는 두 번째 단축키
+        std::function<bool()> enabled;
+        std::function<void()> run;
+    };
+    void buildCommands();
+    const Command* findCommand(const char* name) const;
+    std::string shortcutText(const Command& c) const;
+    void commandMenuItem(const char* name, const bool* selected = nullptr);
+    void runShortcuts();
+    void drawCommandPalette();
+    std::vector<Command> m_commands;
+    bool m_paletteOpen = false;
+    char m_paletteSearch[128] = {};
+    int m_paletteCursor = 0;
+    std::string m_paletteInitial;
     void setStatus(const std::string& text, bool failed = false, NoticeOpen open = NoticeOpen::Log);
     void drawNotices();
     void drawPlayFrame();     // 플레이 중 뷰포트 테두리

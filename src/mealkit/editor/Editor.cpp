@@ -156,6 +156,7 @@ std::string relativeTo(const std::string& root, const std::string& path) {
 } // namespace
 
 bool Editor::init(Window& window, render::Renderer& renderer, const std::string& scenePath, asset::ModelCache& models) {
+    buildCommands();
     m_window = &window;
     m_renderer = &renderer;
     m_models = &models;
@@ -249,10 +250,11 @@ void Editor::update(f64 dt) {
     drawEmptyViewport();
     if (ImGui::IsKeyPressed(ImGuiKey_F11, false) && rhi::gpuCaptureTool()) captureGpuFrame(); // 편집·플레이 모두
 
+    runShortcuts();
+    drawCommandPalette();
     if (editing) {
         drawGizmo();
         handlePicking();
-        handleShortcuts();
     } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
         m_stopRequest = true;
     } else if (m_simDebug && m_canPause && m_simDebug->timeline().recording) {
@@ -766,23 +768,22 @@ void Editor::drawMenuBar() {
     if (!open) return;
 
     if (ImGui::BeginMenu(tr("File"), editing)) {
-        if (ImGui::MenuItem(tr("New Scene"), "Ctrl+N")) newScene();
-        if (ImGui::MenuItem(tr("Open..."), "Ctrl+O")) openSceneDialog();
-        if (ImGui::MenuItem(tr("Save"), "Ctrl+S")) saveAll();
-        if (ImGui::MenuItem(tr("Save As..."))) saveSceneAs();
+        commandMenuItem("New Scene");
+        commandMenuItem("Open...");
+        commandMenuItem("Save");
+        commandMenuItem("Save As...");
         ImGui::Separator();
-        if (ImGui::MenuItem(tr("Project Settings..."), nullptr, false, !m_project.directory.empty()))
-            m_projectPanel.open();
+        commandMenuItem("Project Settings...");
         ImGui::Separator();
         if (ImGui::MenuItem(tr("Exit"))) m_quit = true;
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Edit"), editing)) {
-        if (ImGui::MenuItem(tr("Undo"), "Ctrl+Z", false, !m_undo.empty())) undo();
-        if (ImGui::MenuItem(tr("Redo"), "Ctrl+Y", false, !m_redo.empty())) redo();
+        commandMenuItem("Undo");
+        commandMenuItem("Redo");
         ImGui::Separator();
-        if (ImGui::MenuItem(tr("Duplicate"), "Ctrl+D", false, m_selected != 0)) duplicateSelected();
-        if (ImGui::MenuItem(tr("Delete"), "Delete", false, m_selected != 0)) deleteSelected();
+        commandMenuItem("Duplicate");
+        commandMenuItem("Delete");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Add"), editing)) {
@@ -792,12 +793,13 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("View"))) {
-        if (ImGui::MenuItem(tr("Focus Selected"), "F", false, editing && m_selected != 0)) focusSelected();
-        ImGui::MenuItem(tr("Tables"), "Ctrl+T", &m_tablesOpen);
-        ImGui::MenuItem(tr("Sounds"), nullptr, &m_soundsOpen, m_audio != nullptr);
-        ImGui::MenuItem(tr("Feedback"), nullptr, &m_feedbackOpen);
-        ImGui::MenuItem(tr("UI"), nullptr, &m_uiPanelOpen);
-        ImGui::MenuItem(tr("Look Dev"), nullptr, &m_lookdevOpen);
+        commandMenuItem("Focus Selected");
+        commandMenuItem("Command Palette");
+        commandMenuItem("Tables", &m_tablesOpen);
+        commandMenuItem("Sounds", &m_soundsOpen);
+        commandMenuItem("Feedback", &m_feedbackOpen);
+        commandMenuItem("UI", &m_uiPanelOpen);
+        commandMenuItem("Look Dev", &m_lookdevOpen);
         if (ImGui::BeginMenu(tr("Layout"))) {
             const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev")};
             for (int i = 0; i < 3; ++i)
@@ -806,7 +808,7 @@ void Editor::drawMenuBar() {
                     m_layoutReset = true;
                 }
             ImGui::Separator();
-            if (ImGui::MenuItem(tr("Reset Layout"))) m_layoutReset = true;
+            commandMenuItem("Reset Layout");
             ImGui::EndMenu();
         }
         ImGui::Separator();
@@ -829,17 +831,14 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Build"), !m_project.directory.empty())) {
-        const bool idle = !m_buildPanel.running();
-        if (ImGui::MenuItem(tr("Build Game Code (Hot Reload)"), "Ctrl+R", false, idle && editing))
-            startBuild(BuildKind::GameCode);
-        if (ImGui::MenuItem(tr("Release Build"), "Ctrl+B", false, idle)) startBuild(BuildKind::Export);
+        commandMenuItem("Build Game Code (Hot Reload)");
+        commandMenuItem("Release Build");
         ImGui::Separator();
-        if (ImGui::MenuItem(tr("Open Release Folder"), nullptr, false, directoryExists(m_project.exportDirectory())))
-            openInExplorer(m_project.exportDirectory());
-        if (ImGui::MenuItem(tr("Open Project Folder"))) openInExplorer(m_project.directory);
+        commandMenuItem("Open Release Folder");
+        commandMenuItem("Open Project Folder");
         ImGui::Separator();
-        ImGui::MenuItem(tr("Build Log"), nullptr, m_buildPanel.openFlag());
-        ImGui::MenuItem(tr("Log"), nullptr, m_logPanel.openFlag());
+        commandMenuItem("Build Log", m_buildPanel.openFlag());
+        commandMenuItem("Log", m_logPanel.openFlag());
         ImGui::EndMenu();
     }
     // 도구 제품군 (editor/Tools.h): 별도 저장소의 MealKit 도구를 이 프로젝트로 연다
@@ -1412,31 +1411,6 @@ void Editor::updateCamera(f64 dt) {
                 m_cameraPos += (right * -input.mouseDeltaX() + up * input.mouseDeltaY()) * 0.03f;
         }
     }
-}
-
-void Editor::handleShortcuts() {
-    ImGuiIO& io = ImGui::GetIO();
-    if (io.WantTextInput || m_looking) return;
-    auto pressed = [](ImGuiKey key) { return ImGui::IsKeyPressed(key, false); };
-    if (io.KeyCtrl) {
-        if (pressed(ImGuiKey_S)) saveAll();
-        if (pressed(ImGuiKey_T)) m_tablesOpen = !m_tablesOpen;
-        if (pressed(ImGuiKey_Z)) io.KeyShift ? redo() : undo();
-        if (pressed(ImGuiKey_Y)) redo();
-        if (pressed(ImGuiKey_D)) duplicateSelected();
-        if (pressed(ImGuiKey_N)) newScene();
-        if (pressed(ImGuiKey_O)) openSceneDialog();
-        if (pressed(ImGuiKey_B)) startBuild(BuildKind::Export);
-        if (pressed(ImGuiKey_R)) startBuild(BuildKind::GameCode);
-        return;
-    }
-    if (pressed(ImGuiKey_W)) m_gizmoOp = 0;
-    if (pressed(ImGuiKey_E)) m_gizmoOp = 1;
-    if (pressed(ImGuiKey_R)) m_gizmoOp = 2;
-    if (pressed(ImGuiKey_Delete)) deleteSelected();
-    if (pressed(ImGuiKey_F)) focusSelected();
-    if (pressed(ImGuiKey_F5) && m_gameLoaded) m_playRequest = true;
-    if (pressed(ImGuiKey_Escape)) m_selected = 0;
 }
 
 void Editor::handlePicking() {
