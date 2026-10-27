@@ -36,7 +36,6 @@ constexpr const char* kStateWindow = "State###State";
 const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // 플레이 중 메뉴 막대
 const char* const kBottomWindows[] = {LogPanel::kWindow, BuildPanel::kWindow, TablesPanel::kWindow};
 constexpr size_t kUndoLimit = 100;
-constexpr f64 kAutosaveSeconds = 90.0; // 저장 안 된 변경이 있으면 이 간격으로 <씬>.autosave에 쓴다
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
 
 constexpr const char* kEntityPayload = "MEALKIT_ENTITY";
@@ -157,6 +156,8 @@ std::string relativeTo(const std::string& root, const std::string& path) {
 
 bool Editor::init(Window& window, render::Renderer& renderer, const std::string& scenePath, asset::ModelCache& models) {
     buildCommands();
+    m_prefs = loadPreferences();
+    m_cameraSpeed = m_prefs.cameraSpeed;
     m_window = &window;
     m_renderer = &renderer;
     m_models = &models;
@@ -198,6 +199,7 @@ void Editor::update(f64 dt) {
     if (!m_editActive) m_pending = capture();
     m_changed = false;
 
+    ImGui::GetStyle().FontScaleMain = m_prefs.uiScale;
     drawMenuBar();
     drawStatusBar();
 
@@ -246,6 +248,8 @@ void Editor::update(f64 dt) {
     m_logPanel.draw();
     takePanelStatus();
     drawNotices();
+    m_prefsPanel.draw(m_prefs);
+    drawShortcutHelp();
     drawPlayFrame();
     drawEmptyViewport();
     if (ImGui::IsKeyPressed(ImGuiKey_F11, false) && rhi::gpuCaptureTool()) captureGpuFrame(); // 편집·플레이 모두
@@ -387,7 +391,8 @@ void Editor::updateAutosave(f64 dt) {
     if (m_changed) m_autosavePending = true;
     if (m_mode != Mode::Edit) return;
     m_autosaveTimer += dt;
-    if (m_autosaveTimer < kAutosaveSeconds) return;
+    // 저장 안 된 변경이 있으면 환경설정 간격으로 <씬>.autosave에 쓴다 (0 = 끄기)
+    if (m_prefs.autosaveSeconds == 0 || m_autosaveTimer < m_prefs.autosaveSeconds) return;
     m_autosaveTimer = 0.0;
     if (m_dirty && m_autosavePending) {
         saveBackupIfDirty();
@@ -774,6 +779,7 @@ void Editor::drawMenuBar() {
         commandMenuItem("Save As...");
         ImGui::Separator();
         commandMenuItem("Project Settings...");
+        commandMenuItem("Preferences...");
         ImGui::Separator();
         if (ImGui::MenuItem(tr("Exit"))) m_quit = true;
         ImGui::EndMenu();
@@ -795,6 +801,7 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("View"))) {
         commandMenuItem("Focus Selected");
         commandMenuItem("Command Palette");
+        commandMenuItem("Keyboard Shortcuts");
         commandMenuItem("Tables", &m_tablesOpen);
         commandMenuItem("Sounds", &m_soundsOpen);
         commandMenuItem("Feedback", &m_feedbackOpen);
@@ -1771,6 +1778,12 @@ void Editor::updateTitle() {
 
 void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
+    // 창 배치를 프로젝트마다 (build\editor\layout.ini). 처음 여는 프로젝트는 기본 레이아웃
+    if (m_prefs.projectLayout && !project.directory.empty()) {
+        const std::string folder = project.directory + "\\build\\editor";
+        createDirectories(folder);
+        if (!m_imgui.setIniPath(folder + "\\layout.ini")) m_layoutReset = true;
+    }
     m_tablesPanel.setProjectDirectory(project.directory);
     m_tuningPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);

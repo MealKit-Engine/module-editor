@@ -50,6 +50,8 @@ void Editor::buildCommands() {
         {"Scale R", ImGuiKey_R, 0, editing, [this] { m_gizmoOp = 2; }},
         {"Play", ImGuiKey_F5, 0, [this] { return m_mode == Mode::Edit && m_gameLoaded; },
          [this] { m_playRequest = true; }},
+        {"Preferences...", 0, 0, always, [this] { *m_prefsPanel.openFlag() = true; }},
+        {"Keyboard Shortcuts", ImGuiKey_F1, 0, always, [this] { m_shortcutsOpen = !m_shortcutsOpen; }},
         {"Command Palette", ImGuiMod_Ctrl | ImGuiKey_P, 0, always, [this] { m_paletteOpen = true; }},
         {"Tables", ImGuiMod_Ctrl | ImGuiKey_T, 0, always, [this] { m_tablesOpen = !m_tablesOpen; }},
         {"Sounds", 0, 0, [this] { return m_audio != nullptr; }, [this] { m_soundsOpen = !m_soundsOpen; }},
@@ -100,6 +102,40 @@ void Editor::runShortcuts() {
         }
     }
     if (m_mode == Mode::Edit && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_selected = 0;
+}
+
+// F1: 명령 표의 단축키 목록
+void Editor::drawShortcutHelp() {
+    if (!m_shortcutsOpen) return;
+    ImGui::SetNextWindowSize(ImVec2(420, 520), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin(trl("Keyboard Shortcuts###Shortcuts"), &m_shortcutsOpen, ImGuiWindowFlags_NoDocking)) {
+        ImGui::End();
+        return;
+    }
+    if (ImGui::BeginTable("##keys", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
+        for (const Command& c : m_commands) {
+            if (!c.chord) continue;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(tr(c.name));
+            ImGui::TableNextColumn();
+            std::string keys = shortcutText(c);
+            if (c.chord2) keys += std::string(", ") + ImGui::GetKeyChordName(c.chord2);
+            ImGui::TextUnformatted(keys.c_str());
+        }
+        const char* fixed[][2] = {{"Fly the camera", "Right drag + WASD/QE"}, {"Pan the camera", "Middle drag"},
+                                  {"Camera speed", "Wheel while flying"},     {"Snap while dragging a gizmo", "Ctrl"},
+                                  {"Deselect", "Esc"},                         {"Stop playing", "Esc / F5"}};
+        for (auto& row : fixed) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(tr(row[0]));
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(tr(row[1]));
+        }
+        ImGui::EndTable();
+    }
+    ImGui::End();
 }
 
 void Editor::openPalette(const std::string& text) {

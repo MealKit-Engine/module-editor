@@ -3,6 +3,7 @@
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/BuildPanel.h"
 #include "mealkit/editor/LogPanel.h"
+#include "mealkit/editor/Preferences.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/FeedbackPanel.h"
@@ -236,6 +237,7 @@ private:
     void commandMenuItem(const char* name, const bool* selected = nullptr);
     void runShortcuts();
     void drawCommandPalette();
+    void drawShortcutHelp(); // F1
     std::vector<Command> m_commands;
     bool m_paletteOpen = false;
     char m_paletteSearch[128] = {};
@@ -360,6 +362,9 @@ private:
     bool m_upgradeRequested = false; // 빌드가 끝나면 업그레이드를 시작한다
     BuildPanel m_buildPanel;
     LogPanel m_logPanel;
+    Preferences m_prefs;
+    PreferencesPanel m_prefsPanel;
+    bool m_shortcutsOpen = false;
     bool m_gameCodeBuilt = false;
     bool m_gameCodeFailed = false;
     bool m_gameLoaded = false;
