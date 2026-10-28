@@ -393,7 +393,7 @@ int main(int argc, char** argv) {
 
         if (!goldenShots.empty()) { // 그래픽 회귀 테스트: 편집기 UI 없이 정한 카메라로만
             const GoldenShot& shot = goldenShots[goldenIndex];
-            if (goldenFrame == 0 && !editor.openSceneForShot(findAsset("assets/" + shot.scene))) {
+            if (goldenFrame == 0 && !editor.openSceneForShot(findAssetFile(shot.scene))) {
                 std::printf("GOLDEN %s cannot open %s\n", shot.name.c_str(), shot.scene.c_str());
                 goldenExit = 1;
                 break;

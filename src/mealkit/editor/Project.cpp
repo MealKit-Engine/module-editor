@@ -92,9 +92,9 @@ std::string ProjectInfo::gameDllPath() const {
 }
 
 std::string ProjectInfo::startScenePath() const {
-    std::string relative = settings.scene;
+    std::string relative = assetFilePath(settings.scene);
     std::replace(relative.begin(), relative.end(), '/', '\\');
-    return directory + "\\assets\\" + relative;
+    return directory + "\\" + relative;
 }
 
 std::string ProjectInfo::exportDirectory() const { return directory + "\\export\\" + settings.name; }
