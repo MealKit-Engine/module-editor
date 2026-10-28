@@ -732,11 +732,44 @@ void Editor::captureGpuFrame() {
 }
 
 void Editor::setMode(Mode mode) {
+    if (mode == Mode::Play && m_playFromHere && m_playPlayers == 1) moveSpawnsHere();
+    m_playFromHere = false;
+    if (mode == Mode::Edit && !m_spawnBackup.empty()) { // 여기서 플레이: 스폰 지점을 되돌린다 (씬 파일은 그대로)
+        for (const auto& [id, world] : m_spawnBackup)
+            if (Entity* e = m_scene.find(id)) scene::setWorldTransform(m_scene, *e, world);
+        m_spawnBackup.clear();
+    }
     m_mode = mode;
     m_looking = false;
     m_window->setCursorCaptured(false);
     if (mode == Mode::Edit) m_playStatus.clear();
     focusPanel(mode == Mode::Play ? kStateWindow : kInspectorWindow); // 플레이 중에는 [상태] 탭을 앞으로
+}
+
+// 고른 물체가 스폰이면 그 자리, 아니면 카메라 아래 바닥(카메라가 보는 방향)으로 모든 스폰 지점을 잠시 옮긴다
+void Editor::moveSpawnsHere() {
+    scene::Transform target;
+    const Entity* picked = selected();
+    if (picked && picked->is(scene::kTypeSpawn)) {
+        target = scene::worldTransform(m_scene, *picked);
+    } else {
+        f32 t = 0.0f;
+        target.position = m_cameraPos;
+        if (raycast(m_cameraPos, {0.0f, -1.0f, 0.0f}, &t)) target.position.y -= t;
+        else target.position.y = 0.0f;
+        target.position.y += 0.1f;
+        target.rotation = quatFromAxisAngle({0.0f, 1.0f, 0.0f}, m_cameraYaw);
+    }
+    m_spawnBackup.clear();
+    for (Entity& e : m_scene.entities) {
+        if (!e.is(scene::kTypeSpawn)) continue;
+        scene::Transform w = scene::worldTransform(m_scene, e);
+        m_spawnBackup.emplace_back(e.id, w);
+        w.position = target.position;
+        w.rotation = target.rotation;
+        scene::setWorldTransform(m_scene, e, w);
+    }
+    if (m_spawnBackup.empty()) setStatus(tr("Play from here: the scene has no spawn points"), true);
 }
 
 bool Editor::takePlayRequest() {
@@ -897,6 +930,8 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("Build"), !m_project.directory.empty())) {
         commandMenuItem("Build Game Code (Hot Reload)");
         commandMenuItem("Release Build");
+        ImGui::Separator();
+        commandMenuItem("Play From Here");
         ImGui::Separator();
         commandMenuItem("Open Release Folder");
         commandMenuItem("Open Project Folder");

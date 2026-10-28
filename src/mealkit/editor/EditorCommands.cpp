@@ -64,9 +64,17 @@ void Editor::buildCommands() {
         {"Move W", ImGuiKey_W, 0, editing, [this] { m_gizmoOp = 0; }},
         {"Rotate E", ImGuiKey_E, 0, editing, [this] { m_gizmoOp = 1; }},
         {"Scale R", ImGuiKey_R, 0, editing, [this] { m_gizmoOp = 2; }},
+        {"Play From Here", ImGuiMod_Shift | ImGuiKey_F5, 0,
+         [this] { return m_mode == Mode::Edit && m_gameLoaded && m_playPlayers == 1; }, [this] {
+             m_playFromHere = true;
+             m_playRequest = true;
+         }},
         {"Toggle Orthographic", ImGuiKey_Keypad5, 0, editing, [this] { m_ortho = !m_ortho; }},
         {"Play", ImGuiKey_F5, 0, [this] { return m_mode == Mode::Edit && m_gameLoaded; },
-         [this] { m_playRequest = true; }},
+         [this] {
+             m_playFromHere = false;
+             m_playRequest = true;
+         }},
         {"Preferences...", 0, 0, always, [this] { *m_prefsPanel.openFlag() = true; }},
         {"Keyboard Shortcuts", ImGuiKey_F1, 0, always, [this] { m_shortcutsOpen = !m_shortcutsOpen; }},
         {"Command Palette", ImGuiMod_Ctrl | ImGuiKey_P, 0, always, [this] { m_paletteOpen = true; }},

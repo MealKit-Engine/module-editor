@@ -252,6 +252,10 @@ private:
     void rememberRecentScene(const std::string& path);
     void loadRecentScenes();
     bool m_sceneListOpen = false;
+    // 여기서 플레이 (Shift+F5, 혼자일 때만): 플레이 동안 스폰 지점을 카메라 아래(또는 고른 스폰)로 옮기고 멈추면 되돌린다
+    bool m_playFromHere = false;
+    std::vector<std::pair<u32, scene::Transform>> m_spawnBackup;
+    void moveSpawnsHere();
     std::vector<std::string> m_recentScenes; // 절대 경로, 최근 것이 앞  // [편집] > [기록]: 되돌리기 목록, 누르면 그 지점으로
     bool m_historyOpen = false;
     int m_undoLabelFrame = -1; // 이 프레임의 setStatus가 방금 쌓은 되돌리기의 이름이 된다
