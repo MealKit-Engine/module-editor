@@ -43,6 +43,7 @@ void Editor::buildCommands() {
          [this] { undo(); }},
         {"Redo", ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z,
          [this] { return m_mode == Mode::Edit && !m_redo.empty(); }, [this] { redo(); }},
+        {"History", ImGuiMod_Ctrl | ImGuiKey_H, 0, always, [this] { m_historyOpen = !m_historyOpen; }},
         {"Select All", ImGuiMod_Ctrl | ImGuiKey_A, 0, editing, [this] {
              std::vector<u32> ids;
              for (const scene::Entity& e : m_scene.entities)

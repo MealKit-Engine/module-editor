@@ -171,6 +171,7 @@ private:
         scene::Environment environment;
         u32 nextId = 1;
         u32 selected = 0;
+        std::string label; // [편집] > [기록] 창에 보이는 이름 ("Ramp 변경", 상태 메시지)
     };
 
     void drawMenuBar();
@@ -242,6 +243,12 @@ private:
     Snapshot capture() const;
     void restore(const Snapshot& snapshot);
     void pushUndo(Snapshot snapshot);
+    void drawHistory();  // [편집] > [기록]: 되돌리기 목록, 누르면 그 지점으로
+    bool m_historyOpen = false;
+    int m_undoLabelFrame = -1; // 이 프레임의 setStatus가 방금 쌓은 되돌리기의 이름이 된다
+    bool m_scaleLock = false;  // 인스펙터 크기 비율 고정
+    bool transformRow(const char* label, const char* id, f32 v[3], f32 speed, f32 lo, f32 hi, const char* format,
+                      f32 defaultValue, bool* lockRatio = nullptr);
     void undo();
     void redo();
     void markChanged() { m_changed = true; }

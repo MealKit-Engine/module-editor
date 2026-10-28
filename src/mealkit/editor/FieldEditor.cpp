@@ -1,5 +1,7 @@
 #include "mealkit/editor/FieldEditor.h"
 
+#include "mealkit/core/Hash.h"
+
 #include "mealkit/editor/Strings.h"
 
 #include <algorithm>
@@ -267,14 +269,77 @@ bool drawValueWidget(const char* label, const char* name, const ValueInfo& value
     return drawValue(label, name, value, data, context);
 }
 
+FieldLabel splitFieldLabel(const char* label) {
+    const char* bar = strchr(label, '|');
+    if (!bar) return {label, {}};
+    return {std::string(label, bar), bar + 1};
+}
+
+namespace {
+
+// 필드 하나의 텍스트 줄들 (경로가 name이거나 name. / name[ 로 시작)
+reflect::TextFields fieldText(const TypeInfo& type, const void* data, const char* name) {
+    reflect::TextFields all, out;
+    reflect::toText(type, data, all);
+    const std::string n = name;
+    for (auto& [path, value] : all)
+        if (path == n || path.rfind(n + ".", 0) == 0 || path.rfind(n + "[", 0) == 0) out.emplace_back(path, value);
+    return out;
+}
+
+struct FieldClipboard {
+    const reflect::ValueInfo* value = nullptr; // 같은 모양의 필드에만 붙여 넣는다
+    std::string name;
+    reflect::TextFields lines;
+};
+FieldClipboard g_clipboard;
+
+} // namespace
+
 bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
     bool changed = false;
     for (const FieldInfo& f : type.fields) {
         ImGui::PushID(f.name);
         const bool readOnly = (f.flags & reflect::kFieldReadOnly) != 0;
         ImGui::BeginDisabled(readOnly);
-        changed |= drawValue(trData(f.label), f.name, *f.value, at(data, f.offset), context);
+        const FieldLabel label = splitFieldLabel(f.label);
+        changed |= drawValue(trData(label.name.c_str()), f.name, *f.value, at(data, f.offset), context);
         ImGui::EndDisabled();
+        if (!label.tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", trData(label.tooltip.c_str()));
+        // 기본값과 다르면 왼쪽에 점
+        const bool hasDefaults = context && context->defaults;
+        bool differs = false;
+        if (hasDefaults) {
+            Hasher a, b;
+            reflect::hashValue(*f.value, at(data, f.offset), a);
+            reflect::hashValue(*f.value, at(context->defaults, f.offset), b);
+            differs = a.value != b.value;
+            if (differs) {
+                const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+                ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(min.x - 5.0f, (min.y + std::min(max.y, min.y + ImGui::GetFrameHeight())) * 0.5f),
+                                                            2.5f, ImGui::GetColorU32(ImVec4(0.45f, 0.70f, 1.0f, 1.0f)));
+            }
+        }
+        // 오른쪽 클릭: 기본값으로 / 값 복사 / 붙여넣기
+        if (!readOnly && ImGui::BeginPopupContextItem("##fieldMenu")) {
+            if (ImGui::MenuItem(tr("Reset to Default"), nullptr, false, hasDefaults && differs)) {
+                for (auto& [path, value] : fieldText(type, context->defaults, f.name)) reflect::setFromText(type, data, path, value);
+                changed = true;
+            }
+            if (ImGui::MenuItem(tr("Copy Value"))) {
+                g_clipboard = {f.value, f.name, fieldText(type, data, f.name)};
+                std::string text;
+                for (auto& [path, value] : g_clipboard.lines) text += path + " " + value + "\n";
+                ImGui::SetClipboardText(text.c_str());
+            }
+            if (ImGui::MenuItem(tr("Paste Value"), nullptr, false, g_clipboard.value == f.value)) {
+                for (auto& [path, value] : g_clipboard.lines)
+                    reflect::setFromText(type, data, f.name + path.substr(g_clipboard.name.size()), value);
+                changed = true;
+            }
+            ImGui::EndPopup();
+        }
         ImGui::PopID();
     }
     return changed;

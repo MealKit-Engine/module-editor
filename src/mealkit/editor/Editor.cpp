@@ -263,6 +263,7 @@ void Editor::update(f64 dt) {
     takePanelStatus();
     drawNotices();
     m_prefsPanel.draw(m_prefs);
+    drawHistory();
     drawShortcutHelp();
     drawPlayFrame();
     drawEmptyViewport();
@@ -804,6 +805,7 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("Edit"), editing)) {
         commandMenuItem("Undo");
         commandMenuItem("Redo");
+        commandMenuItem("History");
         ImGui::Separator();
         commandMenuItem("Select All");
         commandMenuItem("Duplicate");
@@ -1202,9 +1204,9 @@ void Editor::drawInspector(bool editing) {
         }
         drawObjectFields(*e);
 
-        if (const asset::Model* model = e->model.empty() ? nullptr : m_models->get(e->model); model && model->skinned()) {
+        if (const asset::Model* model = e->model.empty() ? nullptr : m_models->get(e->model);
+            model && model->skinned() && ImGui::CollapsingHeader(tr("Animation"), ImGuiTreeNodeFlags_DefaultOpen)) {
             // 스킨 모델: 화면용 반복 클립 (씬 필드 anim, 게임 화면도 같이 재생한다)
-            ImGui::SeparatorText(tr("Animation"));
             ImGui::TextDisabled(tr("%u joints, %u clips"), model->bones, static_cast<u32>(model->clips.size()));
             const std::string current = scene::animField(*e);
             const std::string currentClip = current.substr(0, current.find(' '));
@@ -1224,8 +1226,8 @@ void Editor::drawInspector(bool editing) {
             }
         }
 
-        if (e->is(scene::kTypeProbe)) { // 반사 프로브: 굽기 (편집 모드, 구운 파일은 assets/probes/)
-            ImGui::SeparatorText(tr("Reflection probe"));
+        if (e->is(scene::kTypeProbe) && ImGui::CollapsingHeader(tr("Reflection probe"), ImGuiTreeNodeFlags_DefaultOpen)) {
+            // 반사 프로브: 굽기 (편집 모드, 구운 파일은 assets/probes/)
             const std::string file = scene::probeFile(*e);
             ImGui::TextDisabled("%s", file.empty() ? tr("Not baked") : file.c_str());
             ImGui::BeginDisabled(bakingProbes());
@@ -1240,8 +1242,7 @@ void Editor::drawInspector(bool editing) {
                                    probeMaxCount());
         }
 
-        if (!isMarker(*e)) {
-            ImGui::SeparatorText(tr("Model"));
+        if (!isMarker(*e) && ImGui::CollapsingHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
             if (e->model.empty()) {
                 ImGui::TextDisabled("%s", tr("Default box"));
             } else {
@@ -1279,13 +1280,16 @@ void Editor::drawInspector(bool editing) {
             }
         }
 
-        ImGui::SeparatorText(e->parent ? tr("Transform (relative to parent)") : tr("Transform"));
         f32 matrix[16], t[3], r[3], s[3];
         compose(scene::localTransform(*e), matrix);
         ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
-        bool changed = ImGui::DragFloat3(tr("Position"), t, 0.05f, 0.0f, 0.0f, "%.2f");
-        changed |= ImGui::DragFloat3(tr("Rotation (deg)"), r, 0.5f, 0.0f, 0.0f, "%.1f");
-        if (!isMarker(*e)) changed |= ImGui::DragFloat3(tr("Scale"), s, 0.02f, 0.01f, 10000.0f, "%.2f");
+        bool changed = false;
+        if (ImGui::CollapsingHeader(e->parent ? tr("Transform (relative to parent)###transform") : tr("Transform###transform"),
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+            changed |= transformRow(tr("Position"), "##pos", t, 0.05f, 0.0f, 0.0f, "%.2f", 0.0f);
+            changed |= transformRow(tr("Rotation (deg)"), "##rot", r, 0.5f, 0.0f, 0.0f, "%.1f", 0.0f);
+            if (!isMarker(*e)) changed |= transformRow(tr("Scale"), "##scale", s, 0.02f, 0.01f, 10000.0f, "%.2f", 1.0f, &m_scaleLock);
+        }
         if (changed) {
             for (f32& v : s) v = std::max(v, 0.01f);
             ImGuizmo::RecomposeMatrixFromComponents(t, r, s, matrix);
@@ -1297,17 +1301,18 @@ void Editor::drawInspector(bool editing) {
             markChanged();
         }
 
-        ImGui::SeparatorText(tr("Look"));
-        f32 rgb[3];
-        unpackColor(e->color, rgb);
-        if (ImGui::ColorEdit3(tr("Color"), rgb)) {
-            e->color = packColor(rgb, e->color);
-            markChanged();
-        }
-        bool checker = (e->flags & render::kInstanceChecker) != 0;
-        if (ImGui::Checkbox(tr("Checker pattern"), &checker)) {
-            e->flags = checker ? (e->flags | render::kInstanceChecker) : (e->flags & ~render::kInstanceChecker);
-            markChanged();
+        if (ImGui::CollapsingHeader(tr("Look"), ImGuiTreeNodeFlags_DefaultOpen)) {
+            f32 rgb[3];
+            unpackColor(e->color, rgb);
+            if (ImGui::ColorEdit3(tr("Color"), rgb)) {
+                e->color = packColor(rgb, e->color);
+                markChanged();
+            }
+            bool checker = (e->flags & render::kInstanceChecker) != 0;
+            if (ImGui::Checkbox(tr("Checker pattern"), &checker)) {
+                e->flags = checker ? (e->flags | render::kInstanceChecker) : (e->flags & ~render::kInstanceChecker);
+                markChanged();
+            }
         }
         ImGui::PopItemWidth();
         ImGui::TextDisabled("ID %u", e->id);
@@ -1319,6 +1324,80 @@ void Editor::drawInspector(bool editing) {
     }
     ImGui::EndDisabled();
     ImGui::End();
+}
+
+// 변환 한 줄: 기본값과 다르면 점, 오른쪽 클릭 "기본값으로 / 복사 / 붙여넣기", 크기는 비율 고정 토글
+bool Editor::transformRow(const char* label, const char* id, f32 v[3], f32 speed, f32 lo, f32 hi, const char* format,
+                          f32 defaultValue, bool* lockRatio) {
+    ImGui::PushID(id);
+    const f32 before[3] = {v[0], v[1], v[2]};
+    if (lockRatio) {
+        if (ImGui::SmallButton(*lockRatio ? icon::kLock : icon::kUnlock)) *lockRatio = !*lockRatio;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Keep the ratio between X, Y and Z"));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetItemRectSize().x - ImGui::GetStyle().ItemSpacing.x);
+    }
+    bool changed = ImGui::DragFloat3(label, v, speed, lo, hi, format);
+    if (changed && lockRatio && *lockRatio) { // 바꾼 축의 비율만큼 나머지도
+        for (int i = 0; i < 3; ++i)
+            if (v[i] != before[i] && before[i] != 0.0f) {
+                const f32 k = v[i] / before[i];
+                for (int j = 0; j < 3; ++j)
+                    if (j != i) v[j] = before[j] * k;
+                break;
+            }
+    }
+    const bool differs = v[0] != defaultValue || v[1] != defaultValue || v[2] != defaultValue;
+    if (differs) {
+        const ImVec2 min = ImGui::GetItemRectMin();
+        ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(min.x - 5.0f, min.y + ImGui::GetFrameHeight() * 0.5f), 2.5f,
+                                                    ImGui::GetColorU32(ImVec4(0.45f, 0.70f, 1.0f, 1.0f)));
+    }
+    if (ImGui::BeginPopupContextItem("##transformMenu")) {
+        if (ImGui::MenuItem(tr("Reset to Default"), nullptr, false, differs)) {
+            v[0] = v[1] = v[2] = defaultValue;
+            changed = true;
+        }
+        if (ImGui::MenuItem(tr("Copy Value"))) {
+            char text[96];
+            snprintf(text, sizeof(text), "%g %g %g", v[0], v[1], v[2]);
+            ImGui::SetClipboardText(text);
+        }
+        if (ImGui::MenuItem(tr("Paste Value"))) {
+            f32 p[3];
+            const char* clip = ImGui::GetClipboardText();
+            if (clip && sscanf(clip, "%f %f %f", &p[0], &p[1], &p[2]) == 3) {
+                v[0] = p[0], v[1] = p[1], v[2] = p[2];
+                changed = true;
+            }
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+// [편집] > [기록]: 위가 오래된 것. 누르면 그 변경 직전으로 되돌린다 (다시 하기로 앞으로 갈 수 있다)
+void Editor::drawHistory() {
+    if (!m_historyOpen) return;
+    ImGui::SetNextWindowSize(ImVec2(320, 380), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin(trl("History###History"), &m_historyOpen, ImGuiWindowFlags_NoDocking)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::BeginDisabled(m_mode != Mode::Edit);
+    int target = -1; // 되돌릴 개수
+    for (size_t i = 0; i < m_undo.size(); ++i) {
+        ImGui::PushID(static_cast<int>(i));
+        if (ImGui::Selectable(m_undo[i].label.c_str())) target = static_cast<int>(m_undo.size() - i);
+        ImGui::PopID();
+    }
+    ImGui::Selectable(tr("(now)"), true, ImGuiSelectableFlags_Disabled);
+    for (size_t i = m_redo.size(); i-- > 0;)
+        ImGui::TextDisabled("%s", m_redo[i].label.c_str());
+    ImGui::EndDisabled();
+    ImGui::End();
+    for (int i = 0; i < target; ++i) undo();
 }
 
 // 씬 환경 (인스펙터에서 씬 줄을 골랐을 때)
@@ -2033,7 +2112,7 @@ void Editor::drawTypeMenuItems() {
 void Editor::drawObjectFields(Entity& e) {
     const reflect::TypeInfo* type = entityType(e);
     if (type && type->fields.empty()) return;
-    ImGui::SeparatorText(tr("Fields"));
+    if (!ImGui::CollapsingHeader(tr("Fields"), ImGuiTreeNodeFlags_DefaultOpen)) return;
     if (!type) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1.0f), tr("The game code has no '%s' type. The values are kept as they are."),
                            e.type.c_str());
@@ -2050,7 +2129,8 @@ void Editor::drawObjectFields(Entity& e) {
     reflect::Instance instance(*type);
     std::string warnings;
     reflect::fromText(*type, instance.data(), e.fields, &warnings);
-    const FieldContext context{&m_tablesPanel.index()};
+    const reflect::Instance defaults(*type);
+    const FieldContext context{&m_tablesPanel.index(), defaults.data()};
     if (drawFields(*type, instance.data(), &context)) {
         reflect::TextFields fields;
         reflect::toText(*type, instance.data(), fields);
@@ -2265,6 +2345,11 @@ void Editor::restore(const Snapshot& s) {
 }
 
 void Editor::pushUndo(Snapshot snapshot) {
+    if (snapshot.label.empty()) {
+        const Entity* e = selected();
+        snapshot.label = e ? trf("%s changed", e->name.c_str()) : std::string(tr("Scene changed"));
+    }
+    m_undoLabelFrame = ImGui::GetFrameCount();
     m_undo.push_back(std::move(snapshot));
     if (m_undo.size() > kUndoLimit) m_undo.erase(m_undo.begin());
     m_redo.clear();
@@ -2274,6 +2359,7 @@ void Editor::pushUndo(Snapshot snapshot) {
 void Editor::undo() {
     if (m_undo.empty()) return;
     m_redo.push_back(capture());
+    m_redo.back().label = m_undo.back().label;
     restore(m_undo.back());
     m_undo.pop_back();
     setStatus(tr("Undo"));
@@ -2282,6 +2368,7 @@ void Editor::undo() {
 void Editor::redo() {
     if (m_redo.empty()) return;
     m_undo.push_back(capture());
+    m_undo.back().label = m_redo.back().label;
     restore(m_redo.back());
     m_redo.pop_back();
     setStatus(tr("Redo"));
@@ -2290,6 +2377,7 @@ void Editor::redo() {
 void Editor::setStatus(const std::string& text, bool failed, NoticeOpen open) {
     m_status = text;
     m_statusTime = m_time;
+    if (m_undoLabelFrame == ImGui::GetFrameCount() && !m_undo.empty()) m_undo.back().label = text; // 복제·삭제 등의 이름
     if (m_notices.size() >= 5) m_notices.erase(m_notices.begin());
     m_notices.push_back({text, m_time, failed, failed ? open : NoticeOpen::None});
 }
