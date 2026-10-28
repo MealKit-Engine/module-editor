@@ -104,7 +104,7 @@ bool PreferencesPanel::draw(Preferences& p) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Takes effect the next time a project opens"));
     ImGui::SeparatorText(tr("Files"));
     int seconds = static_cast<int>(p.autosaveSeconds);
-    if (ImGui::InputInt(tr("Autosave every (seconds, 0 = off)"), &seconds, 30)) {
+    if (ImGui::InputInt(tr("Autosave every (seconds, 0: off)"), &seconds, 30)) {
         p.autosaveSeconds = static_cast<u32>(std::clamp(seconds, 0, 3600));
         changed = true;
     }
