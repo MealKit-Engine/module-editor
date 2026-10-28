@@ -1,5 +1,7 @@
 #include "mealkit/editor/PlaySession.h"
 
+#include "mealkit/debug/DebugDrawRender.h"
+
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/audio/Audio.h"
 #include "mealkit/feedback/Feedback.h"
@@ -239,6 +241,7 @@ void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Re
     ctx.viewTuningData = editor.viewTuning();
     ctx.scene = &editor.scene();
     m_game->buildFrame(ctx, now, frame, out);
+    debug::flushDebugDraw(out, models.boxMesh(), frame, now, true); // 게임 코드의 debug::line/box/text
     m_front.afterBuildFrame(frame);
 }
 
