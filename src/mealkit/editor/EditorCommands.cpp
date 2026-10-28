@@ -44,6 +44,7 @@ void Editor::buildCommands() {
          [this] { return m_mode == Mode::Edit && !m_redo.empty(); }, [this] { redo(); }},
         {"Duplicate", ImGuiMod_Ctrl | ImGuiKey_D, 0, hasSelection, [this] { duplicateSelected(); }},
         {"Delete", ImGuiKey_Delete, 0, hasSelection, [this] { deleteSelected(); }},
+        {"Find in Scene Tree", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] { m_treeSearchFocus = true; }},
         {"Focus Selected", ImGuiKey_F, 0, hasSelection, [this] { focusSelected(); }},
         {"Move W", ImGuiKey_W, 0, editing, [this] { m_gizmoOp = 0; }},
         {"Rotate E", ImGuiKey_E, 0, editing, [this] { m_gizmoOp = 1; }},

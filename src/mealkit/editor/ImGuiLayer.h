@@ -16,6 +16,18 @@ inline constexpr const char* kSearch = "\xEE\x9C\xA1";     // U+E721
 inline constexpr const char* kGlobe = "\xEE\x9D\xB4";      // U+E774
 inline constexpr const char* kStar = "\xEE\x9C\xB4";       // U+E734 (빈 별)
 inline constexpr const char* kStarFilled = "\xEE\x9C\xB5"; // U+E735
+inline constexpr const char* kView = "\xEE\xA2\x90";       // U+E890 (보이기)
+inline constexpr const char* kHide = "\xEE\xB4\x9A";       // U+ED1A
+inline constexpr const char* kLock = "\xEE\x9C\xAE";       // U+E72E
+inline constexpr const char* kUnlock = "\xEE\x9E\x85";     // U+E785
+// 씬 트리 종류 아이콘
+inline constexpr const char* kBox = "\xEE\x9C\xB9";        // U+E739 (상자)
+inline constexpr const char* kModel = "\xEE\x9E\xB8";      // U+E7B8 (모델)
+inline constexpr const char* kPin = "\xEE\x9C\x87";        // U+E707 (스폰·표시)
+inline constexpr const char* kArea = "\xEE\xA0\x8A";       // U+E80A (영역)
+inline constexpr const char* kLight = "\xEE\xAA\x80";      // U+EA80 (점광원)
+inline constexpr const char* kProbe = "\xEE\xA4\x89";      // U+E909 (반사 프로브)
+inline constexpr const char* kFlag = "\xEE\x9F\x81";       // U+E7C1 (그 밖의 게임 종류)
 } // namespace icon
 
 using ImGuiLayer = debug::ImGuiLayer;

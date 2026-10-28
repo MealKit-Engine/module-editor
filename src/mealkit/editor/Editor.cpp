@@ -4,6 +4,7 @@
 #include "mealkit/core/Profile.h"
 #include "mealkit/core/Version.h"
 #include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/FileDialog.h"
 #include "mealkit/platform/Paths.h"
@@ -35,6 +36,15 @@ constexpr const char* kStateWindow = "State###State";
 // 아래 가로 칸에 탭으로 붙는 창 (기본 레이아웃)
 const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // 플레이 중 메뉴 막대
 const char* const kBottomWindows[] = {LogPanel::kWindow, BuildPanel::kWindow, TablesPanel::kWindow};
+
+// 대소문자를 무시한 부분 문자열 (씬 트리 찾기)
+bool containsNoCase(const std::string& text, const char* needle) {
+    const size_t n = strlen(needle);
+    for (size_t i = 0; i + n <= text.size(); ++i)
+        if (_strnicmp(text.data() + i, needle, n) == 0) return true;
+    return false;
+}
+
 constexpr size_t kUndoLimit = 100;
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
 
@@ -509,6 +519,7 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
     const render::MeshId box = m_models->boxMesh();
     for (const Entity& e : m_scene.entities) {
         if (gameView && !scene::visibleInGame(e, m_gameTypes)) continue;
+        if (!gameView && isHidden(e)) continue;
         const scene::Transform world = scene::worldTransform(m_scene, e);
         if (isArea(e)) { // 보이지 않는 영역: 안이 가려지지 않게 모서리만
             Vec3 centers[12], halves[12];
@@ -966,6 +977,14 @@ void Editor::drawHierarchy(bool editing) {
         drawTypeMenuItems();
         ImGui::EndPopup();
     }
+    // 찾기 (이름·종류, Ctrl+F): 글자가 있으면 맞는 물체만 평평하게
+    if (m_treeSearchFocus) {
+        ImGui::SetKeyboardFocusHere();
+        m_treeSearchFocus = false;
+    }
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##treeSearch", (std::string(icon::kSearch) + "  " + tr("Find (Ctrl+F)")).c_str(), m_treeSearch,
+                             sizeof(m_treeSearch));
     ImGui::Separator();
 
     if (ImGui::BeginChild("##entities")) {
@@ -985,7 +1004,19 @@ void Editor::drawHierarchy(bool editing) {
             m_selected = 0;
             m_sceneRow = true;
         }
-        for (size_t i : roots) drawEntityNode(i, children);
+        if (m_treeSearch[0]) {
+            const std::unordered_map<u32, std::vector<size_t>> none;
+            for (size_t i = 0; i < m_scene.entities.size(); ++i) {
+                const Entity& e = m_scene.entities[i];
+                const reflect::TypeInfo* type = entityType(e);
+                if (containsNoCase(e.name, m_treeSearch) || containsNoCase(e.type, m_treeSearch) ||
+                    (type && containsNoCase(trData(type->label), m_treeSearch)))
+                    drawEntityNode(i, none);
+            }
+        } else {
+            for (size_t i : roots) drawEntityNode(i, children);
+        }
+        m_treeRevealed = m_selected;
         // 빈 곳에 놓으면 최상위로
         const ImVec2 rest = ImGui::GetContentRegionAvail();
         ImGui::InvisibleButton("##treeRoot", ImVec2(std::max(rest.x, 1.0f), std::max(rest.y, ImGui::GetFrameHeight())));
@@ -1013,7 +1044,6 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     const auto kids = children.find(id);
     const bool leaf = kids == children.end();
     ImGui::PushID(static_cast<int>(id));
-    const f32 swatch = ImGui::GetTextLineHeight() * 0.8f;
     f32 rgb[3];
     unpackColor(e.color, rgb);
     std::string label = e.name.empty() ? tr("(no name)") : e.name;
@@ -1021,20 +1051,24 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
         const reflect::TypeInfo* type = entityType(e);
         label += std::string("  · ") + (type ? trData(type->label) : e.type.c_str());
     }
-    ImGuiTreeNodeFlags flags =
-        ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth |
+                               ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap;
     if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     if (m_selected == id) flags |= ImGuiTreeNodeFlags_Selected;
-    // 라벨 앞에 색 견본 자리를 비워 두고 그리기 목록에 직접 그린다
+    // 새로 고른 물체는 조상을 펼치고 그 줄로 스크롤한다 (뷰포트에서 골랐을 때)
+    const bool reveal = m_selected != m_treeRevealed && m_selected != 0;
+    if (reveal && !leaf && m_scene.find(m_selected) && scene::isDescendant(m_scene, m_selected, id))
+        ImGui::SetNextItemOpen(true);
+    // 라벨 앞에 종류 아이콘 자리를 비워 두고 물체 색으로 그린다
+    const bool hiddenRow = isHidden(e);
+    if (hiddenRow) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
     const bool open = ImGui::TreeNodeEx("##node", flags, "      %s", label.c_str());
-    {
-        const ImVec2 min = ImGui::GetItemRectMin();
-        const f32 x = min.x + ImGui::GetTreeNodeToLabelSpacing();
-        const f32 y = min.y + (ImGui::GetItemRectSize().y - swatch) * 0.5f;
-        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, y), ImVec2(x + swatch, y + swatch),
-                                                  ImGui::ColorConvertFloat4ToU32(ImVec4(rgb[0], rgb[1], rgb[2], 1.0f)),
-                                                  2.0f);
-    }
+    if (reveal && m_selected == id) ImGui::SetScrollHereY();
+    const ImVec2 rowMin = ImGui::GetItemRectMin(), rowMax = ImGui::GetItemRectMax();
+    ImGui::GetWindowDrawList()->AddText(ImVec2(rowMin.x + ImGui::GetTreeNodeToLabelSpacing(), rowMin.y),
+                                        ImGui::ColorConvertFloat4ToU32(ImVec4(rgb[0], rgb[1], rgb[2], 1.0f)),
+                                        entityIcon(e));
+    if (hiddenRow) ImGui::PopStyleVar();
     // 클릭 선택, 더블클릭 이동, 끌어서 부모 바꾸기
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
         m_selected = id;
@@ -1049,6 +1083,35 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload))
             m_treeAction = {TreeAction::Reparent, *static_cast<const u32*>(payload->Data), id};
         ImGui::EndDragDropTarget();
+    }
+    // 줄 오른쪽 보이기·잠금 토글 (마우스를 올렸거나 켜져 있을 때만 보인다)
+    {
+        const bool hovered = ImGui::IsItemHovered();
+        const f32 w = ImGui::GetFrameHeight();
+        const ImVec2 back = ImGui::GetCursorScreenPos();
+        bool toggled = false;
+        int slot = 0;
+        for (auto* set : {&m_locked, &m_hidden}) {
+            const bool on = set->count(id) != 0;
+            ImGui::SetCursorScreenPos(ImVec2(rowMax.x - w * static_cast<f32>(++slot), rowMin.y));
+            ImGui::PushID(slot);
+            if (ImGui::InvisibleButton("##toggle", ImVec2(w, rowMax.y - rowMin.y))) {
+                if (on) set->erase(id);
+                else set->insert(id);
+                toggled = true;
+            }
+            const bool lockSet = set == &m_locked;
+            if (on || hovered || ImGui::IsItemHovered()) {
+                const char* glyph = lockSet ? (on ? icon::kLock : icon::kUnlock) : (on ? icon::kHide : icon::kView);
+                ImGui::GetWindowDrawList()->AddText(ImVec2(ImGui::GetItemRectMin().x + 4.0f, rowMin.y),
+                                                    ImGui::GetColorU32(on ? ImGuiCol_Text : ImGuiCol_TextDisabled), glyph);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", lockSet ? tr("Lock (cannot be picked in the scene view)") : tr("Hide in the scene view"));
+            ImGui::PopID();
+        }
+        ImGui::SetCursorScreenPos(back);
+        if (toggled) saveViewState();
     }
     if (ImGui::BeginPopupContextItem()) {
         m_selected = id;
@@ -1442,6 +1505,7 @@ void Editor::handlePicking() {
     u32 best = 0;
     f32 bestT = 1e30f;
     for (const Entity& e : m_scene.entities) {
+        if (isLocked(e) || isHidden(e)) continue;
         const scene::Transform w = scene::worldTransform(m_scene, e);
         if (isArea(e)) { // 영역은 모서리를 눌러야 고른다 (안을 누르면 안의 물체)
             Vec3 centers[12], halves[12];
@@ -1476,6 +1540,72 @@ void Editor::handlePicking() {
 Entity* Editor::selected() { return m_selected ? m_scene.find(m_selected) : nullptr; }
 
 const reflect::TypeInfo* Editor::entityType(const Entity& e) const { return scene::findType(e.type, m_gameTypes); }
+
+bool Editor::isHidden(const Entity& e) const {
+    for (const Entity* p = &e; p; p = p->parent ? m_scene.find(p->parent) : nullptr)
+        if (m_hidden.count(p->id)) return true;
+    return false;
+}
+
+bool Editor::isLocked(const Entity& e) const {
+    for (const Entity* p = &e; p; p = p->parent ? m_scene.find(p->parent) : nullptr)
+        if (m_locked.count(p->id)) return true;
+    return false;
+}
+
+const char* Editor::entityIcon(const Entity& e) const {
+    if (e.is(scene::kTypePointLight)) return icon::kLight;
+    if (e.is(scene::kTypeProbe)) return icon::kProbe;
+    if (isArea(e)) return icon::kArea;
+    if (isMarker(e)) return icon::kPin;
+    if (!e.model.empty()) return icon::kModel;
+    if (e.is(scene::kTypeSolid) || e.is(scene::kTypeDecoration)) return icon::kBox;
+    return icon::kFlag;
+}
+
+std::string Editor::viewStatePath() const {
+    if (m_project.directory.empty() || m_scenePath.empty()) return {};
+    return m_project.directory + "\\build\\editor\\" + fileName(m_scenePath) + ".view";
+}
+
+// "hidden 3 5" / "locked 7" 두 줄
+void Editor::loadViewState() {
+    m_hidden.clear();
+    m_locked.clear();
+    std::string text;
+    const std::string path = viewStatePath();
+    if (path.empty() || !readTextFile(path, text)) return;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t end = text.find('\n', pos);
+        if (end == std::string::npos) end = text.size();
+        const std::string line = text.substr(pos, end - pos);
+        pos = end + 1;
+        auto* set = line.rfind("hidden", 0) == 0 ? &m_hidden : line.rfind("locked", 0) == 0 ? &m_locked : nullptr;
+        if (!set) continue;
+        const char* c = line.c_str() + 6;
+        char* next = nullptr;
+        for (u32 id = strtoul(c, &next, 10); next != c; id = strtoul(c, &next, 10)) {
+            if (id) set->insert(id);
+            c = next;
+        }
+    }
+}
+
+void Editor::saveViewState() const {
+    const std::string path = viewStatePath();
+    if (path.empty()) return;
+    std::string text;
+    for (auto [name, set] : {std::pair{"hidden", &m_hidden}, std::pair{"locked", &m_locked}}) {
+        std::vector<u32> ids(set->begin(), set->end());
+        std::sort(ids.begin(), ids.end());
+        text += name;
+        for (u32 id : ids) text += " " + std::to_string(id);
+        text += "\n";
+    }
+    createDirectories(m_project.directory + "\\build\\editor");
+    writeTextFile(path, text);
+}
 
 bool Editor::isMarker(const Entity& e) const {
     const reflect::TypeInfo* type = entityType(e);
@@ -1682,6 +1812,7 @@ bool Editor::loadScene(const std::string& path) {
     }
     m_scene = std::move(loaded);
     m_scenePath = path;
+    loadViewState();
     m_sceneTime = fileWriteTime(path);
     m_sceneChangedWarned = false;
     m_dirty = false;
@@ -1778,6 +1909,7 @@ void Editor::updateTitle() {
 
 void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
+    loadViewState(); // 씬은 프로젝트보다 먼저 열린다
     // 창 배치를 프로젝트마다 (build\editor\layout.ini). 처음 여는 프로젝트는 기본 레이아웃
     if (m_prefs.projectLayout && !project.directory.empty()) {
         const std::string folder = project.directory + "\\build\\editor";

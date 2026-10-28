@@ -26,6 +26,7 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace mealkit {
@@ -201,6 +202,17 @@ private:
     const reflect::TypeInfo* entityType(const scene::Entity& e) const; // 모르는 종류(게임 코드 없음)면 nullptr
     bool isMarker(const scene::Entity& e) const;
     bool isArea(const scene::Entity& e) const;
+    // 씬 트리 보이기·잠금: 씬 파일이 아니라 프로젝트 build\editor\<씬>.view (씬 해시·남의 화면을 바꾸지 않는다)
+    bool isHidden(const scene::Entity& e) const; // 자기나 조상이 숨김
+    bool isLocked(const scene::Entity& e) const; // 자기나 조상이 잠김 (뷰포트 클릭으로 고르지 않는다)
+    std::string viewStatePath() const;
+    void loadViewState();
+    void saveViewState() const;
+    const char* entityIcon(const scene::Entity& e) const;
+    std::unordered_set<u32> m_hidden, m_locked;
+    char m_treeSearch[96] = {};
+    bool m_treeSearchFocus = false; // Ctrl+F
+    u32 m_treeRevealed = 0;         // 마지막으로 트리에서 펼쳐 보여 준 선택
     std::vector<const reflect::TypeInfo*> allTypes() const; // 기본 종류 + 게임 종류(라벨 순)
     void drawTypeMenuItems();
     void drawObjectFields(scene::Entity& e);
