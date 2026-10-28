@@ -245,7 +245,9 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
             for (u32 i = 0; i < v.count; ++i) {
                 const std::string item = "[" + std::to_string(i) + "]";
                 ImGui::PushID(static_cast<int>(i));
-                changed |= drawValue(item.c_str(), name, *v.element, at(data, i * v.element->size), context);
+                FieldContext element = context ? *context : FieldContext{};
+                if (element.defaults) element.defaults = at(element.defaults, i * v.element->size);
+                changed |= drawValue(item.c_str(), name, *v.element, at(data, i * v.element->size), context ? &element : nullptr);
                 ImGui::PopID();
             }
             ImGui::TreePop();
@@ -303,7 +305,10 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         const bool readOnly = (f.flags & reflect::kFieldReadOnly) != 0;
         ImGui::BeginDisabled(readOnly);
         const FieldLabel label = splitFieldLabel(f.label);
-        changed |= drawValue(trData(label.name.c_str()), f.name, *f.value, at(data, f.offset), context);
+        // 안쪽 구조체·배열은 defaults도 같은 필드 자리로 옮겨 넘긴다
+        FieldContext inner = context ? *context : FieldContext{};
+        if (inner.defaults) inner.defaults = at(inner.defaults, f.offset);
+        changed |= drawValue(trData(label.name.c_str()), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr);
         ImGui::EndDisabled();
         if (!label.tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", trData(label.tooltip.c_str()));
