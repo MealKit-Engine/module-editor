@@ -7,6 +7,7 @@
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
+#include "mealkit/game/InputRecord.h"
 #include "mealkit/platform/FileDialog.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Process.h"
@@ -139,6 +140,7 @@ u32 packColor(const f32 c[3], u32 previous) {
 }
 
 const FileFilter kSceneFilters[] = {{"MealKit scene (*.scene)", "*.scene"}, {"All files (*.*)", "*.*"}};
+const FileFilter kReplayFilters[] = {{"MealKit replay (*.rec)", "*.rec"}, {"All files (*.*)", "*.*"}};
 const FileFilter kModelFilters[] = {{"glTF model (*.glb, *.gltf)", "*.glb;*.gltf"}, {"All files (*.*)", "*.*"}};
 
 bool toolButton(const char* label, bool active) {
@@ -851,6 +853,7 @@ void Editor::drawMenuBar() {
         commandMenuItem("Save As...");
         ImGui::Separator();
         commandMenuItem("Scenes", &m_sceneListOpen);
+        commandMenuItem("Open Replay...");
         if (ImGui::BeginMenu(tr("Recent Scenes"), !m_recentScenes.empty())) {
             std::string chosen;
             for (const std::string& path : m_recentScenes)
@@ -2437,6 +2440,13 @@ void Editor::openSceneDialog() {
     if (path.empty()) return;
     saveBackupIfDirty();
     loadScene(path);
+}
+
+void Editor::openReplayDialog() {
+    // 기본 폴더: 이 프로젝트의 사용자 폴더 replays/ (플레이할 때마다 남는다, game/InputRecord.h)
+    const std::string folder = game::userFolder(m_project.settings) + "/" + game::kReplayFolder;
+    const std::string path = openFileDialog(m_window->nativeHandle(), "", folder, kReplayFilters, 2);
+    if (!path.empty()) requestReplay(path);
 }
 
 bool Editor::loadScene(const std::string& path) {

@@ -37,6 +37,8 @@ void Editor::buildCommands() {
         {"Open...", ImGuiMod_Ctrl | ImGuiKey_O, 0, editing, [this] { openSceneDialog(); }},
         {"Save", ImGuiMod_Ctrl | ImGuiKey_S, 0, editing, [this] { saveAll(); }},
         {"Scenes", 0, 0, always, [this] { m_sceneListOpen = !m_sceneListOpen; }},
+        {"Open Replay...", 0, 0, [this] { return m_mode == Mode::Edit && m_gameLoaded; },
+         [this] { openReplayDialog(); }},
         {"Save As...", 0, 0, editing, [this] { saveSceneAs(); }},
         {"Project Settings...", 0, 0, [this] { return m_mode == Mode::Edit && !m_project.directory.empty(); },
          [this] { m_projectPanel.open(); }},

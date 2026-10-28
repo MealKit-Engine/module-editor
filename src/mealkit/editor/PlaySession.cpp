@@ -16,6 +16,7 @@
 #include "mealkit/game/GameData.h"
 #include "mealkit/game/GameMain.h"
 #include "mealkit/game/GameOptions.h"
+#include "mealkit/game/InputRecord.h"
 #include "mealkit/input/Actions.h"
 #include "mealkit/net/Lockstep.h"
 #include "mealkit/net/Socket.h"
@@ -87,7 +88,35 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     matchConfig.loopbackOnly = true; // 같은 PC의 참가 창만 (방화벽 창이 뜨지 않는다)
     matchConfig.announceRooms = false;
     matchConfig.build = host.module()->build;
-    if (!multiplayer()) {
+    m_userFolder.clear();
+    m_replayStopped = false;
+    if (replay()) {
+        game::InputRecording recording;
+        std::string loadError;
+        if (!game::loadInputRecording(m_config.replayPath, recording, loadError) || recording.inputs.empty()) {
+            error = trf("Could not read the replay: %s",
+                        loadError.empty() ? tr("it has no ticks") : loadError.c_str());
+            stop();
+            return false;
+        }
+        const u64 hash = playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath, editor.project());
+        if (hash != recording.contentHash) // 보기는 하되, 갈라지면 그 틱에서 멈춘다 (update)
+            editor.showMessage(tr("This replay was recorded with different game data (scene, models, tuning or project "
+                                  "settings). It may diverge."));
+        m_match->init(matchConfig);
+        m_match->playReplay(recording);
+        m_firstMatch = true;
+        MEALKIT_INFO("Editor play: replaying %s", m_config.replayPath.c_str());
+    } else if (!multiplayer()) {
+        // 혼자 플레이도 매치마다 리플레이를 남긴다 (사용자 폴더 replays/, 멈추면 날짜·시각 이름으로)
+        m_keepReplays = editor.project().settings.keepReplays;
+        if (m_keepReplays > 0 && !config.bot) {
+            m_userFolder = game::userFolder(editor.project().settings);
+            game::keepReplay(m_userFolder, m_keepReplays); // 지난번에 튕겨 남은 기록
+            m_options.recordInputsPath = game::replayRecordingPath(m_userFolder);
+            matchConfig.contentHash = playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath,
+                                                      editor.project());
+        }
         m_match->init(matchConfig);
         m_match->playOffline();
         m_game->lobby(m_match->session(), m_options, game::userFolder(editor.project().settings)); // 로드아웃
@@ -137,9 +166,11 @@ void PlaySession::stop() {
     if (m_audio) m_audio->stopAll(); // 게임이 낸 소리 (배경음 루프 포함)
     if (m_feedback) m_feedback->clear();
     m_clients.terminateAll();
-    if (m_host && m_game) m_host->destroy(m_game);
+    if (m_host && m_game) m_host->destroy(m_game); // 시뮬레이션이 입력 기록 파일을 닫는다
     m_game = nullptr;
     m_match.reset();
+    if (!m_userFolder.empty()) game::keepReplay(m_userFolder, m_keepReplays);
+    m_userFolder.clear();
 }
 
 void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render::Renderer& renderer,
@@ -157,9 +188,16 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     }
     net::LockstepSession& session = m_match->session();
     m_match->update(now);
-    if (m_match->phase() == game::MatchPhase::Menu) { // 게임이 [나가기]를 눌렀다
+    if (m_match->phase() == game::MatchPhase::Menu) { // 게임이 [나가기]를 눌렀다 (리플레이는 결과 화면 뒤)
         m_left = true;
         return;
+    }
+    // 리플레이가 기록과 갈라지면 그 틱에서 멈춘다 (되감기·[상태] 패널로 본다)
+    if (session.isReplay() && session.desynced() && !m_replayStopped && m_game->debug()) {
+        m_game->debug()->setPaused(true);
+        m_replayStopped = true;
+        editor.showMessage(trf("The replay diverged from the recording at tick %u (different build or data).",
+                               session.desyncTick()));
     }
     if (!m_game->started() && session.state() == net::SessionState::Lobby)
         m_game->lobby(session, m_options, game::userFolder(editor.project().settings));

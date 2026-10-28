@@ -61,6 +61,7 @@ struct Options {
     int select = -1; // 시작할 때 선택할 엔티티 번호 (-2 = 씬 줄, --select scene)
     std::vector<int> selectMore; // --select 3,4,5: 뒤의 번호는 같이 고른다 (다중 선택)
     bool play = false;
+    std::string replayPath; // --replay <file>: 시작하자마자 리플레이 보기
     bool bot = false;
     bool exportGame = false; // 시작하자마자 [출시 빌드]
     bool buildGame = false;  // 시작하자마자 [게임 코드 빌드]
@@ -147,6 +148,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             for (const char* c = strchr(v, ','); c; c = strchr(c + 1, ',')) o.selectMore.push_back(std::atoi(c + 1));
         }
         else if (a == "--play") o.play = true;
+        else if (a == "--replay" && next(v)) o.replayPath = v;
         else if (a == "--bot") o.bot = true;
         else if (a == "--export") o.exportGame = true;
         else if (a == "--build-game") o.buildGame = true;
@@ -174,7 +176,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
-                "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
+                "  automation: --frames n --capture png --select i --play [--players n] --replay rec --bot --export --build-game --upgrade\n"
                 "              --project-settings --tables --sounds --lookdev --palette <text> --command <name> --bake-probes --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
                 "  without --project: starts MealKit Manager if installed (%%LOCALAPPDATA%%\\MealKit\\manager), --builtin-manager for the old one\n"
@@ -316,6 +318,7 @@ int main(int argc, char** argv) {
     if (opt.feedback) editor.openFeedback();
     if (!opt.uiPreview.empty()) editor.openUiPanel(opt.uiPreview);
     if (opt.play) editor.requestPlay();
+    if (!opt.replayPath.empty()) editor.requestReplay(opt.replayPath);
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);
 
     // ---- 게임 DLL: 있고 엔진보다 새것이면 바로 불러오고, 아니면 빌드부터 한다
@@ -447,6 +450,8 @@ int main(int argc, char** argv) {
             config.shadow = editor.shadowCheck();
             config.bodies = opt.bodies;
             config.projectDir = project.directory;
+            config.replayPath = editor.takeReplayPath();
+            if (!config.replayPath.empty()) config.players = 1;
             std::string playError;
             if (play.start(config, editor, host, models, audio, feedback, now, playError)) {
                 editor.setMode(editor::Mode::Play);

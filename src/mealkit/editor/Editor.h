@@ -26,6 +26,7 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -143,6 +144,12 @@ public:
     bool takePlayRequest();
     bool takeStopRequest();
     void requestPlay() { m_playRequest = true; } // 게임 DLL이 아직 없으면 불러올 때까지 기다린다 (자동 테스트용)
+    // 리플레이 보기 ([파일] > [리플레이 열기], --replay): 다음 플레이가 이 기록을 재생한다. takePlayRequest 뒤에 꺼낸다
+    void requestReplay(const std::string& path) {
+        m_replayPath = path;
+        m_playRequest = true;
+    }
+    std::string takeReplayPath() { return std::exchange(m_replayPath, {}); }
     // 플레이 인원: 1 = 혼자, 2~4 = 에디터가 방장이 되고 참가 창을 더 띄운다
     u32 playPlayers() const { return m_playPlayers; }
     void setPlayPlayers(u32 players) { m_playPlayers = players < 1 ? 1 : players > 4 ? 4 : players; }
@@ -249,6 +256,7 @@ private:
     void focusSelected();
     void newScene();
     void openSceneDialog();
+    void openReplayDialog();
     bool saveScene();
     bool saveSceneAs();
     bool loadScene(const std::string& path);
@@ -265,6 +273,7 @@ private:
     bool m_sceneListOpen = false;
     // 여기서 플레이 (Shift+F5, 혼자일 때만): 플레이 동안 스폰 지점을 카메라 아래(또는 고른 스폰)로 옮기고 멈추면 되돌린다
     bool m_playFromHere = false;
+    std::string m_replayPath; // 다음 플레이로 볼 리플레이
     std::vector<std::pair<u32, scene::Transform>> m_spawnBackup;
     void moveSpawnsHere();
     std::vector<std::string> m_recentScenes; // 절대 경로, 최근 것이 앞  // [편집] > [기록]: 되돌리기 목록, 누르면 그 지점으로

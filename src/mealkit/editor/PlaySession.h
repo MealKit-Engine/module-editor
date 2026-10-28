@@ -49,6 +49,7 @@ struct PlayConfig {
     bool shadow = true;     // 그림자 시뮬레이션 (매 틱 결정론 검사)
     u32 bodies = 0;         // 매치 데이터 (게임이 정한다. sandbox: 0 = 씬의 상자 수, 아니면 그 수로)
     std::string projectDir;
+    std::string replayPath; // 비어 있지 않으면 이 리플레이를 재생한다 (혼자, 입력은 기록에서. game/InputRecord.h)
 };
 
 // 방장과 참가 창이 같은 값으로 만드는 콘텐츠 해시 (씬 + 모델 + 튜닝 파일 + 저장된 프로젝트 설정)
@@ -68,6 +69,7 @@ public:
     void stop();
     bool active() const { return m_game != nullptr; }
     bool multiplayer() const { return m_config.players > 1; }
+    bool replay() const { return !m_config.replayPath.empty(); }
 
     // 매 프레임: 네트워크, 매치 시작, 게임 진행, 튜닝 적용, 상태 표시줄
     void update(f64 now, f64 dt, Editor& editor, Window& window, render::Renderer& renderer, asset::ModelCache& models);
@@ -102,6 +104,9 @@ private:
     game::FrameStats m_perf; // 플레이 상태 줄의 틱·시뮬레이션 시간 (takeSimMsPerTick은 여기서만 읽는다)
     f64 m_viewTuningTimer = 0.0;
     std::string m_failure;
+    std::string m_userFolder;       // 혼자 플레이 기록을 남길 곳 (리플레이, 비어 있으면 남기지 않는다)
+    u32 m_keepReplays = 0;
+    bool m_replayStopped = false;   // 리플레이가 기록과 갈라져 멈췄다
 };
 
 // 참가 창 모드: MealKitEditor.exe --player-window --project <폴더> [--player-index n] [--view-tuning <파일>] + 게임 옵션.
