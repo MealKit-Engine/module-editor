@@ -59,6 +59,7 @@ struct Options {
     u32 frames = 0; // 이 프레임 수만큼 돌고 종료
     std::string capturePath;
     int select = -1; // 시작할 때 선택할 엔티티 번호 (-2 = 씬 줄, --select scene)
+    std::vector<int> selectMore; // --select 3,4,5: 뒤의 번호는 같이 고른다 (다중 선택)
     bool play = false;
     bool bot = false;
     bool exportGame = false; // 시작하자마자 [출시 빌드]
@@ -140,7 +141,10 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--view-mode" && next(v)) o.viewMode = static_cast<u32>(std::atoi(v)); // render::DebugView 번호 (자동 캡처)
         else if (a == "--frames" && next(v)) o.frames = static_cast<u32>(std::atoi(v));
         else if (a == "--capture" && next(v)) o.capturePath = v;
-        else if (a == "--select" && next(v)) o.select = std::string(v) == "scene" ? -2 : std::atoi(v);
+        else if (a == "--select" && next(v)) {
+            o.select = std::string(v) == "scene" ? -2 : std::atoi(v);
+            for (const char* c = strchr(v, ','); c; c = strchr(c + 1, ',')) o.selectMore.push_back(std::atoi(c + 1));
+        }
         else if (a == "--play") o.play = true;
         else if (a == "--bot") o.bot = true;
         else if (a == "--export") o.exportGame = true;
@@ -296,6 +300,7 @@ int main(int argc, char** argv) {
     editor.setAutomated(opt.frames > 0 || !opt.goldenShots.empty());
     editor.setProject(project);
     if (opt.select != -1) editor.selectByIndex(opt.select);
+    for (int i : opt.selectMore) editor.selectByIndex(i, true);
     if (!opt.palette.empty()) editor.openPalette(opt.palette);
     if (opt.viewMode < static_cast<u32>(render::DebugView::Count)) editor.setDebugView(static_cast<render::DebugView>(opt.viewMode));
     if (opt.players > 1) editor.setPlayPlayers(opt.players);

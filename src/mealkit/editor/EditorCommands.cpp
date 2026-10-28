@@ -42,6 +42,12 @@ void Editor::buildCommands() {
          [this] { undo(); }},
         {"Redo", ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z,
          [this] { return m_mode == Mode::Edit && !m_redo.empty(); }, [this] { redo(); }},
+        {"Select All", ImGuiMod_Ctrl | ImGuiKey_A, 0, editing, [this] {
+             std::vector<u32> ids;
+             for (const scene::Entity& e : m_scene.entities)
+                 if (!isHidden(e) && !isLocked(e)) ids.push_back(e.id);
+             selectMany(ids, false);
+         }},
         {"Duplicate", ImGuiMod_Ctrl | ImGuiKey_D, 0, hasSelection, [this] { duplicateSelected(); }},
         {"Delete", ImGuiKey_Delete, 0, hasSelection, [this] { deleteSelected(); }},
         {"Find in Scene Tree", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] { m_treeSearchFocus = true; }},
@@ -102,7 +108,10 @@ void Editor::runShortcuts() {
             return;
         }
     }
-    if (m_mode == Mode::Edit && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_selected = 0;
+    if (m_mode == Mode::Edit && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        m_selected = 0;
+        m_multi.clear();
+    }
 }
 
 // F1: 명령 표의 단축키 목록

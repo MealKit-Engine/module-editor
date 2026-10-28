@@ -161,7 +161,7 @@ public:
     void saveBackupIfDirty();
 
     void openPalette(const std::string& text); // 자동 테스트/스크린샷용 (--palette)
-    void selectByIndex(int index); // 자동 테스트/스크린샷용 (-2 = 씬 줄)
+    void selectByIndex(int index, bool add = false); // 자동 테스트/스크린샷용 (-2 = 씬 줄)
 
 private:
     void applyRenderStyle(const game::ProjectSettings& settings);
@@ -198,6 +198,17 @@ private:
     void handlePicking();
 
     scene::Entity* selected();
+    // 다중 선택: m_selected가 주 선택(인스펙터·기즈모), m_multi는 같이 고른 나머지.
+    // m_selected를 다른 곳에서 바꾸면 m_multi는 다음 프레임에 풀린다 (m_multiOwner와 다르면)
+    bool isSelected(u32 id) const;
+    std::vector<u32> selectionRoots() const; // 고른 물체 중 다른 고른 물체의 자손이 아닌 것 (주 선택이 먼저)
+    void toggleSelect(u32 id);               // Shift 클릭
+    void selectMany(const std::vector<u32>& ids, bool add);
+    void moveOthersWith(const scene::Transform& before, const scene::Transform& after); // 기즈모로 주 선택을 움직인 만큼
+    std::vector<u32> m_multi;
+    u32 m_multiOwner = 0;
+    bool m_boxSelecting = false;
+    Vec2 m_boxStart;
     void addEntity(const std::string& type);
     const reflect::TypeInfo* entityType(const scene::Entity& e) const; // 모르는 종류(게임 코드 없음)면 nullptr
     bool isMarker(const scene::Entity& e) const;

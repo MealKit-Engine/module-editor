@@ -210,6 +210,10 @@ void Editor::update(f64 dt) {
     m_changed = false;
 
     ImGui::GetStyle().FontScaleMain = m_prefs.uiScale;
+    if (m_selected != m_multiOwner) {
+        m_multi.clear();
+        m_multiOwner = m_selected;
+    }
     drawMenuBar();
     drawStatusBar();
 
@@ -531,7 +535,7 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
                 edge.rotation = world.rotation;
                 edge.scale = halves[i] * 2.0f;
                 edge.color = e.color;
-                edge.flags = e.id == m_selected ? render::kInstanceHighlight : 0u;
+                edge.flags = isSelected(e.id) ? render::kInstanceHighlight : 0u;
                 out.add(box, edge);
             }
             continue;
@@ -546,7 +550,7 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
             inst.scale = {0.2f, 0.2f, 0.2f};
             inst.color = scene::readObject<scene::PointLightFields>(e).color.value;
         }
-        if (e.id == m_selected && !gameView) inst.flags |= render::kInstanceHighlight;
+        if (!gameView && isSelected(e.id)) inst.flags |= render::kInstanceHighlight;
         const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model);
         const render::MeshId mesh = model ? m_models->pickLod(*model, eye, world.position, world.scale) : box;
         if (model && m_debugView != render::DebugView::None && !gameView) { // 보기 모드: 그린 LOD 단계, 예산 초과
@@ -736,14 +740,14 @@ void Editor::saveBackupIfDirty() {
     if (scene::save(m_scene, path)) MEALKIT_INFO("Unsaved scene changes written to %s", path.c_str());
 }
 
-void Editor::selectByIndex(int index) {
+void Editor::selectByIndex(int index, bool add) {
     if (index == -2) { // 씬 줄 (인스펙터 = 환경)
         m_selected = 0;
         m_sceneRow = true;
         return;
     }
     if (index >= 0 && static_cast<size_t>(index) < m_scene.entities.size())
-        m_selected = m_scene.entities[static_cast<size_t>(index)].id;
+        selectMany({m_scene.entities[static_cast<size_t>(index)].id}, add);
 }
 
 // ---------------------------------------------------------------- UI
@@ -799,6 +803,7 @@ void Editor::drawMenuBar() {
         commandMenuItem("Undo");
         commandMenuItem("Redo");
         ImGui::Separator();
+        commandMenuItem("Select All");
         commandMenuItem("Duplicate");
         commandMenuItem("Delete");
         ImGui::EndMenu();
@@ -1054,7 +1059,7 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth |
                                ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap;
     if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    if (m_selected == id) flags |= ImGuiTreeNodeFlags_Selected;
+    if (isSelected(id)) flags |= ImGuiTreeNodeFlags_Selected;
     // 새로 고른 물체는 조상을 펼치고 그 줄로 스크롤한다 (뷰포트에서 골랐을 때)
     const bool reveal = m_selected != m_treeRevealed && m_selected != 0;
     if (reveal && !leaf && m_scene.find(m_selected) && scene::isDescendant(m_scene, m_selected, id))
@@ -1071,8 +1076,12 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     if (hiddenRow) ImGui::PopStyleVar();
     // 클릭 선택, 더블클릭 이동, 끌어서 부모 바꾸기
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
-        m_selected = id;
-        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) focusSelected();
+        if (ImGui::GetIO().KeyShift) {
+            toggleSelect(id);
+        } else {
+            m_selected = id;
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) focusSelected();
+        }
     }
     if (ImGui::BeginDragDropSource()) {
         ImGui::SetDragDropPayload(kEntityPayload, &id, sizeof(id));
@@ -1114,7 +1123,7 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
         if (toggled) saveViewState();
     }
     if (ImGui::BeginPopupContextItem()) {
-        m_selected = id;
+        if (!isSelected(id)) m_selected = id;
         if (ImGui::MenuItem(tr("Duplicate"), "Ctrl+D")) m_treeAction = {TreeAction::Duplicate, id, 0};
         if (ImGui::MenuItem(tr("Delete"), "Delete")) m_treeAction = {TreeAction::Delete, id, 0};
         if (ImGui::MenuItem(tr("Move to Top Level"), nullptr, false, e.parent != 0))
@@ -1153,6 +1162,12 @@ void Editor::drawInspector(bool editing) {
         ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.35f, 1.0f), "%s", tr("Playing - scene values go back when you stop"));
     ImGui::BeginDisabled(!editing);
     if (m_selected != 0) m_sceneRow = false; // 물체를 고르면 씬 줄 선택은 풀린다
+    if (!m_multi.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
+        ImGui::TextWrapped("%s", trf("%zu objects selected - the gizmo moves all, this panel edits the last one",
+                                     m_multi.size() + 1).c_str());
+        ImGui::PopStyleColor();
+    }
     Entity* e = selected();
     if (!e && m_sceneRow) {
         drawEnvironment();
@@ -1426,7 +1441,9 @@ void Editor::drawGizmo() {
     if (ImGuizmo::Manipulate(&m_view.m[0][0], &m_proj.m[0][0], op, mode, matrix, nullptr, snapping ? snap : nullptr)) {
         scene::Transform world;
         decompose(matrix, world);
+        const scene::Transform before = scene::worldTransform(m_scene, *e);
         scene::setWorldTransform(m_scene, *e, world);
+        if (!m_multi.empty()) moveOthersWith(before, world);
         markChanged();
     }
 }
@@ -1483,15 +1500,50 @@ void Editor::updateCamera(f64 dt) {
     }
 }
 
+// 왼쪽 클릭 = 고르기(Shift = 더하기·빼기), 빈 곳에서 끌기 = 상자 안의 물체 고르기
 void Editor::handlePicking() {
     ImGuiIO& io = ImGui::GetIO();
-    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || io.WantCaptureMouse || ImGuizmo::IsOver() ||
-        ImGuizmo::IsUsing())
+    if (m_boxSelecting) {
+        const Vec2 a = m_boxStart, b{io.MousePos.x, io.MousePos.y};
+        const ImVec2 lo(std::min(a.x, b.x), std::min(a.y, b.y)), hi(std::max(a.x, b.x), std::max(a.y, b.y));
+        const bool dragged = hi.x - lo.x > 4.0f || hi.y - lo.y > 4.0f;
+        if (dragged) {
+            ImDrawList* draw = ImGui::GetForegroundDrawList();
+            draw->AddRectFilled(lo, hi, IM_COL32(90, 150, 255, 40));
+            draw->AddRect(lo, hi, IM_COL32(90, 150, 255, 200));
+        }
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) return;
+        m_boxSelecting = false;
+        if (dragged) {
+            const Mat4 viewProj = m_view * m_proj;
+            std::vector<u32> inside;
+            for (const Entity& e : m_scene.entities) {
+                if (isLocked(e) || isHidden(e)) continue;
+                const Vec3 p = scene::worldTransform(m_scene, e).position;
+                const f32 cx = p.x * viewProj.m[0][0] + p.y * viewProj.m[1][0] + p.z * viewProj.m[2][0] + viewProj.m[3][0];
+                const f32 cy = p.x * viewProj.m[0][1] + p.y * viewProj.m[1][1] + p.z * viewProj.m[2][1] + viewProj.m[3][1];
+                const f32 cw = p.x * viewProj.m[0][3] + p.y * viewProj.m[1][3] + p.z * viewProj.m[2][3] + viewProj.m[3][3];
+                if (cw <= 0.0f) continue; // 카메라 뒤
+                const f32 sx = m_viewport.x + (cx / cw * 0.5f + 0.5f) * m_viewport.width;
+                const f32 sy = m_viewport.y + (0.5f - cy / cw * 0.5f) * m_viewport.height;
+                if (sx >= lo.x && sx <= hi.x && sy >= lo.y && sy <= hi.y) inside.push_back(e.id);
+            }
+            selectMany(inside, io.KeyShift);
+            return;
+        }
+    } else {
+        if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || io.WantCaptureMouse || ImGuizmo::IsOver() ||
+            ImGuizmo::IsUsing())
+            return;
+        const ImVec2 mouse = io.MousePos;
+        if (mouse.x < m_viewport.x || mouse.y < m_viewport.y || mouse.x >= m_viewport.x + m_viewport.width ||
+            mouse.y >= m_viewport.y + m_viewport.height)
+            return;
+        m_boxSelecting = true; // 놓을 때 클릭인지 끌기인지 정한다
+        m_boxStart = {mouse.x, mouse.y};
         return;
-    const ImVec2 mouse = io.MousePos;
-    if (mouse.x < m_viewport.x || mouse.y < m_viewport.y || mouse.x >= m_viewport.x + m_viewport.width ||
-        mouse.y >= m_viewport.y + m_viewport.height)
-        return;
+    }
+    const ImVec2 mouse(m_boxStart.x, m_boxStart.y);
 
     const f32 nx = (mouse.x - m_viewport.x) / m_viewport.width * 2.0f - 1.0f;
     const f32 ny = 1.0f - (mouse.y - m_viewport.y) / m_viewport.height * 2.0f;
@@ -1532,7 +1584,75 @@ void Editor::handlePicking() {
             best = e.id;
         }
     }
-    m_selected = best;
+    if (io.KeyShift) {
+        if (best) toggleSelect(best);
+    } else {
+        m_selected = best;
+    }
+}
+
+bool Editor::isSelected(u32 id) const {
+    return id && (id == m_selected || std::find(m_multi.begin(), m_multi.end(), id) != m_multi.end());
+}
+
+std::vector<u32> Editor::selectionRoots() const {
+    std::vector<u32> all;
+    if (m_selected) all.push_back(m_selected);
+    all.insert(all.end(), m_multi.begin(), m_multi.end());
+    std::vector<u32> roots;
+    for (u32 id : all) {
+        if (!m_scene.find(id)) continue;
+        bool under = false;
+        for (u32 other : all)
+            under |= other != id && scene::isDescendant(m_scene, id, other);
+        if (!under) roots.push_back(id);
+    }
+    return roots;
+}
+
+void Editor::toggleSelect(u32 id) {
+    if (id == m_selected) { // 주 선택을 빼면 다음 것이 주 선택
+        m_selected = m_multi.empty() ? 0 : m_multi.front();
+        if (!m_multi.empty()) m_multi.erase(m_multi.begin());
+    } else if (auto it = std::find(m_multi.begin(), m_multi.end(), id); it != m_multi.end()) {
+        m_multi.erase(it);
+    } else {
+        if (m_selected) m_multi.push_back(m_selected);
+        m_selected = id;
+    }
+    m_multiOwner = m_selected;
+}
+
+void Editor::selectMany(const std::vector<u32>& ids, bool add) {
+    if (!add) {
+        m_selected = 0;
+        m_multi.clear();
+    }
+    for (u32 id : ids)
+        if (!isSelected(id)) {
+            if (m_selected) m_multi.push_back(m_selected);
+            m_selected = id;
+        }
+    m_multiOwner = m_selected;
+}
+
+// 주 선택의 월드 변환이 before → after로 바뀐 만큼 나머지 고른 물체(의 최상위)를 같이 옮긴다.
+// 회전은 주 선택 위치를 중심으로, 크기는 각자 비율로
+void Editor::moveOthersWith(const scene::Transform& before, const scene::Transform& after) {
+    const Quat inv{-before.rotation.x, -before.rotation.y, -before.rotation.z, before.rotation.w};
+    const Quat delta = normalize(after.rotation * inv);
+    const Vec3 ratio{after.scale.x / (before.scale.x != 0.0f ? before.scale.x : 1.0f),
+                     after.scale.y / (before.scale.y != 0.0f ? before.scale.y : 1.0f),
+                     after.scale.z / (before.scale.z != 0.0f ? before.scale.z : 1.0f)};
+    for (u32 id : selectionRoots()) {
+        if (id == m_selected || scene::isDescendant(m_scene, id, m_selected)) continue;
+        Entity* o = m_scene.find(id);
+        scene::Transform w = scene::worldTransform(m_scene, *o);
+        w.position = after.position + rotate(delta, w.position - before.position);
+        w.rotation = normalize(delta * w.rotation);
+        w.scale = {w.scale.x * ratio.x, w.scale.y * ratio.y, w.scale.z * ratio.z};
+        scene::setWorldTransform(m_scene, *o, w);
+    }
 }
 
 // ---------------------------------------------------------------- 편집 동작
@@ -1733,29 +1853,36 @@ void Editor::addModelEntity() {
 
 // 선택한 물체와 그 자식들을 같은 구조로 복사한다
 void Editor::duplicateSelected() {
-    const Entity* e = selected();
-    if (!e) return;
+    if (!selected()) return;
     pushUndo(capture());
-    const std::vector<u32> ids = scene::subtree(m_scene, e->id);
-    std::unordered_map<u32, u32> remap;
-    for (u32 id : ids) remap[id] = m_scene.nextId++;
-    std::vector<Entity> copies;
-    for (u32 id : ids) {
-        Entity copy = *m_scene.find(id);
-        const bool top = id == m_selected;
-        copy.id = remap[id];
-        copy.parent = top ? copy.parent : remap[copy.parent];
-        if (top) {
-            copy.name += std::string(" ") + tr("copy");
-            copy.position.x += 1.0f;
+    const std::vector<u32> roots = selectionRoots();
+    std::vector<u32> newRoots;
+    size_t total = 0;
+    std::string name;
+    for (u32 root : roots) {
+        const std::vector<u32> ids = scene::subtree(m_scene, root);
+        std::unordered_map<u32, u32> remap;
+        for (u32 id : ids) remap[id] = m_scene.nextId++;
+        std::vector<Entity> copies;
+        for (u32 id : ids) {
+            Entity copy = *m_scene.find(id);
+            const bool top = id == root;
+            copy.id = remap[id];
+            copy.parent = top ? copy.parent : remap[copy.parent];
+            if (top) {
+                copy.name += std::string(" ") + tr("copy");
+                copy.position.x += 1.0f;
+            }
+            copies.push_back(std::move(copy));
         }
-        copies.push_back(std::move(copy));
+        if (name.empty()) name = copies.front().name;
+        newRoots.push_back(copies.front().id);
+        total += ids.size();
+        m_scene.entities.insert(m_scene.entities.end(), copies.begin(), copies.end());
     }
-    const std::string name = copies.front().name;
-    const u32 newId = copies.front().id;
-    m_scene.entities.insert(m_scene.entities.end(), copies.begin(), copies.end());
-    m_selected = newId;
-    setStatus(ids.size() > 1 ? trf("Duplicated: %s (with %zu children)", name.c_str(), ids.size() - 1) : trf("Duplicated: %s", name.c_str()));
+    selectMany(newRoots, false);
+    if (roots.size() > 1) setStatus(trf("Duplicated %zu objects", roots.size()));
+    else setStatus(total > 1 ? trf("Duplicated: %s (with %zu children)", name.c_str(), total - 1) : trf("Duplicated: %s", name.c_str()));
 }
 
 // 선택한 물체와 그 자식들을 지운다
@@ -1763,11 +1890,18 @@ void Editor::deleteSelected() {
     const Entity* e = selected();
     if (!e) return;
     pushUndo(capture());
-    const std::vector<u32> ids = scene::subtree(m_scene, e->id);
-    setStatus(ids.size() > 1 ? trf("Deleted: %s (with %zu children)", e->name.c_str(), ids.size() - 1) : trf("Deleted: %s", e->name.c_str()));
+    const std::vector<u32> roots = selectionRoots();
+    std::vector<u32> ids;
+    for (u32 root : roots) {
+        const std::vector<u32> sub = scene::subtree(m_scene, root);
+        ids.insert(ids.end(), sub.begin(), sub.end());
+    }
+    if (roots.size() > 1) setStatus(trf("Deleted %zu objects", roots.size()));
+    else setStatus(ids.size() > 1 ? trf("Deleted: %s (with %zu children)", e->name.c_str(), ids.size() - 1) : trf("Deleted: %s", e->name.c_str()));
     std::erase_if(m_scene.entities,
                   [&](const Entity& x) { return std::find(ids.begin(), ids.end(), x.id) != ids.end(); });
     m_selected = 0;
+    m_multi.clear();
 }
 
 void Editor::focusSelected() {
