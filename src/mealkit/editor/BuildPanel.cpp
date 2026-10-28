@@ -1,10 +1,13 @@
 #include "mealkit/editor/BuildPanel.h"
 
 #include "mealkit/core/Log.h"
+#include "mealkit/editor/CodeLink.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 
 #include <imgui.h>
+
+#include <vector>
 
 namespace mealkit::editor {
 
@@ -122,7 +125,37 @@ bool BuildPanel::drawLog(bool editing, const ProjectInfo& project, f64 now, Buil
         ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), tr("Building... %.0fs"), now - m_start);
     ImGui::Separator();
     if (ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
-        ImGui::TextUnformatted(m_log.data(), m_log.data() + m_log.size());
+        // 줄마다: "파일(줄)"이 있으면 누를 수 있게 (코드 편집기로 연다, 상대 경로는 프로젝트 폴더 기준)
+        std::vector<std::pair<size_t, size_t>> lines;
+        for (size_t pos = 0; pos < m_log.size();) {
+            size_t end = m_log.find('\n', pos);
+            if (end == std::string::npos) end = m_log.size();
+            lines.emplace_back(pos, end);
+            pos = end + 1;
+        }
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(lines.size()));
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                const std::string line = m_log.substr(lines[i].first, lines[i].second - lines[i].first);
+                FileLine at;
+                if (!parseFileLine(line, &at)) {
+                    ImGui::TextUnformatted(line.c_str());
+                    continue;
+                }
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
+                ImGui::TextUnformatted(line.c_str());
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    ImGui::SetTooltip("%s", tr("Click to open in the code editor"));
+                }
+                if (ImGui::IsItemClicked()) {
+                    const bool absolute = at.file.size() > 1 && (at.file[1] == ':' || at.file[0] == '\\');
+                    openInCodeEditor(m_codeEditor, absolute ? at.file : project.directory + "\\" + at.file, at.line);
+                }
+            }
+        }
         if (m_scroll) {
             ImGui::SetScrollHereY(1.0f);
             m_scroll = false;

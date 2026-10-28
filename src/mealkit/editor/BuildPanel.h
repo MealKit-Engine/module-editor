@@ -34,6 +34,7 @@ public:
     // [빌드 로그] 창. 버튼으로 고른 빌드를 request에 넣고 true (시작은 에디터가 저장한 뒤에 한다)
     bool drawLog(bool editing, const ProjectInfo& project, f64 now, BuildKind* request);
     std::string takeStatus() { return std::move(m_status); }
+    void setCodeEditor(const std::string& editor) { m_codeEditor = editor; } // 로그의 "파일(줄)"을 누르면 연다
 
 private:
     ChildProcess m_process;
@@ -44,6 +45,7 @@ private:
     bool m_scroll = false;
     f64 m_start = 0.0;
     std::string m_status;
+    std::string m_codeEditor;
 };
 
 } // namespace mealkit::editor

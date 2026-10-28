@@ -20,6 +20,7 @@ public:
     LogPanel& operator=(const LogPanel&) = delete;
 
     bool* openFlag() { return &m_open; }
+    void setCodeEditor(const std::string& editor) { m_codeEditor = editor; }
     void draw();
 
 private:
@@ -38,6 +39,7 @@ private:
     bool m_show[3] = {true, true, true};
     bool m_follow = true; // 맨 아래에 있으면 새 줄을 따라간다
     char m_search[128] = {};
+    std::string m_codeEditor;
 };
 
 } // namespace mealkit::editor

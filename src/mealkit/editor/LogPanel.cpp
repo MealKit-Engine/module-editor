@@ -1,5 +1,6 @@
 #include "mealkit/editor/LogPanel.h"
 
+#include "mealkit/editor/CodeLink.h"
 #include "mealkit/editor/Strings.h"
 
 #include <imgui.h>
@@ -93,6 +94,11 @@ void LogPanel::draw() {
                 ImGui::PushStyleColor(ImGuiCol_Text, kColors[static_cast<int>(e.level)]);
                 ImGui::TextUnformatted(e.message.c_str());
                 ImGui::PopStyleColor();
+                FileLine at;
+                if (ImGui::IsItemHovered() && parseFileLine(e.message, &at)) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    if (ImGui::IsItemClicked()) openInCodeEditor(m_codeEditor, at.file, at.line);
+                }
             }
         }
         if (m_added && m_follow) ImGui::SetScrollHereY(1.0f);

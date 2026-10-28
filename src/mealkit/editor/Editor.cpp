@@ -3,6 +3,7 @@
 #include "mealkit/core/Log.h"
 #include "mealkit/core/Profile.h"
 #include "mealkit/core/Version.h"
+#include "mealkit/editor/CodeLink.h"
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
@@ -224,6 +225,8 @@ void Editor::update(f64 dt) {
     m_changed = false;
 
     ImGui::GetStyle().FontScaleMain = m_prefs.uiScale;
+    m_buildPanel.setCodeEditor(m_prefs.externalEditor);
+    m_logPanel.setCodeEditor(m_prefs.externalEditor);
     if (m_selected != m_multiOwner) {
         m_multi.clear();
         m_multiOwner = m_selected;
@@ -1221,6 +1224,16 @@ void Editor::drawInspector(bool editing) {
                 }
             }
             ImGui::EndCombo();
+        }
+        // 게임 종류의 선언(MEALKIT_OBJECT)을 코드 편집기로 연다 (프로젝트 source 폴더, 엔진 저장소면 samples 폴더)
+        if (type && !scene::findType(e->type, nullptr)) {
+            if (ImGui::SmallButton(tr("Open Code"))) {
+                FileLine at;
+                const std::vector<std::string> folders = {m_project.directory + "\\source", m_project.directory + "\\samples"};
+                if (findInHeaders(folders, std::string("MEALKIT_OBJECT(") + type->name + ")", &at))
+                    openInCodeEditor(m_prefs.externalEditor, at.file, at.line);
+                else setStatus(trf("Could not find MEALKIT_OBJECT(%s) in the project code", type->name), true);
+            }
         }
         drawObjectFields(*e);
 
