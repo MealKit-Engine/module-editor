@@ -312,6 +312,20 @@ private:
     f32 m_cameraPitch = -0.42f;
     f32 m_cameraSpeed = 15.0f;
     bool m_looking = false;
+    bool m_orbiting = false;      // Alt + 왼쪽 끌기: 고른 물체(없으면 앞 10 m) 중심 궤도
+    Vec3 m_orbitPivot;
+    bool m_ortho = false;         // 정사영 (툴바·축 방향 표시)
+    f32 m_orthoHalfHeight = 10.0f; // 정사영 화면 높이의 반 (m), 휠로 바꾼다
+    // 카메라 북마크 (Ctrl+1~9 저장, 1~9 이동): 씬마다 build\editor\<씬>.view
+    struct CameraBookmark {
+        bool set = false;
+        Vec3 position;
+        f32 yaw = 0.0f, pitch = 0.0f;
+    };
+    CameraBookmark m_bookmarks[9];
+    void handleBookmarks();
+    Mat4 projection(f32 aspect) const;
+    void mouseRay(f32 mouseX, f32 mouseY, Vec3* origin, Vec3* dir) const; // 뷰포트 좌표 → 월드 광선
     Mat4 m_view;
     Mat4 m_proj;
     render::Viewport m_viewport;

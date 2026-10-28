@@ -62,6 +62,7 @@ void Editor::buildCommands() {
         {"Move W", ImGuiKey_W, 0, editing, [this] { m_gizmoOp = 0; }},
         {"Rotate E", ImGuiKey_E, 0, editing, [this] { m_gizmoOp = 1; }},
         {"Scale R", ImGuiKey_R, 0, editing, [this] { m_gizmoOp = 2; }},
+        {"Toggle Orthographic", ImGuiKey_Keypad5, 0, editing, [this] { m_ortho = !m_ortho; }},
         {"Play", ImGuiKey_F5, 0, [this] { return m_mode == Mode::Edit && m_gameLoaded; },
          [this] { m_playRequest = true; }},
         {"Preferences...", 0, 0, always, [this] { *m_prefsPanel.openFlag() = true; }},
@@ -123,6 +124,7 @@ void Editor::runShortcuts() {
             return;
         }
     }
+    handleBookmarks();
     if (m_mode == Mode::Edit && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         m_selected = 0;
         m_multi.clear();
@@ -149,6 +151,8 @@ void Editor::drawShortcutHelp() {
             ImGui::TextUnformatted(keys.c_str());
         }
         const char* fixed[][2] = {{"Fly the camera", "Right drag + WASD/QE"}, {"Pan the camera", "Middle drag"},
+                                  {"Orbit the camera", "Alt + left drag"},     {"Go to camera bookmark", "1 - 9"},
+                                  {"Save camera bookmark", "Ctrl + 1 - 9"},
                                   {"Camera speed", "Wheel while flying"},     {"Snap while dragging a gizmo", "Ctrl"},
                                   {"Deselect", "Esc"},                         {"Stop playing", "Esc / F5"}};
         for (auto& row : fixed) {

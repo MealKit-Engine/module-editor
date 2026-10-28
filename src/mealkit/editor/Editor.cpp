@@ -232,7 +232,7 @@ void Editor::update(f64 dt) {
 
     updateCamera(dt);
     const f32 aspect = m_viewport.width / std::max(m_viewport.height, 1.0f);
-    m_proj = perspectiveReversedZ(kFovY, aspect, 0.1f, 2000.0f);
+    m_proj = projection(aspect);
     m_view = lookAtLH(m_cameraPos, m_cameraPos + cameraForward(), {0, 1, 0});
 
     const bool editing = m_mode == Mode::Edit;
@@ -1429,7 +1429,7 @@ void Editor::drawGizmo() {
     Entity* e = selected();
     if (!e || m_viewport.width < 1.0f || m_viewport.height < 1.0f) return;
 
-    ImGuizmo::SetOrthographic(false);
+    ImGuizmo::SetOrthographic(m_ortho);
     ImGuizmo::SetRect(m_viewport.x, m_viewport.y, m_viewport.width, m_viewport.height);
     f32 matrix[16];
     compose(scene::worldTransform(m_scene, *e), matrix); // 기즈모는 월드 공간, 결과는 부모 기준으로 되돌려 넣는다
@@ -1483,6 +1483,9 @@ void Editor::drawViewportToolbar() {
         }
         ImGui::SameLine(0, 2);
         if (toolButton(tr("Grid"), m_showGrid)) m_showGrid = !m_showGrid;
+        ImGui::SameLine();
+        if (toolButton(m_ortho ? tr("Orthographic") : tr("Perspective"), false)) m_ortho = !m_ortho;
+        tip(tr("Switch between perspective and orthographic (wheel zooms in orthographic)"));
         ImGui::SameLine();
         const char* views[] = {tr("Lit"), tr("Wireframe"), tr("Normals"), tr("LOD Level"), tr("Overdraw"),
                                tr("Over Budget"), tr("Material Features")};
@@ -1591,10 +1594,85 @@ void Editor::updateCamera(f64 dt) {
         m_cameraPos += normalize(move) * (speed * static_cast<f32>(dt));
     } else {
         io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
-        if (inViewport && !io.WantCaptureMouse) {
-            if (io.MouseWheel != 0.0f) m_cameraPos += forward * (io.MouseWheel * 3.0f);
-            if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) // 가운데 버튼 드래그: 화면 이동
-                m_cameraPos += (right * -input.mouseDeltaX() + up * input.mouseDeltaY()) * 0.03f;
+        // Alt + 왼쪽 끌기: 고른 물체(없으면 앞 10 m)를 중심으로 궤도
+        if (io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && inViewport && !io.WantCaptureMouse) {
+            const Entity* e = selected();
+            m_orbitPivot = e ? scene::worldTransform(m_scene, *e).position : m_cameraPos + forward * 10.0f;
+            m_orbiting = true;
+        }
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) m_orbiting = false;
+        if (m_orbiting) {
+            const f32 dist = length(m_orbitPivot - m_cameraPos);
+            m_cameraYaw += io.MouseDelta.x * 0.006f;
+            m_cameraPitch = std::clamp(m_cameraPitch - io.MouseDelta.y * 0.006f, -1.55f, 1.55f);
+            m_cameraPos = m_orbitPivot - cameraForward() * dist;
+        } else if (inViewport && !io.WantCaptureMouse) {
+            if (io.MouseWheel != 0.0f) {
+                if (m_ortho) { // 정사영: 화면 크기
+                    m_orthoHalfHeight = std::clamp(m_orthoHalfHeight * std::pow(0.85f, io.MouseWheel), 0.5f, 500.0f);
+                } else { // 마우스가 가리키는 곳 쪽으로 (맞는 물체가 있으면 그 거리의 15%씩)
+                    Vec3 origin, dir;
+                    mouseRay(mouse.x, mouse.y, &origin, &dir);
+                    f32 hit = 0.0f;
+                    const f32 step = raycast(origin, dir, &hit) ? std::max(0.5f, hit * 0.15f) : 3.0f;
+                    m_cameraPos += dir * (io.MouseWheel * step);
+                }
+            }
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) { // 가운데 버튼 드래그: 화면 이동
+                const f32 scale = m_ortho ? m_orthoHalfHeight * 2.0f / std::max(m_viewport.height, 1.0f) : 0.03f;
+                m_cameraPos += (right * -input.mouseDeltaX() + up * input.mouseDeltaY()) * scale;
+            }
+        }
+    }
+}
+
+Mat4 Editor::projection(f32 aspect) const {
+    if (!m_ortho) return perspectiveReversedZ(kFovY, aspect, 0.1f, 2000.0f);
+    // Reversed-Z 정사영 (행 벡터, 왼손): 가까운 면 = 1, 먼 면 = 0
+    constexpr f32 zNear = -500.0f, zFar = 2000.0f; // 카메라 뒤의 물체도 보이게
+    Mat4 r;
+    r.m[0][0] = 1.0f / (m_orthoHalfHeight * aspect);
+    r.m[1][1] = 1.0f / m_orthoHalfHeight;
+    r.m[2][2] = -1.0f / (zFar - zNear);
+    r.m[3][2] = zFar / (zFar - zNear);
+    r.m[3][3] = 1.0f;
+    return r;
+}
+
+void Editor::mouseRay(f32 mouseX, f32 mouseY, Vec3* origin, Vec3* dir) const {
+    const f32 nx = (mouseX - m_viewport.x) / std::max(m_viewport.width, 1.0f) * 2.0f - 1.0f;
+    const f32 ny = 1.0f - (mouseY - m_viewport.y) / std::max(m_viewport.height, 1.0f) * 2.0f;
+    const f32 aspect = m_viewport.width / std::max(m_viewport.height, 1.0f);
+    const Vec3 forward = cameraForward();
+    const Vec3 right = normalize(cross({0, 1, 0}, forward));
+    const Vec3 up = cross(forward, right);
+    if (m_ortho) {
+        *origin = m_cameraPos + right * (nx * m_orthoHalfHeight * aspect) + up * (ny * m_orthoHalfHeight) - forward * 500.0f;
+        *dir = forward;
+        return;
+    }
+    const f32 tanHalf = std::tan(kFovY * 0.5f);
+    *origin = m_cameraPos;
+    *dir = normalize(forward + right * (nx * tanHalf * aspect) + up * (ny * tanHalf));
+}
+
+// 숫자 1~9: 저장한 카메라 위치로, Ctrl+숫자: 지금 위치를 저장 (씬마다 build\editor\<씬>.view)
+void Editor::handleBookmarks() {
+    const ImGuiIO& io = ImGui::GetIO();
+    if (m_mode != Mode::Edit || io.WantTextInput || m_looking || io.KeyAlt || io.KeyShift) return;
+    for (int i = 0; i < 9; ++i) {
+        if (!ImGui::IsKeyPressed(static_cast<ImGuiKey>(ImGuiKey_1 + i), false)) continue;
+        CameraBookmark& b = m_bookmarks[i];
+        if (io.KeyCtrl) {
+            b = {true, m_cameraPos, m_cameraYaw, m_cameraPitch};
+            saveViewState();
+            setStatus(trf("Camera bookmark %d saved", i + 1));
+        } else if (b.set) {
+            m_cameraPos = b.position;
+            m_cameraYaw = b.yaw;
+            m_cameraPitch = b.pitch;
+        } else {
+            setStatus(trf("No camera bookmark %d (Ctrl+%d saves one)", i + 1, i + 1));
         }
     }
 }
@@ -1631,7 +1709,7 @@ void Editor::handlePicking() {
             return;
         }
     } else {
-        if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || io.WantCaptureMouse || ImGuizmo::IsOver() ||
+        if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || io.WantCaptureMouse || io.KeyAlt || ImGuizmo::IsOver() ||
             ImGuizmo::IsUsing() || ImGuizmo::IsViewManipulateHovered() || ImGuizmo::IsUsingViewManipulate())
             return;
         const ImVec2 mouse = io.MousePos;
@@ -1642,19 +1720,10 @@ void Editor::handlePicking() {
         m_boxStart = {mouse.x, mouse.y};
         return;
     }
-    const ImVec2 mouse(m_boxStart.x, m_boxStart.y);
-
-    const f32 nx = (mouse.x - m_viewport.x) / m_viewport.width * 2.0f - 1.0f;
-    const f32 ny = 1.0f - (mouse.y - m_viewport.y) / m_viewport.height * 2.0f;
-    const f32 tanHalf = std::tan(kFovY * 0.5f);
-    const f32 aspect = m_viewport.width / std::max(m_viewport.height, 1.0f);
-    const Vec3 forward = cameraForward();
-    const Vec3 right = normalize(cross({0, 1, 0}, forward));
-    const Vec3 up = cross(forward, right);
-    const Vec3 dir = normalize(forward + right * (nx * tanHalf * aspect) + up * (ny * tanHalf));
-
+    Vec3 origin, dir;
+    mouseRay(m_boxStart.x, m_boxStart.y, &origin, &dir);
     f32 distance = 0.0f;
-    const u32 best = raycast(m_cameraPos, dir, &distance);
+    const u32 best = raycast(origin, dir, &distance);
     if (io.KeyShift) {
         if (best) toggleSelect(best);
     } else {
@@ -1870,10 +1939,11 @@ std::string Editor::viewStatePath() const {
     return m_project.directory + "\\build\\editor\\" + fileName(m_scenePath) + ".view";
 }
 
-// "hidden 3 5" / "locked 7" 두 줄
+// "hidden 3 5" / "locked 7" 두 줄 + 카메라 북마크 "camera <1~9> x y z yaw pitch"
 void Editor::loadViewState() {
     m_hidden.clear();
     m_locked.clear();
+    for (CameraBookmark& b : m_bookmarks) b = {};
     std::string text;
     const std::string path = viewStatePath();
     if (path.empty() || !readTextFile(path, text)) return;
@@ -1883,6 +1953,15 @@ void Editor::loadViewState() {
         if (end == std::string::npos) end = text.size();
         const std::string line = text.substr(pos, end - pos);
         pos = end + 1;
+        int slot = 0;
+        CameraBookmark b;
+        if (sscanf(line.c_str(), "camera %d %f %f %f %f %f", &slot, &b.position.x, &b.position.y, &b.position.z, &b.yaw,
+                   &b.pitch) == 6 &&
+            slot >= 1 && slot <= 9) {
+            b.set = true;
+            m_bookmarks[slot - 1] = b;
+            continue;
+        }
         auto* set = line.rfind("hidden", 0) == 0 ? &m_hidden : line.rfind("locked", 0) == 0 ? &m_locked : nullptr;
         if (!set) continue;
         const char* c = line.c_str() + 6;
@@ -1904,6 +1983,14 @@ void Editor::saveViewState() const {
         text += name;
         for (u32 id : ids) text += " " + std::to_string(id);
         text += "\n";
+    }
+    for (int i = 0; i < 9; ++i) {
+        const CameraBookmark& b = m_bookmarks[i];
+        if (!b.set) continue;
+        char line[160];
+        snprintf(line, sizeof(line), "camera %d %.3f %.3f %.3f %.4f %.4f\n", i + 1, b.position.x, b.position.y,
+                 b.position.z, b.yaw, b.pitch);
+        text += line;
     }
     createDirectories(m_project.directory + "\\build\\editor");
     writeTextFile(path, text);
