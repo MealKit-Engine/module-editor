@@ -12,6 +12,7 @@
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/Strings.h"
+#include "mealkit/game/DesyncDump.h"
 #include "mealkit/game/FrameStats.h"
 #include "mealkit/game/GameData.h"
 #include "mealkit/game/GameMain.h"
@@ -71,6 +72,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     m_options.shadow = config.shadow;
     m_options.record = config.players <= 1; // 되감기는 혼자 플레이에서만 (여러 명이면 멈출 수 없다)
     m_options.tuningPath = editor.writePlayTuning();
+    m_options.desyncDumpDir = config.projectDir + "/build/" + game::kDesyncFolder; // 여러 명 플레이에서 디싱크가 나면
     editor.saveTablesForPlay(); // 게임은 매치를 시작할 때 표 파일을 읽는다
 
     m_game = host.create();
