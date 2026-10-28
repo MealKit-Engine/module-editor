@@ -220,6 +220,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
 
     if (m_perf.update(dt, {nullptr, &session, m_audio, m_game})) {
         const game::FrameSample& perf = m_perf.sample();
+        editor.setPlaySample(perf);
         char text[256];
         const std::string players = multiplayer() ? " " + trf("%u players", m_config.players) : std::string();
         const std::string sync =

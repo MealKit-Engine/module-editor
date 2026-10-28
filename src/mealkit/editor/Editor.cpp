@@ -195,7 +195,21 @@ void Editor::update(f64 dt) {
     m_animTime += dt;
     MEALKIT_ZONE("Editor UI");
     m_time += dt;
-    if (m_perf.update(dt, {}) && m_live.listening("stats")) m_live.publish("stats", m_perf.json());
+    if (m_perf.update(dt, {m_renderer})) {
+        if (m_live.listening("stats")) m_live.publish("stats", m_perf.json());
+        game::FrameSample sample = m_perf.sample();
+        if (m_mode == Mode::Play) { // 시뮬레이션·네트워크는 플레이 세션의 것
+            const game::FrameSample& p = m_playSample;
+            sample.hasGame = p.hasGame;
+            sample.simMsPerTick = p.simMsPerTick;
+            sample.tick = p.tick;
+            sample.hasSession = p.hasSession;
+            sample.sentBytesPerSec = p.sentBytesPerSec;
+            sample.recvBytesPerSec = p.recvBytesPerSec;
+            sample.rttMs = p.rttMs;
+        }
+        m_perfPanel.push(sample);
+    }
 
     m_live.update();
     for (const std::string& e : m_import.takeEvents()) {
@@ -260,6 +274,7 @@ void Editor::update(f64 dt) {
     pollLayoutCheck();
     drawBuildLog();
     m_logPanel.draw();
+    m_perfPanel.draw();
     takePanelStatus();
     drawNotices();
     m_prefsPanel.draw(m_prefs);
@@ -875,6 +890,7 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         commandMenuItem("Build Log", m_buildPanel.openFlag());
         commandMenuItem("Log", m_logPanel.openFlag());
+        commandMenuItem("Performance", m_perfPanel.openFlag());
         ImGui::EndMenu();
     }
     // 도구 제품군 (editor/Tools.h): 별도 저장소의 MealKit 도구를 이 프로젝트로 연다
@@ -964,7 +980,11 @@ void Editor::drawStatusBar() {
                     "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));
             const char* fps = "0000 fps";
             ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - 16.0f);
-            ImGui::TextDisabled("%.0f fps", m_perf.sample().fps);
+            // 예산을 넘으면 빨강, 누르면 [성능] 창
+            const ImVec4 fpsColor = m_perfPanel.overBudget() ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
+                                                             : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+            ImGui::TextColored(fpsColor, "%.0f fps", m_perf.sample().fps);
+            if (ImGui::IsItemClicked()) *m_perfPanel.openFlag() = true;
             ImGui::EndMenuBar();
         }
     }

@@ -3,6 +3,7 @@
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/BuildPanel.h"
 #include "mealkit/editor/LogPanel.h"
+#include "mealkit/editor/PerfPanel.h"
 #include "mealkit/editor/Preferences.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
@@ -151,6 +152,7 @@ public:
     void setSimDebug(game::SimDebug* debug, bool canPause);
     // 화면 가운데 알림 창 (확인을 누르면 닫힌다)
     void showMessage(const std::string& text) { m_message = text; }
+    void setPlaySample(const game::FrameSample& sample) { m_playSample = sample; }
     void setPlayStatus(const std::string& text) { m_playStatus = text; }
 
     const scene::Scene& scene() const { return m_scene; }
@@ -418,6 +420,8 @@ private:
     bool m_upgradeRequested = false; // 빌드가 끝나면 업그레이드를 시작한다
     BuildPanel m_buildPanel;
     LogPanel m_logPanel;
+    PerfPanel m_perfPanel;
+    game::FrameSample m_playSample; // 플레이 중 PlaySession의 시뮬레이션·네트워크 숫자 ([성능] 창)
     Preferences m_prefs;
     PreferencesPanel m_prefsPanel;
     bool m_shortcutsOpen = false;
