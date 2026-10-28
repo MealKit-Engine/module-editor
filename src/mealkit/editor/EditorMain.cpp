@@ -73,6 +73,7 @@ struct Options {
     bool lookdev = false;         // --lookdev: [룩데브] 창을 열고 시작 (고른 물체의 모델, --select와 같이)
     bool feedback = false;        // [연출] 창을 열고 시작
     std::string palette;          // --palette <글자>: 명령 팔레트를 이 글자로 열고 시작
+    std::vector<std::string> commands; // --command "<영어 이름>": 명령 표의 명령을 시작 직후 실행 (여러 번 줄 수 있다)
     std::string uiPreview;        // [UI] 창을 열고 이 화면(assets/ui의 파일 이름)을 미리보기
     std::string language; // --lang: 이번 실행만 이 언어 (문서 스크린샷)
     std::string penpotToken; // --penpot-token: 라이브 연결 서버 토큰 (Penpot 가져오기 자동 시험, 비면 무작위)
@@ -156,6 +157,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--sounds") o.sounds = true;
         else if (a == "--lookdev") o.lookdev = true;
         else if (a == "--palette" && next(v)) o.palette = v;
+        else if (a == "--command" && next(v)) o.commands.push_back(v);
         else if (a == "--bake-probes") o.bakeProbes = true;
         else if (a == "--feedback") o.feedback = true;
         else if (a == "--ui" && next(v)) o.uiPreview = v;
@@ -173,7 +175,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --lookdev --palette <text> --bake-probes --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
+                "              --project-settings --tables --sounds --lookdev --palette <text> --command <name> --bake-probes --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
                 "  without --project: starts MealKit Manager if installed (%%LOCALAPPDATA%%\\MealKit\\manager), --builtin-manager for the old one\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
@@ -302,6 +304,7 @@ int main(int argc, char** argv) {
     if (opt.select != -1) editor.selectByIndex(opt.select);
     for (int i : opt.selectMore) editor.selectByIndex(i, true);
     if (!opt.palette.empty()) editor.openPalette(opt.palette);
+    for (const std::string& c : opt.commands) editor.queueCommand(c);
     if (opt.viewMode < static_cast<u32>(render::DebugView::Count)) editor.setDebugView(static_cast<render::DebugView>(opt.viewMode));
     if (opt.players > 1) editor.setPlayPlayers(opt.players);
     if (opt.upgrade) editor.requestUpgrade();

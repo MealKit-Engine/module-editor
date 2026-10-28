@@ -15,7 +15,8 @@ namespace {
 
 std::string settingsPath() { return editorUserDirectory() + "\\editor_settings.txt"; }
 
-const char* const kKeys[] = {"cameraSpeed", "uiScale", "autosaveSeconds", "externalEditor", "projectLayout"};
+const char* const kKeys[] = {"cameraSpeed", "uiScale",  "autosaveSeconds", "externalEditor",
+                             "projectLayout", "snapMove", "snapRotate", "snapScale"};
 
 bool ownKey(const std::string& key) {
     for (const char* k : kKeys)
@@ -44,6 +45,9 @@ Preferences loadPreferences() {
         else if (key == "autosaveSeconds") p.autosaveSeconds = static_cast<u32>(strtoul(value.c_str(), nullptr, 10));
         else if (key == "externalEditor") p.externalEditor = value;
         else if (key == "projectLayout") p.projectLayout = value != "0";
+        else if (key == "snapMove") p.snapMove = std::clamp(static_cast<f32>(atof(value.c_str())), 0.01f, 100.0f);
+        else if (key == "snapRotate") p.snapRotate = std::clamp(static_cast<f32>(atof(value.c_str())), 0.1f, 180.0f);
+        else if (key == "snapScale") p.snapScale = std::clamp(static_cast<f32>(atof(value.c_str())), 0.001f, 10.0f);
     }
     return p;
 }
@@ -60,10 +64,27 @@ bool savePreferences(const Preferences& p) {
         if (!line.empty() && !ownKey(line.substr(0, line.find(' ')))) out += line + "\n";
     }
     char buf[512];
-    snprintf(buf, sizeof(buf), "cameraSpeed %g\nuiScale %g\nautosaveSeconds %u\nexternalEditor %s\nprojectLayout %d\n",
-             p.cameraSpeed, p.uiScale, p.autosaveSeconds, p.externalEditor.c_str(), p.projectLayout ? 1 : 0);
+    snprintf(buf, sizeof(buf),
+             "cameraSpeed %g\nuiScale %g\nautosaveSeconds %u\nexternalEditor %s\nprojectLayout %d\nsnapMove %g\n"
+             "snapRotate %g\nsnapScale %g\n",
+             p.cameraSpeed, p.uiScale, p.autosaveSeconds, p.externalEditor.c_str(), p.projectLayout ? 1 : 0, p.snapMove,
+             p.snapRotate, p.snapScale);
     createDirectories(editorUserDirectory());
     return writeTextFile(settingsPath(), out + buf);
+}
+
+bool drawSnapSettings(Preferences& p) {
+    bool changed = false;
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+    changed |= ImGui::InputFloat(tr("Move snap (m)"), &p.snapMove, 0.25f, 1.0f, "%.2f");
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+    changed |= ImGui::InputFloat(tr("Rotate snap (degrees)"), &p.snapRotate, 5.0f, 15.0f, "%.1f");
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+    changed |= ImGui::InputFloat(tr("Scale snap"), &p.snapScale, 0.05f, 0.25f, "%.2f");
+    p.snapMove = std::clamp(p.snapMove, 0.01f, 100.0f);
+    p.snapRotate = std::clamp(p.snapRotate, 0.1f, 180.0f);
+    p.snapScale = std::clamp(p.snapScale, 0.001f, 10.0f);
+    return changed;
 }
 
 bool PreferencesPanel::draw(Preferences& p) {
@@ -76,6 +97,7 @@ bool PreferencesPanel::draw(Preferences& p) {
     bool changed = false;
     ImGui::SeparatorText(tr("Scene view"));
     changed |= ImGui::SliderFloat(tr("Camera speed"), &p.cameraSpeed, 1.0f, 100.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+    changed |= drawSnapSettings(p);
     ImGui::SeparatorText(tr("Interface"));
     changed |= ImGui::SliderFloat(tr("Text size"), &p.uiScale, 0.75f, 2.0f, "%.2fx");
     changed |= ImGui::Checkbox(tr("Save the window layout per project"), &p.projectLayout);

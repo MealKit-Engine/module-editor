@@ -14,10 +14,15 @@ struct Preferences {
     u32 autosaveSeconds = 90;         // 저장 안 된 변경을 <씬>.autosave에 쓰는 간격 (0 = 끄기)
     std::string externalEditor = "code"; // 코드 열기에 쓸 편집기 (VS Code 방식 "-g 파일:줄")
     bool projectLayout = true;        // 창 배치를 프로젝트마다 build\editor\layout.ini에 따로 둔다
+    f32 snapMove = 0.5f;              // 기즈모 스냅: 이동 (m, 바닥 그리드 간격도)
+    f32 snapRotate = 15.0f;           // 회전 (도)
+    f32 snapScale = 0.1f;             // 크기
 };
 
 Preferences loadPreferences();
 bool savePreferences(const Preferences& prefs);
+// 스냅 단위 입력 칸 (환경설정 창·뷰포트 툴바). 바뀌면 true (저장은 부른 쪽이)
+bool drawSnapSettings(Preferences& prefs);
 
 class PreferencesPanel {
 public:

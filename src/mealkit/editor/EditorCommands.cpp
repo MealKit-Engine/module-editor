@@ -1,6 +1,7 @@
 // 에디터 명령 표와 명령 팔레트 (Ctrl+P). 메뉴·단축키·팔레트·F1 도움말이 이 표 하나를 쓴다.
 #include "mealkit/editor/Editor.h"
 
+#include "mealkit/core/Log.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 
@@ -51,6 +52,12 @@ void Editor::buildCommands() {
         {"Duplicate", ImGuiMod_Ctrl | ImGuiKey_D, 0, hasSelection, [this] { duplicateSelected(); }},
         {"Delete", ImGuiKey_Delete, 0, hasSelection, [this] { deleteSelected(); }},
         {"Find in Scene Tree", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] { m_treeSearchFocus = true; }},
+        {"Drop to Floor", ImGuiKey_End, 0, hasSelection, [this] { dropToFloor(); }},
+        {"Align X", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(0); }},
+        {"Align Y", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(1); }},
+        {"Align Z", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(2); }},
+        {"Distribute Evenly", 0, 0, [this] { return m_mode == Mode::Edit && m_multi.size() >= 2; },
+         [this] { distributeSelection(); }},
         {"Focus Selected", ImGuiKey_F, 0, hasSelection, [this] { focusSelected(); }},
         {"Move W", ImGuiKey_W, 0, editing, [this] { m_gizmoOp = 0; }},
         {"Rotate E", ImGuiKey_E, 0, editing, [this] { m_gizmoOp = 1; }},
@@ -81,7 +88,6 @@ void Editor::buildCommands() {
 const Editor::Command* Editor::findCommand(const char* name) const {
     for (const Command& c : m_commands)
         if (strcmp(c.name, name) == 0) return &c;
-    MEALKIT_ASSERT(!"unknown editor command");
     return nullptr;
 }
 
@@ -92,6 +98,7 @@ std::string Editor::shortcutText(const Command& c) const {
 // 메뉴 줄: 이름·단축키·켜짐 여부를 명령 표에서 가져온다. selected가 있으면 체크 표시
 void Editor::commandMenuItem(const char* name, const bool* selected) {
     const Command* c = findCommand(name);
+    MEALKIT_ASSERT(c); // 메뉴에 쓴 이름이 명령 표에 있어야 한다
     if (!c) return;
     const std::string keys = shortcutText(*c);
     if (ImGui::MenuItem(tr(name), keys.empty() ? nullptr : keys.c_str(), selected ? *selected : false, c->enabled()))
@@ -99,6 +106,14 @@ void Editor::commandMenuItem(const char* name, const bool* selected) {
 }
 
 void Editor::runShortcuts() {
+    if (!m_queuedCommands.empty() && ImGui::GetFrameCount() > 2) { // --command: 씬·모델을 다 읽은 뒤
+        for (const std::string& name : m_queuedCommands) {
+            const Command* c = findCommand(name.c_str());
+            if (c && c->enabled()) c->run();
+            else MEALKIT_WARN("--command %s: unknown or not available now", name.c_str());
+        }
+        m_queuedCommands.clear();
+    }
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput || m_looking) return;
     for (const Command& c : m_commands) {

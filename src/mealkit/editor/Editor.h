@@ -161,6 +161,7 @@ public:
     void saveBackupIfDirty();
 
     void openPalette(const std::string& text); // 자동 테스트/스크린샷용 (--palette)
+    void queueCommand(const std::string& name) { m_queuedCommands.push_back(name); } // --command
     void selectByIndex(int index, bool add = false); // 자동 테스트/스크린샷용 (-2 = 씬 줄)
 
 private:
@@ -266,6 +267,7 @@ private:
     char m_paletteSearch[128] = {};
     int m_paletteCursor = 0;
     std::string m_paletteInitial;
+    std::vector<std::string> m_queuedCommands;
     void setStatus(const std::string& text, bool failed = false, NoticeOpen open = NoticeOpen::Log);
     void drawNotices();
     void drawPlayFrame();     // 플레이 중 뷰포트 테두리
@@ -320,6 +322,12 @@ private:
     bool m_showGrid = true;  // 편집 화면 바닥 그리드 (스냅 이동 단위 간격)
     void drawViewportToolbar(); // 뷰포트 왼쪽 위 툴바 + 오른쪽 위 축 방향 표시
     void addGrid(render::DrawList& out) const;
+    // 광선이 맞는 첫 물체 (숨김·잠김·skip 제외). 없으면 0
+    u32 raycast(Vec3 origin, Vec3 dir, f32* distance, const std::vector<u32>& skip = {}) const;
+    void pickBounds(const scene::Entity& e, const scene::Transform& w, Vec3* center, Vec3* half) const;
+    void dropToFloor();             // 고른 물체를 아래 물체(없으면 y = 0) 위에 놓는다
+    void alignSelection(int axis);  // 나머지를 주 선택의 그 축 위치로
+    void distributeSelection();     // 가장 넓게 퍼진 축으로 같은 간격
 
     std::vector<Snapshot> m_undo;
     std::vector<Snapshot> m_redo;

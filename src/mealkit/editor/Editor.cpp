@@ -808,6 +808,15 @@ void Editor::drawMenuBar() {
         commandMenuItem("Select All");
         commandMenuItem("Duplicate");
         commandMenuItem("Delete");
+        ImGui::Separator();
+        commandMenuItem("Drop to Floor");
+        if (ImGui::BeginMenu(tr("Align"), !m_multi.empty())) {
+            commandMenuItem("Align X");
+            commandMenuItem("Align Y");
+            commandMenuItem("Align Z");
+            commandMenuItem("Distribute Evenly");
+            ImGui::EndMenu();
+        }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Add"), editing)) {
@@ -1429,7 +1438,7 @@ void Editor::drawGizmo() {
     ImGuizmo::OPERATION op = ops[m_gizmoOp];
     if (isMarker(*e) && op == ImGuizmo::SCALE) op = ImGuizmo::TRANSLATE;
     const ImGuizmo::MODE mode = (m_gizmoLocal || op == ImGuizmo::SCALE) ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
-    const f32 step = op == ImGuizmo::TRANSLATE ? 0.5f : op == ImGuizmo::ROTATE ? 15.0f : 0.1f;
+    const f32 step = op == ImGuizmo::TRANSLATE ? m_prefs.snapMove : op == ImGuizmo::ROTATE ? m_prefs.snapRotate : m_prefs.snapScale;
     const f32 snap[3] = {step, step, step};
     const bool snapping = ImGui::GetIO().KeyCtrl != m_snapOn; // 툴바 스냅이 켜져 있으면 Ctrl은 잠시 끄기
 
@@ -1466,6 +1475,12 @@ void Editor::drawViewportToolbar() {
         ImGui::SameLine();
         if (toolButton(tr("Snap"), m_snapOn)) m_snapOn = !m_snapOn;
         tip(tr("Snap without holding Ctrl (Ctrl turns it off for a moment)"));
+        ImGui::SameLine(0, 0);
+        if (ImGui::ArrowButton("##snapSettings", ImGuiDir_Down)) ImGui::OpenPopup("##snapPopup");
+        if (ImGui::BeginPopup("##snapPopup")) {
+            if (drawSnapSettings(m_prefs)) savePreferences(m_prefs);
+            ImGui::EndPopup();
+        }
         ImGui::SameLine(0, 2);
         if (toolButton(tr("Grid"), m_showGrid)) m_showGrid = !m_showGrid;
         ImGui::SameLine();
@@ -1511,7 +1526,8 @@ void Editor::drawViewportToolbar() {
 
 // 바닥(y = 0) 그리드: 카메라 아래 주변만, 스냅 이동 단위 간격. 깊이가 있게 얇은 상자로 그린다
 void Editor::addGrid(render::DrawList& out) const {
-    const f32 cell = 0.5f * 2.0f; // 스냅 0.5 m의 두 칸 = 1 m (스냅 설정 항목에서 바꾼다)
+    f32 cell = m_prefs.snapMove; // 스냅 이동 단위, 너무 촘촘하면 묶는다
+    while (cell < 0.25f) cell *= 2.0f;
     const int half = 40;
     const f32 cx = std::round(m_cameraPos.x / cell) * cell, cz = std::round(m_cameraPos.z / cell) * cell;
     const f32 length = cell * half * 2.0f, thick = cell * 0.025f;
@@ -1637,16 +1653,26 @@ void Editor::handlePicking() {
     const Vec3 up = cross(forward, right);
     const Vec3 dir = normalize(forward + right * (nx * tanHalf * aspect) + up * (ny * tanHalf));
 
+    f32 distance = 0.0f;
+    const u32 best = raycast(m_cameraPos, dir, &distance);
+    if (io.KeyShift) {
+        if (best) toggleSelect(best);
+    } else {
+        m_selected = best;
+    }
+}
+
+u32 Editor::raycast(Vec3 origin, Vec3 dir, f32* distance, const std::vector<u32>& skip) const {
     u32 best = 0;
     f32 bestT = 1e30f;
     for (const Entity& e : m_scene.entities) {
-        if (isLocked(e) || isHidden(e)) continue;
+        if (isLocked(e) || isHidden(e) || std::find(skip.begin(), skip.end(), e.id) != skip.end()) continue;
         const scene::Transform w = scene::worldTransform(m_scene, e);
         if (isArea(e)) { // 영역은 모서리를 눌러야 고른다 (안을 누르면 안의 물체)
             Vec3 centers[12], halves[12];
             areaEdges(w.scale * 0.5f, kAreaEdgePick, centers, halves);
             for (int i = 0; i < 12; ++i) {
-                const f32 t = rayBox(m_cameraPos, dir, w, centers[i], halves[i]);
+                const f32 t = rayBox(origin, dir, w, centers[i], halves[i]);
                 if (t >= 0.0f && t < bestT) {
                     bestT = t;
                     best = e.id;
@@ -1654,23 +1680,96 @@ void Editor::handlePicking() {
             }
             continue;
         }
-        Vec3 center{}, half = (isMarker(e) ? kSpawnSize : w.scale) * 0.5f;
-        if (const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model)) {
-            const Vec3 c = (model->boundsMin + model->boundsMax) * 0.5f,
-                       h = (model->boundsMax - model->boundsMin) * 0.5f;
-            center = {c.x * w.scale.x, c.y * w.scale.y, c.z * w.scale.z};
-            half = {std::fabs(h.x * w.scale.x), std::fabs(h.y * w.scale.y), std::fabs(h.z * w.scale.z)};
-        }
-        const f32 t = rayBox(m_cameraPos, dir, w, center, half);
+        Vec3 center, half;
+        pickBounds(e, w, &center, &half);
+        const f32 t = rayBox(origin, dir, w, center, half);
         if (t >= 0.0f && t < bestT) {
             bestT = t;
             best = e.id;
         }
     }
-    if (io.KeyShift) {
-        if (best) toggleSelect(best);
-    } else {
-        m_selected = best;
+    *distance = bestT;
+    return best;
+}
+
+// 고르기·바닥에 붙이기에 쓰는 상자 (물체 기준, 회전 전): 모델은 경계 상자, 표시는 작은 상자
+void Editor::pickBounds(const Entity& e, const scene::Transform& w, Vec3* center, Vec3* half) const {
+    *center = {};
+    *half = (isMarker(e) ? kSpawnSize : w.scale) * 0.5f;
+    if (const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model)) {
+        const Vec3 c = (model->boundsMin + model->boundsMax) * 0.5f, h = (model->boundsMax - model->boundsMin) * 0.5f;
+        *center = {c.x * w.scale.x, c.y * w.scale.y, c.z * w.scale.z};
+        *half = {std::fabs(h.x * w.scale.x), std::fabs(h.y * w.scale.y), std::fabs(h.z * w.scale.z)};
+    }
+}
+
+void Editor::dropToFloor() {
+    const std::vector<u32> roots = selectionRoots();
+    if (roots.empty()) return;
+    pushUndo(capture());
+    for (u32 id : roots) {
+        Entity* e = m_scene.find(id);
+        scene::Transform w = scene::worldTransform(m_scene, *e);
+        Vec3 center, half;
+        pickBounds(*e, w, &center, &half);
+        // 회전한 상자의 가장 낮은 점까지의 높이
+        f32 below = 0.0f;
+        for (int k = 0; k < 8; ++k) {
+            const Vec3 corner{k & 1 ? half.x : -half.x, k & 2 ? half.y : -half.y, k & 4 ? half.z : -half.z};
+            below = std::max(below, -rotate(w.rotation, center + corner).y);
+        }
+        std::vector<u32> skip = scene::subtree(m_scene, id);
+        f32 t = 0.0f;
+        const Vec3 from{w.position.x, w.position.y - below + 0.01f, w.position.z};
+        f32 floorY = 0.0f;
+        if (raycast(from, {0.0f, -1.0f, 0.0f}, &t, skip)) floorY = from.y - t;
+        else if (from.y < 0.0f) floorY = 0.0f;
+        w.position.y = floorY + below;
+        scene::setWorldTransform(m_scene, *e, w);
+    }
+    setStatus(tr("Dropped to the floor"));
+}
+
+void Editor::alignSelection(int axis) {
+    const Entity* primary = selected();
+    if (!primary || m_multi.empty()) return;
+    pushUndo(capture());
+    const Vec3 target = scene::worldTransform(m_scene, *primary).position;
+    for (u32 id : selectionRoots()) {
+        if (id == m_selected) continue;
+        Entity* e = m_scene.find(id);
+        scene::Transform w = scene::worldTransform(m_scene, *e);
+        (&w.position.x)[axis] = (&target.x)[axis];
+        scene::setWorldTransform(m_scene, *e, w);
+    }
+}
+
+void Editor::distributeSelection() {
+    std::vector<u32> roots = selectionRoots();
+    if (roots.size() < 3) return;
+    pushUndo(capture());
+    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+    for (u32 id : roots) {
+        const Vec3 p = scene::worldTransform(m_scene, *m_scene.find(id)).position;
+        for (int a = 0; a < 3; ++a) {
+            (&lo.x)[a] = std::min((&lo.x)[a], (&p.x)[a]);
+            (&hi.x)[a] = std::max((&hi.x)[a], (&p.x)[a]);
+        }
+    }
+    int axis = 0;
+    for (int a = 1; a < 3; ++a)
+        if ((&hi.x)[a] - (&lo.x)[a] > (&hi.x)[axis] - (&lo.x)[axis]) axis = a;
+    auto key = [&](u32 id) {
+        const Vec3 p = scene::worldTransform(m_scene, *m_scene.find(id)).position;
+        return (&p.x)[axis];
+    };
+    std::sort(roots.begin(), roots.end(), [&](u32 a, u32 b) { return key(a) < key(b); });
+    const f32 step = ((&hi.x)[axis] - (&lo.x)[axis]) / static_cast<f32>(roots.size() - 1);
+    for (size_t i = 0; i < roots.size(); ++i) {
+        Entity* e = m_scene.find(roots[i]);
+        scene::Transform w = scene::worldTransform(m_scene, *e);
+        (&w.position.x)[axis] = (&lo.x)[axis] + step * static_cast<f32>(i);
+        scene::setWorldTransform(m_scene, *e, w);
     }
 }
 
