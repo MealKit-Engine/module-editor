@@ -1,4 +1,4 @@
-#include "mealkit/editor/Editor.h"
+﻿#include "mealkit/editor/Editor.h"
 
 #include "mealkit/core/Log.h"
 #include "mealkit/core/Profile.h"
@@ -274,6 +274,9 @@ void Editor::update(f64 dt) {
     }
     updateRowProblems(dt);
     m_projectPanel.draw(m_project, relativeTo(m_project.directory + "\\assets", m_scenePath));
+    m_modulesPanel.draw(m_project, m_engineDirectory, m_mode == Mode::Edit);
+    // 모듈 sim/·view/는 게임 코드다: 더하거나 바꾸면 게임 DLL을 다시 빌드한다
+    if (m_modulesPanel.takeChanged()) startBuild(BuildKind::GameCode);
     drawState();
     pollBuild();
     pollLayoutCheck();
@@ -863,6 +866,7 @@ void Editor::drawMenuBar() {
         }
         ImGui::Separator();
         commandMenuItem("Project Settings...");
+        commandMenuItem("Modules...");
         commandMenuItem("Preferences...");
         ImGui::Separator();
         if (ImGui::MenuItem(tr("Exit"))) m_quit = true;
@@ -2709,7 +2713,7 @@ void Editor::saveAll() {
 }
 
 void Editor::takePanelStatus() {
-    for (std::string status : {m_tuningPanel.takeStatus(), m_projectPanel.takeStatus()})
+    for (std::string status : {m_tuningPanel.takeStatus(), m_projectPanel.takeStatus(), m_modulesPanel.takeStatus()})
         if (!status.empty()) setStatus(status);
     if (std::string status = m_buildPanel.takeStatus(); !status.empty())
         setStatus(status, !m_buildPanel.running() && !m_buildPanel.succeeded(), NoticeOpen::BuildLog);

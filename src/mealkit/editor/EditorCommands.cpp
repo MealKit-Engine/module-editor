@@ -42,6 +42,7 @@ void Editor::buildCommands() {
         {"Save As...", 0, 0, editing, [this] { saveSceneAs(); }},
         {"Project Settings...", 0, 0, [this] { return m_mode == Mode::Edit && !m_project.directory.empty(); },
          [this] { m_projectPanel.open(); }},
+        {"Modules...", 0, 0, [this] { return !m_project.directory.empty(); }, [this] { m_modulesPanel.open(); }},
         {"Undo", ImGuiMod_Ctrl | ImGuiKey_Z, 0, [this] { return m_mode == Mode::Edit && !m_undo.empty(); },
          [this] { undo(); }},
         {"Redo", ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z,
