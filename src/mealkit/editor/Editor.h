@@ -316,6 +316,10 @@ private:
 
     int m_gizmoOp = 0; // 0 이동, 1 회전, 2 크기
     bool m_gizmoLocal = false;
+    bool m_snapOn = false;   // 툴바 스냅: 켜져 있으면 Ctrl 없이 스냅 (Ctrl은 반대로)
+    bool m_showGrid = true;  // 편집 화면 바닥 그리드 (스냅 이동 단위 간격)
+    void drawViewportToolbar(); // 뷰포트 왼쪽 위 툴바 + 오른쪽 위 축 방향 표시
+    void addGrid(render::DrawList& out) const;
 
     std::vector<Snapshot> m_undo;
     std::vector<Snapshot> m_redo;

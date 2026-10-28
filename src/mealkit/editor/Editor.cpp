@@ -272,6 +272,7 @@ void Editor::update(f64 dt) {
     drawCommandPalette();
     if (editing) {
         drawGizmo();
+        drawViewportToolbar();
         handlePicking();
     } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
         m_stopRequest = true;
@@ -517,6 +518,7 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
     frame.probeCount = static_cast<u32>(m_probeList.size());
     frame.debugView = m_debugView;
     addSceneObjects(out, m_cameraPos, false);
+    if (m_showGrid && m_mode == Mode::Edit && !m_automated) addGrid(out); // 자동 캡처·골든 이미지는 그리드 없이
 }
 
 void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) const {
@@ -888,13 +890,6 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
 
-    if (editing) {
-        ImGui::TextDisabled("|");
-        if (toolButton(tr("Move W"), m_gizmoOp == 0)) m_gizmoOp = 0;
-        if (toolButton(tr("Rotate E"), m_gizmoOp == 1)) m_gizmoOp = 1;
-        if (toolButton(tr("Scale R"), m_gizmoOp == 2)) m_gizmoOp = 2;
-        if (toolButton(m_gizmoLocal ? tr("Local Axes") : tr("World Axes"), false)) m_gizmoLocal = !m_gizmoLocal;
-    }
 
     const std::string playLabel = editing ? std::string("  ▶ ") + tr("Play (F5)") + "  " : std::string("  ■ ") + tr("Stop (Esc)") + "  ";
     const f32 width = ImGui::CalcTextSize(playLabel.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -1436,7 +1431,7 @@ void Editor::drawGizmo() {
     const ImGuizmo::MODE mode = (m_gizmoLocal || op == ImGuizmo::SCALE) ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
     const f32 step = op == ImGuizmo::TRANSLATE ? 0.5f : op == ImGuizmo::ROTATE ? 15.0f : 0.1f;
     const f32 snap[3] = {step, step, step};
-    const bool snapping = ImGui::GetIO().KeyCtrl;
+    const bool snapping = ImGui::GetIO().KeyCtrl != m_snapOn; // 툴바 스냅이 켜져 있으면 Ctrl은 잠시 끄기
 
     if (ImGuizmo::Manipulate(&m_view.m[0][0], &m_proj.m[0][0], op, mode, matrix, nullptr, snapping ? snap : nullptr)) {
         scene::Transform world;
@@ -1445,6 +1440,94 @@ void Editor::drawGizmo() {
         scene::setWorldTransform(m_scene, *e, world);
         if (!m_multi.empty()) moveOthersWith(before, world);
         markChanged();
+    }
+}
+
+// 뷰포트 위에 겹쳐 그리는 툴바(왼쪽 위)와 축 방향 표시(오른쪽 위, 축을 누르면 그쪽에서 본다)
+void Editor::drawViewportToolbar() {
+    if (m_viewport.width < 200.0f || m_viewport.height < 120.0f) return;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+    ImGui::SetNextWindowPos(ImVec2(m_viewport.x + 8.0f, m_viewport.y + 8.0f));
+    ImGui::SetNextWindowBgAlpha(0.75f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
+    if (ImGui::Begin("##ViewportToolbar", nullptr, flags)) {
+        auto tip = [](const char* text) {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", text);
+        };
+        if (toolButton(tr("Move W"), m_gizmoOp == 0)) m_gizmoOp = 0;
+        ImGui::SameLine(0, 2);
+        if (toolButton(tr("Rotate E"), m_gizmoOp == 1)) m_gizmoOp = 1;
+        ImGui::SameLine(0, 2);
+        if (toolButton(tr("Scale R"), m_gizmoOp == 2)) m_gizmoOp = 2;
+        ImGui::SameLine();
+        if (toolButton(m_gizmoLocal ? tr("Local Axes") : tr("World Axes"), false)) m_gizmoLocal = !m_gizmoLocal;
+        ImGui::SameLine();
+        if (toolButton(tr("Snap"), m_snapOn)) m_snapOn = !m_snapOn;
+        tip(tr("Snap without holding Ctrl (Ctrl turns it off for a moment)"));
+        ImGui::SameLine(0, 2);
+        if (toolButton(tr("Grid"), m_showGrid)) m_showGrid = !m_showGrid;
+        ImGui::SameLine();
+        const char* views[] = {tr("Lit"), tr("Wireframe"), tr("Normals"), tr("LOD Level"), tr("Overdraw"),
+                               tr("Over Budget"), tr("Material Features")};
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+        if (ImGui::BeginCombo("##viewMode", views[static_cast<int>(m_debugView)])) {
+            for (u32 i = 0; i < static_cast<u32>(render::DebugView::Count); ++i) {
+                const auto view = static_cast<render::DebugView>(i);
+                ImGui::BeginDisabled(!m_renderer->supportsDebugView(view));
+                if (ImGui::Selectable(views[i], m_debugView == view)) m_debugView = view;
+                ImGui::EndDisabled();
+            }
+            ImGui::EndCombo();
+        }
+        tip(tr("View Mode"));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+        ImGui::SliderFloat("##camSpeed", &m_cameraSpeed, 1.0f, 400.0f, "%.0f m/s", ImGuiSliderFlags_Logarithmic);
+        tip(tr("Camera speed"));
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+
+    // 축 방향 표시: ImGuizmo가 보기 행렬을 돌리면 카메라 각도·위치로 되돌려 넣는다
+    const f32 size = 96.0f;
+    Mat4 view = m_view;
+    const f32 pivot = 10.0f; // 이 거리 앞의 점을 중심으로 돈다
+    ImGuizmo::ViewManipulate(&view.m[0][0], pivot, ImVec2(m_viewport.x + m_viewport.width - size - 8.0f, m_viewport.y + 8.0f),
+                             ImVec2(size, size), IM_COL32(30, 30, 34, 120));
+    if (ImGuizmo::IsUsingViewManipulate() || std::memcmp(&view, &m_view, sizeof(view)) != 0) {
+        // 행 벡터 보기 행렬: 열 2가 앞 방향, 카메라 위치 = -t * R^T
+        const Vec3 forward = normalize(Vec3{view.m[0][2], view.m[1][2], view.m[2][2]});
+        const Vec3 t{view.m[3][0], view.m[3][1], view.m[3][2]};
+        m_cameraPos = {-(t.x * view.m[0][0] + t.y * view.m[0][1] + t.z * view.m[0][2]),
+                       -(t.x * view.m[1][0] + t.y * view.m[1][1] + t.z * view.m[1][2]),
+                       -(t.x * view.m[2][0] + t.y * view.m[2][1] + t.z * view.m[2][2])};
+        m_cameraYaw = std::atan2(forward.x, forward.z);
+        m_cameraPitch = std::clamp(std::asin(std::clamp(forward.y, -1.0f, 1.0f)), -1.55f, 1.55f);
+        m_view = view;
+    }
+}
+
+// 바닥(y = 0) 그리드: 카메라 아래 주변만, 스냅 이동 단위 간격. 깊이가 있게 얇은 상자로 그린다
+void Editor::addGrid(render::DrawList& out) const {
+    const f32 cell = 0.5f * 2.0f; // 스냅 0.5 m의 두 칸 = 1 m (스냅 설정 항목에서 바꾼다)
+    const int half = 40;
+    const f32 cx = std::round(m_cameraPos.x / cell) * cell, cz = std::round(m_cameraPos.z / cell) * cell;
+    const f32 length = cell * half * 2.0f, thick = cell * 0.025f;
+    const render::MeshId box = m_models->boxMesh();
+    for (int i = -half; i <= half; ++i) {
+        const bool major = (static_cast<int>(std::round((cx + i * cell) / cell)) % 10) == 0;
+        render::InstanceData line;
+        line.color = major ? 0xFF303030 : 0xFF585858;
+        line.position = {cx + i * cell, 0.01f, cz};
+        line.scale = {major ? thick * 2.0f : thick, 0.004f, length};
+        out.add(box, line);
+        const bool majorZ = (static_cast<int>(std::round((cz + i * cell) / cell)) % 10) == 0;
+        line.color = majorZ ? 0xFF303030 : 0xFF585858;
+        line.position = {cx, 0.01f, cz + i * cell};
+        line.scale = {length, 0.004f, majorZ ? thick * 2.0f : thick};
+        out.add(box, line);
     }
 }
 
@@ -1533,7 +1616,7 @@ void Editor::handlePicking() {
         }
     } else {
         if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || io.WantCaptureMouse || ImGuizmo::IsOver() ||
-            ImGuizmo::IsUsing())
+            ImGuizmo::IsUsing() || ImGuizmo::IsViewManipulateHovered() || ImGuizmo::IsUsingViewManipulate())
             return;
         const ImVec2 mouse = io.MousePos;
         if (mouse.x < m_viewport.x || mouse.y < m_viewport.y || mouse.x >= m_viewport.x + m_viewport.width ||
