@@ -106,7 +106,8 @@ private:
     std::string m_failure;
     std::string m_userFolder;       // 혼자 플레이 기록을 남길 곳 (리플레이, 비어 있으면 남기지 않는다)
     u32 m_keepReplays = 0;
-    bool m_replayStopped = false;   // 리플레이가 기록과 갈라져 멈췄다
+    bool m_replayStopped = false;   // 리플레이가 기록과 갈라져 멈췄다 (버그 리포트는 끝 틱에서 멈췄다)
+    bool m_bugReport = false;       // 버그 리포트 zip을 재생한다
 };
 
 // 참가 창 모드: MealKitEditor.exe --player-window --project <폴더> [--player-index n] [--view-tuning <파일>] + 게임 옵션.

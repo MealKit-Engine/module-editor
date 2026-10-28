@@ -140,7 +140,7 @@ u32 packColor(const f32 c[3], u32 previous) {
 }
 
 const FileFilter kSceneFilters[] = {{"MealKit scene (*.scene)", "*.scene"}, {"All files (*.*)", "*.*"}};
-const FileFilter kReplayFilters[] = {{"MealKit replay (*.rec)", "*.rec"}, {"All files (*.*)", "*.*"}};
+const FileFilter kReplayFilters[] = {{"MealKit replay, bug report (*.rec, *.zip)", "*.rec;*.zip"}, {"All files (*.*)", "*.*"}};
 const FileFilter kModelFilters[] = {{"glTF model (*.glb, *.gltf)", "*.glb;*.gltf"}, {"All files (*.*)", "*.*"}};
 
 bool toolButton(const char* label, bool active) {

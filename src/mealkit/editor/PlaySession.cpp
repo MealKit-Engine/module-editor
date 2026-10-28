@@ -12,6 +12,7 @@
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/Strings.h"
+#include "mealkit/game/BugReport.h"
 #include "mealkit/game/DesyncDump.h"
 #include "mealkit/game/FrameStats.h"
 #include "mealkit/game/GameData.h"
@@ -94,8 +95,13 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     m_replayStopped = false;
     if (replay()) {
         game::InputRecording recording;
-        std::string loadError;
-        if (!game::loadInputRecording(m_config.replayPath, recording, loadError) || recording.inputs.empty()) {
+        std::string loadError, recordingPath = m_config.replayPath, bugInfo;
+        // 버그 리포트 묶음(game/BugReport.h): zip의 입력 기록을 꺼내 기록이 끝나는 틱까지 재생하고 멈춘다
+        m_bugReport = recordingPath.size() > 4 && recordingPath.compare(recordingPath.size() - 4, 4, ".zip") == 0;
+        if (m_bugReport &&
+            !game::extractBugReport(m_config.replayPath, playDirectory(config.projectDir), recordingPath, bugInfo, loadError))
+            recordingPath.clear();
+        if (recordingPath.empty() || !game::loadInputRecording(recordingPath, recording, loadError) || recording.inputs.empty()) {
             error = trf("Could not read the replay: %s",
                         loadError.empty() ? tr("it has no ticks") : loadError.c_str());
             stop();
@@ -108,6 +114,14 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         m_match->init(matchConfig);
         m_match->playReplay(recording);
         m_firstMatch = true;
+        if (m_bugReport) {
+            const size_t note = bugInfo.find("\nnote = ");
+            const std::string text = note == std::string::npos
+                                         ? std::string()
+                                         : bugInfo.substr(note + 8, bugInfo.find('\n', note + 1) - note - 8);
+            MEALKIT_INFO("Bug report %s:\n%s", m_config.replayPath.c_str(), bugInfo.c_str());
+            if (!text.empty()) editor.showMessage(trf("Bug report: %s", text.c_str()));
+        }
         MEALKIT_INFO("Editor play: replaying %s", m_config.replayPath.c_str());
     } else if (!multiplayer()) {
         // 혼자 플레이도 매치마다 리플레이를 남긴다 (사용자 폴더 replays/, 멈추면 날짜·시각 이름으로)
@@ -200,6 +214,12 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         m_replayStopped = true;
         editor.showMessage(trf("The replay diverged from the recording at tick %u (different build or data).",
                                session.desyncTick()));
+    }
+    // 버그 리포트는 기록이 끝난 틱(F9를 누른 때)에서 멈춘다
+    if (m_bugReport && !m_replayStopped && m_game->started() && m_game->debug() &&
+        m_game->debug()->timeline().live >= session.replayTicks()) {
+        m_game->debug()->setPaused(true);
+        m_replayStopped = true;
     }
     if (!m_game->started() && session.state() == net::SessionState::Lobby)
         m_game->lobby(session, m_options, game::userFolder(editor.project().settings));
