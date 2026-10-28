@@ -232,6 +232,17 @@ private:
     void drawTypeMenuItems();
     void drawObjectFields(scene::Entity& e);
     void addModelEntity();
+    void addModelEntity(const std::string& path, const Vec3* at); // at: 놓을 바닥 점 (nullptr = 카메라 앞)
+    // [에셋] 창 (EditorAssets.cpp)
+    void drawAssetBrowser();
+    void drawAssetFolder(const std::string& root, const std::string& relative);
+    void handleAssetDrop();
+    void renameAsset(const std::string& from, const std::string& to);
+    bool m_assetsOpen = true;
+    std::string m_assetFolder;   // assets 기준 ("models")
+    std::string m_assetSelected; // assets 기준 파일
+    std::string m_assetRenameFrom;
+    char m_assetRenameBuffer[260] = {};
     std::string chooseModel(); // 파일 대화상자 → assets 기준 경로 (취소하면 빈 문자열)
     void duplicateSelected();
     void deleteSelected();

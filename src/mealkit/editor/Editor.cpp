@@ -36,7 +36,7 @@ constexpr const char* kInspectorWindow = "Inspector###Inspector";
 constexpr const char* kStateWindow = "State###State";
 // 아래 가로 칸에 탭으로 붙는 창 (기본 레이아웃)
 const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // 플레이 중 메뉴 막대
-const char* const kBottomWindows[] = {LogPanel::kWindow, BuildPanel::kWindow, TablesPanel::kWindow};
+const char* const kBottomWindows[] = {LogPanel::kWindow, "Assets###Assets", BuildPanel::kWindow, TablesPanel::kWindow};
 
 // 대소문자를 무시한 부분 문자열 (씬 트리 찾기)
 bool containsNoCase(const std::string& text, const char* needle) {
@@ -283,6 +283,7 @@ void Editor::update(f64 dt) {
     m_prefsPanel.draw(m_prefs);
     drawHistory();
     drawSceneList();
+    drawAssetBrowser();
     drawShortcutHelp();
     drawPlayFrame();
     drawEmptyViewport();
@@ -293,6 +294,7 @@ void Editor::update(f64 dt) {
     if (editing) {
         drawGizmo();
         drawViewportToolbar();
+        handleAssetDrop();
         handlePicking();
     } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
         m_stopRequest = true;
@@ -938,6 +940,7 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         commandMenuItem("Build Log", m_buildPanel.openFlag());
         commandMenuItem("Log", m_logPanel.openFlag());
+        commandMenuItem("Assets", &m_assetsOpen);
         commandMenuItem("Performance", m_perfPanel.openFlag());
         ImGui::EndMenu();
     }
@@ -2330,7 +2333,10 @@ std::string Editor::chooseModel() {
 
 void Editor::addModelEntity() {
     const std::string path = chooseModel();
-    if (path.empty()) return;
+    if (!path.empty()) addModelEntity(path, nullptr);
+}
+
+void Editor::addModelEntity(const std::string& path, const Vec3* at) {
     const asset::Model* model = m_models->get(path);
     if (!model) {
         setStatus(trf("Could not load the model: %s", path.c_str()), true);
@@ -2341,6 +2347,7 @@ void Editor::addModelEntity() {
     e->model = path;
     e->scale = {1, 1, 1};
     e->color = 0xFFFFFFFF;                       // 재질 색을 그대로 보이게
+    if (at) e->position = *at + Vec3{0.0f, 1.0f, 0.0f}; // 끌어 놓은 곳
     e->position.y += -1.0f - model->boundsMin.y; // 바닥에 닿게 (addEntity가 1만큼 띄워 둔다)
     const std::string file = fileName(path);
     e->name = file.substr(0, file.find_last_of('.'));

@@ -92,6 +92,7 @@ void Editor::buildCommands() {
         {"Open Project Folder", 0, 0, [this] { return !m_project.directory.empty(); },
          [this] { openInExplorer(m_project.directory); }},
         {"Build Log", 0, 0, always, [this] { *m_buildPanel.openFlag() = !*m_buildPanel.openFlag(); }},
+        {"Assets", 0, 0, always, [this] { m_assetsOpen = !m_assetsOpen; }},
         {"Performance", 0, 0, always, [this] { *m_perfPanel.openFlag() = !*m_perfPanel.openFlag(); }},
         {"Log", 0, 0, always, [this] { *m_logPanel.openFlag() = !*m_logPanel.openFlag(); }},
     };
