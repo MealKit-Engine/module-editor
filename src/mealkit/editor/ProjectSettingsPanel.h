@@ -16,6 +16,8 @@ public:
     // 고치는 값을 디스크의 값으로 되돌린다 (프로젝트를 열 때도)
     void revert(const ProjectInfo& project);
     bool save(ProjectInfo& project); // 실패하면 false (상태 문구는 takeStatus)
+    // 시작 씬만 바꿔 바로 저장한다 ([씬] 창). 창에서 고치는 중인 다른 값은 저장하지 않는다
+    bool setStartScene(ProjectInfo& project, const std::string& scene);
     // 도구가 관리하는 값(engine, engineVersion)만 다시 받는다 (업그레이드 뒤)
     void setToolValues(const game::ProjectSettings& from) {
         m_edit.engine = from.engine;

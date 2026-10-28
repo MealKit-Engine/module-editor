@@ -36,6 +36,7 @@ void Editor::buildCommands() {
         {"New Scene", ImGuiMod_Ctrl | ImGuiKey_N, 0, editing, [this] { newScene(); }},
         {"Open...", ImGuiMod_Ctrl | ImGuiKey_O, 0, editing, [this] { openSceneDialog(); }},
         {"Save", ImGuiMod_Ctrl | ImGuiKey_S, 0, editing, [this] { saveAll(); }},
+        {"Scenes", 0, 0, always, [this] { m_sceneListOpen = !m_sceneListOpen; }},
         {"Save As...", 0, 0, editing, [this] { saveSceneAs(); }},
         {"Project Settings...", 0, 0, [this] { return m_mode == Mode::Edit && !m_project.directory.empty(); },
          [this] { m_projectPanel.open(); }},
@@ -214,10 +215,7 @@ void Editor::drawCommandPalette() {
             for (const std::string& f : listFiles(sceneDir, ".scene")) {
                 if (!matches(f.c_str(), q)) continue;
                 const std::string path = sceneDir + "\\" + f;
-                items.push_back({f, tr("Scene"), [this, path] {
-                                     saveBackupIfDirty();
-                                     loadScene(path);
-                                 }});
+                items.push_back({f, tr("Scene"), [this, path] { openSceneFile(path); }});
             }
     }
     for (const ToolInfo& t : m_tools)

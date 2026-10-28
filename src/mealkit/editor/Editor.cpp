@@ -282,6 +282,7 @@ void Editor::update(f64 dt) {
     drawNotices();
     m_prefsPanel.draw(m_prefs);
     drawHistory();
+    drawSceneList();
     drawShortcutHelp();
     drawPlayFrame();
     drawEmptyViewport();
@@ -813,6 +814,15 @@ void Editor::drawMenuBar() {
         commandMenuItem("Open...");
         commandMenuItem("Save");
         commandMenuItem("Save As...");
+        ImGui::Separator();
+        commandMenuItem("Scenes", &m_sceneListOpen);
+        if (ImGui::BeginMenu(tr("Recent Scenes"), !m_recentScenes.empty())) {
+            std::string chosen;
+            for (const std::string& path : m_recentScenes)
+                if (ImGui::MenuItem(fileName(path).c_str(), nullptr, path == m_scenePath)) chosen = path;
+            ImGui::EndMenu();
+            if (!chosen.empty() && chosen != m_scenePath) openSceneFile(chosen);
+        }
         ImGui::Separator();
         commandMenuItem("Project Settings...");
         commandMenuItem("Preferences...");
@@ -1431,6 +1441,75 @@ void Editor::drawHistory() {
     ImGui::EndDisabled();
     ImGui::End();
     for (int i = 0; i < target; ++i) undo();
+}
+
+void Editor::openSceneFile(const std::string& path) {
+    saveBackupIfDirty();
+    loadScene(path);
+}
+
+void Editor::loadRecentScenes() {
+    m_recentScenes.clear();
+    std::string text;
+    if (m_project.directory.empty() || !readTextFile(m_project.directory + "\\build\\editor\\recent_scenes.txt", text)) return;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t end = text.find('\n', pos);
+        if (end == std::string::npos) end = text.size();
+        std::string line = text.substr(pos, end - pos);
+        pos = end + 1;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty() && fileExists(line)) m_recentScenes.push_back(line);
+    }
+}
+
+void Editor::rememberRecentScene(const std::string& path) {
+    if (m_project.directory.empty() || path.empty()) return;
+    std::erase(m_recentScenes, path);
+    m_recentScenes.insert(m_recentScenes.begin(), path);
+    if (m_recentScenes.size() > 8) m_recentScenes.resize(8);
+    std::string text;
+    for (const std::string& p : m_recentScenes) text += p + "\n";
+    createDirectories(m_project.directory + "\\build\\editor");
+    writeTextFile(m_project.directory + "\\build\\editor\\recent_scenes.txt", text);
+}
+
+// [파일] > [씬]: assets/scenes의 씬. 시작 씬(★, mealkit.project scene)을 정하고, 두 번 누르면 연다
+void Editor::drawSceneList() {
+    if (!m_sceneListOpen) return;
+    ImGui::SetNextWindowSize(ImVec2(360, 360), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin(trl("Scenes###Scenes"), &m_sceneListOpen)) {
+        ImGui::End();
+        return;
+    }
+    const std::string folder = m_project.directory + "\\assets\\scenes";
+    static std::string picked;
+    ImGui::BeginDisabled(m_mode != Mode::Edit);
+    std::string open;
+    for (const std::string& name : listFiles(folder, ".scene")) {
+        const std::string path = folder + "\\" + name;
+        const std::string relative = "scenes/" + name;
+        const bool start = relative == m_project.settings.scene;
+        const std::string label = std::string(start ? "★ " : "   ") + name + (path == m_scenePath ? std::string("  ") + tr("(open)") : "");
+        if (ImGui::Selectable(label.c_str(), picked == path, ImGuiSelectableFlags_AllowDoubleClick)) {
+            picked = path;
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) open = path;
+        }
+    }
+    ImGui::Separator();
+    ImGui::BeginDisabled(picked.empty() || picked == m_scenePath);
+    if (ImGui::Button(tr("Open"))) open = picked;
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(picked.empty() || m_project.directory.empty());
+    if (ImGui::Button(tr("Set as Start Scene"))) m_projectPanel.setStartScene(m_project, "scenes/" + fileName(picked));
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(tr("New Scene"))) newScene();
+    ImGui::TextDisabled("%s", tr("★ marks the scene the game starts with (mealkit.project)"));
+    ImGui::EndDisabled();
+    ImGui::End();
+    if (!open.empty()) openSceneFile(open);
 }
 
 // 씬 환경 (인스펙터에서 씬 줄을 골랐을 때)
@@ -2330,6 +2409,7 @@ bool Editor::loadScene(const std::string& path) {
     m_scenePath = path;
     loadViewState();
     m_sceneTime = fileWriteTime(path);
+    rememberRecentScene(path);
     m_sceneChangedWarned = false;
     m_dirty = false;
     m_autosavePending = false;
@@ -2434,6 +2514,8 @@ void Editor::updateTitle() {
 void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
     loadViewState(); // 씬은 프로젝트보다 먼저 열린다
+    loadRecentScenes();
+    if (!m_scenePath.empty()) rememberRecentScene(m_scenePath);
     // 창 배치를 프로젝트마다 (build\editor\layout.ini). 처음 여는 프로젝트는 기본 레이아웃
     if (m_prefs.projectLayout && !project.directory.empty()) {
         const std::string folder = project.directory + "\\build\\editor";

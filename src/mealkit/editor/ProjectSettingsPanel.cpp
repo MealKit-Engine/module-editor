@@ -31,6 +31,20 @@ void ProjectSettingsPanel::revert(const ProjectInfo& project) {
     m_dirty = false;
 }
 
+bool ProjectSettingsPanel::setStartScene(ProjectInfo& project, const std::string& scene) {
+    if (project.directory.empty()) return false;
+    ProjectInfo next = project;
+    next.settings.scene = scene;
+    if (!game::saveProjectFile(next.filePath(), next)) {
+        m_status = trf("Could not save project settings: %s", next.filePath().c_str());
+        return false;
+    }
+    project = next;
+    m_edit.scene = scene;
+    m_status = trf("Start scene: %s", scene.c_str());
+    return true;
+}
+
 bool ProjectSettingsPanel::save(ProjectInfo& project) {
     if (project.directory.empty()) return false;
     ProjectInfo next = project;

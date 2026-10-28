@@ -245,7 +245,14 @@ private:
     Snapshot capture() const;
     void restore(const Snapshot& snapshot);
     void pushUndo(Snapshot snapshot);
-    void drawHistory();  // [편집] > [기록]: 되돌리기 목록, 누르면 그 지점으로
+    void drawHistory();
+    // [씬] 창 (assets/scenes의 씬 목록, 시작 씬 지정, 열기)과 [파일] > [최근 씬] (프로젝트별 build\editor\recent_scenes.txt)
+    void drawSceneList();
+    void openSceneFile(const std::string& path); // 저장 안 된 변경은 자동 저장본으로 남기고 연다
+    void rememberRecentScene(const std::string& path);
+    void loadRecentScenes();
+    bool m_sceneListOpen = false;
+    std::vector<std::string> m_recentScenes; // 절대 경로, 최근 것이 앞  // [편집] > [기록]: 되돌리기 목록, 누르면 그 지점으로
     bool m_historyOpen = false;
     int m_undoLabelFrame = -1; // 이 프레임의 setStatus가 방금 쌓은 되돌리기의 이름이 된다
     bool m_scaleLock = false;  // 인스펙터 크기 비율 고정
