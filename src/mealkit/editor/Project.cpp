@@ -26,7 +26,7 @@ std::string trim(const std::string& s) {
     return s.substr(a, b - a);
 }
 
-// 같은 폴더를 다른 표기(대소문자, 슬래시, 끝 구분자)로 적어도 같게 본다
+// Treats the same folder written in different notations (case, slashes, trailing separator) as equal
 std::string normalizeDirectory(const std::string& directory) {
     std::error_code ec;
     fs::path p = fs::weakly_canonical(fromUtf8(directory), ec);
@@ -46,13 +46,13 @@ constexpr const char* kRecentFile = "recent_projects.txt";
 constexpr const char* kFavoriteFile = "favorite_projects.txt";
 constexpr size_t kMaxRecent = 100;
 
-// 사용자 폴더의 목록 파일 (한 줄에 폴더 하나)
+// List file in the user folder (one folder per line)
 std::vector<std::string> loadList(const char* name) {
     std::vector<std::string> list;
     std::ifstream in(fromUtf8(editorUserDirectory()) / name, std::ios::binary);
     std::string line;
     while (std::getline(in, line)) {
-        if (list.empty() && line.rfind("\xEF\xBB\xBF", 0) == 0) line.erase(0, 3); // 메모장·PowerShell이 붙인 BOM
+        if (list.empty() && line.rfind("\xEF\xBB\xBF", 0) == 0) line.erase(0, 3); // BOM added by Notepad/PowerShell
         line = trim(line);
         if (!line.empty()) list.push_back(line);
     }
@@ -77,7 +77,7 @@ void eraseDirectory(std::vector<std::string>& list, const std::string& dir) {
 std::string ProjectInfo::filePath() const { return directory + "\\" + kProjectFileName; }
 
 const std::string& editorBuildName() {
-    // 에디터 exe는 <폴더>\build\<이름>\bin에 있다: Editor(DX12) 또는 VulkanEditor
+    // The editor exe is in <folder>\build\<name>\bin: Editor (DX12) or VulkanEditor
     static const std::string name = [] {
         const std::string build = fileName(parentDirectory(executableDirectory()));
         return build == "VulkanEditor" ? build : std::string("Editor");
@@ -115,7 +115,7 @@ bool loadProject(const std::string& directory, ProjectInfo& out, std::string* er
         if (error) *error = "mealkit.project has no name";
         return false;
     }
-    game::applyTickRate(out.settings); // 튜닝·씬·표의 시간 값(초)을 이 틱레이트로 읽는다
+    game::applyTickRate(out.settings); // time values (seconds) in tuning/scenes/tables are read with this tick rate
     return true;
 }
 

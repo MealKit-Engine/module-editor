@@ -6,35 +6,35 @@
 
 #include <string>
 
-// 에디터 프로젝트 빌드와 [빌드 로그] 창: 프로젝트의 build.bat(게임 코드, 출시본)이나 엔진의 upgrade_project.ps1을
-// 창 없이 실행하고 출력을 모은다. 빌드 전에 저장할 것과 끝난 뒤 할 일(DLL 다시 읽기, 다시 빌드)은 에디터가 정한다.
+// Editor project builds and the [Build Log] window: runs the project's build.bat (game code, shipping) or the engine's upgrade_project.ps1
+// without a window and collects output. What to save before building and what to do after (reload DLL, rebuild) is decided by the editor.
 namespace mealkit::editor {
 
 enum class BuildKind {
-    GameCode, // build.bat Editor: 게임 DLL (끝나면 앱이 바꿔 끼운다)
-    Export,   // build.bat Export: 출시용 exe + assets → export\<이름>
-    Upgrade,  // 엔진의 tools\upgrade_project.ps1: 프로젝트 템플릿 파일을 지금 엔진 버전으로 (끝나면 게임 코드 빌드)
+    GameCode, // build.bat Editor: game DLL (the app swaps it in when done)
+    Export,   // build.bat Export: shipping exe + assets → export\<name>
+    Upgrade,  // engine's tools\upgrade_project.ps1: project template files to the current engine version (then a game code build)
 };
 
 class BuildPanel {
 public:
     static constexpr const char* kWindow = "Build Log###BuildLog";
 
-    // 실행을 시작한다 (이미 빌드 중이면 false). now: 에디터 시간 (걸린 시간 표시)
+    // Starts running (false if already building). now: editor time (for showing elapsed time)
     bool start(BuildKind kind, const ProjectInfo& project, const std::string& engineDirectory, f64 now);
-    // 출력을 모은다. 빌드가 이번에 끝났으면 true (kind()·succeeded()로 결과를 본다)
+    // Collects output. true if the build finished this time (see the result with kind()/succeeded())
     bool poll(const ProjectInfo& project, f64 now);
     bool running() const { return m_process.running(); }
     BuildKind kind() const { return m_kind; }
     bool succeeded() const { return m_succeeded; }
 
     bool* openFlag() { return &m_open; }
-    // 상태 표시줄의 "빌드 중... N초" (빌드 중이 아니면 아무것도 그리지 않고 false)
+    // Status bar "Building... N s" (draws nothing and returns false when not building)
     bool drawStatus(f64 now) const;
-    // [빌드 로그] 창. 버튼으로 고른 빌드를 request에 넣고 true (시작은 에디터가 저장한 뒤에 한다)
+    // [Build Log] window. Puts the build chosen by button into request and returns true (the editor starts it after saving)
     bool drawLog(bool editing, const ProjectInfo& project, f64 now, BuildKind* request);
     std::string takeStatus() { return std::move(m_status); }
-    void setCodeEditor(const std::string& editor) { m_codeEditor = editor; } // 로그의 "파일(줄)"을 누르면 연다
+    void setCodeEditor(const std::string& editor) { m_codeEditor = editor; } // clicking a "file(line)" in the log opens it
 
 private:
     ChildProcess m_process;

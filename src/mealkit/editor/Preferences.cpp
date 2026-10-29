@@ -56,7 +56,7 @@ bool savePreferences(const Preferences& p) {
     std::string old, out;
     readTextFile(settingsPath(), old);
     size_t pos = 0;
-    while (pos < old.size()) { // 다른 기능의 줄(language, toolPath)은 그대로
+    while (pos < old.size()) { // lines of other features (language, toolPath) stay as is
         size_t end = old.find('\n', pos);
         if (end == std::string::npos) end = old.size();
         const std::string line = old.substr(pos, end - pos);

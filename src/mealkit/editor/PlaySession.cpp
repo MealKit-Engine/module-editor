@@ -36,7 +36,7 @@
 namespace mealkit::editor {
 namespace {
 
-constexpr u32 kInputDelayMs = 100; // 127.0.0.1 참가 창: 고정 (자동 조절 없음)
+constexpr u32 kInputDelayMs = 100; // 127.0.0.1 join windows: fixed (no auto adjustment)
 
 std::string playDirectory(const std::string& projectDir) { return projectDir + "\\build\\" + editorBuildName() + "\\play"; }
 
@@ -49,7 +49,7 @@ u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const 
     o.tuningPath = tuningPath;
     o.project = &project;
     game::MatchData data;
-    game::loadMatchData(game::gameTypes(module), o, models, data); // 씬을 주므로 실패하지 않는다
+    game::loadMatchData(game::gameTypes(module), o, models, data); // a scene is given, so it doesn't fail
     if (parts) std::copy(std::begin(data.contentParts), std::end(data.contentParts), parts);
     return data.contentHash;
 }
@@ -61,7 +61,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     stop();
     m_audio = &audio;
     m_feedback = &feedback;
-    m_frontReady = false; // 렌더러는 update에서 받는다
+    m_frontReady = false; // the renderer is received in update
     m_config = config;
     m_config.players = std::clamp(config.players, 1u, net::kMaxPlayers);
     m_host = &host;
@@ -71,10 +71,10 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     m_options = {};
     m_options.bot = config.bot;
     m_options.shadow = config.shadow;
-    m_options.record = config.players <= 1; // 되감기는 혼자 플레이에서만 (여러 명이면 멈출 수 없다)
+    m_options.record = config.players <= 1; // rewind only in solo play (can't pause with multiple players)
     m_options.tuningPath = editor.writePlayTuning();
-    m_options.desyncDumpDir = config.projectDir + "/build/" + game::kDesyncFolder; // 여러 명 플레이에서 디싱크가 나면
-    editor.saveTablesForPlay(); // 게임은 매치를 시작할 때 표 파일을 읽는다
+    m_options.desyncDumpDir = config.projectDir + "/build/" + game::kDesyncFolder; // when a desync happens in multiplayer play
+    editor.saveTablesForPlay(); // the game reads table files when a match starts
 
     m_game = host.create();
     if (!m_game) {
@@ -88,7 +88,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     matchConfig.defaultPort = kEditorPlayPort;
     matchConfig.defaultMaxPlayers = m_config.players;
     matchConfig.inputDelay = game::msToTicks(kInputDelayMs);
-    matchConfig.loopbackOnly = true; // 같은 PC의 참가 창만 (방화벽 창이 뜨지 않는다)
+    matchConfig.loopbackOnly = true; // only join windows on the same PC (no firewall prompt)
     matchConfig.announceRooms = false;
     matchConfig.build = host.module()->build;
     m_userFolder.clear();
@@ -96,7 +96,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     if (replay()) {
         game::InputRecording recording;
         std::string loadError, recordingPath = m_config.replayPath, bugInfo;
-        // 버그 리포트 묶음(game/BugReport.h): zip의 입력 기록을 꺼내 기록이 끝나는 틱까지 재생하고 멈춘다
+        // Bug report bundle (game/BugReport.h): extract the input recording from the zip, replay up to the tick where the recording ends, and pause
         m_bugReport = recordingPath.size() > 4 && recordingPath.compare(recordingPath.size() - 4, 4, ".zip") == 0;
         if (m_bugReport &&
             !game::extractBugReport(m_config.replayPath, playDirectory(config.projectDir), recordingPath, bugInfo, loadError))
@@ -108,7 +108,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
             return false;
         }
         const u64 hash = playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath, editor.project());
-        if (hash != recording.contentHash) // 보기는 하되, 갈라지면 그 틱에서 멈춘다 (update)
+        if (hash != recording.contentHash) // still watch, but pause at the tick where it diverges (update)
             editor.showMessage(tr("This replay was recorded with different game data (scene, models, tuning or project "
                                   "settings). It may diverge."));
         m_match->init(matchConfig);
@@ -124,22 +124,22 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         }
         MEALKIT_INFO("Editor play: replaying %s", m_config.replayPath.c_str());
     } else if (!multiplayer()) {
-        // 혼자 플레이도 매치마다 리플레이를 남긴다 (사용자 폴더 replays/, 멈추면 날짜·시각 이름으로)
+        // Solo play also keeps a replay per match (user folder replays/, named by date/time on stop)
         m_keepReplays = editor.project().settings.keepReplays;
         if (m_keepReplays > 0 && !config.bot) {
             m_userFolder = game::userFolder(editor.project().settings);
-            game::keepReplay(m_userFolder, m_keepReplays); // 지난번에 튕겨 남은 기록
+            game::keepReplay(m_userFolder, m_keepReplays); // recording left over from a crash last time
             m_options.recordInputsPath = game::replayRecordingPath(m_userFolder);
             matchConfig.contentHash = playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath,
                                                       editor.project());
         }
         m_match->init(matchConfig);
         m_match->playOffline();
-        m_game->lobby(m_match->session(), m_options, game::userFolder(editor.project().settings)); // 로드아웃
+        m_game->lobby(m_match->session(), m_options, game::userFolder(editor.project().settings)); // loadout
         m_match->start(config.bodies);
         m_firstMatch = true;
     } else {
-        // 참가 창이 읽을 씬 사본 (저장 안 된 편집 포함)
+        // Scene copy read by join windows (including unsaved edits)
         const std::string dir = playDirectory(config.projectDir);
         createDirectories(dir);
         const std::string scenePath = dir + "\\play.scene";
@@ -150,7 +150,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         matchConfig.contentHash =
             playContentHash(editor.scene(), models, *host.module(), m_options.tuningPath, editor.project(), matchConfig.contentParts);
         m_match->init(matchConfig);
-        const std::string viewTuningPath = editor.writePlayViewTuning(); // 참가 창은 이 사본이 바뀔 때마다 다시 읽는다
+        const std::string viewTuningPath = editor.writePlayViewTuning(); // join windows reread this copy whenever it changes
         editor.takeViewTuningChanged();
         if (!m_match->host(kEditorPlayPort, m_config.players)) {
             error = trf("Could not open port %u (is another play session using it?)", static_cast<unsigned>(kEditorPlayPort));
@@ -174,15 +174,15 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         }
         MEALKIT_INFO("Editor play: hosting %u players on port %u", m_config.players, kEditorPlayPort);
     }
-    editor.takeTuningChanged(); // 시작할 때 이미 임시 파일로 넘겼다
+    editor.takeTuningChanged(); // already passed as a temp file at start
     return true;
 }
 
 void PlaySession::stop() {
-    if (m_audio) m_audio->stopAll(); // 게임이 낸 소리 (배경음 루프 포함)
+    if (m_audio) m_audio->stopAll(); // sounds made by the game (including background music loops)
     if (m_feedback) m_feedback->clear();
     m_clients.terminateAll();
-    if (m_host && m_game) m_host->destroy(m_game); // 시뮬레이션이 입력 기록 파일을 닫는다
+    if (m_host && m_game) m_host->destroy(m_game); // the simulation closes the input recording file
     m_game = nullptr;
     m_match.reset();
     if (!m_userFolder.empty()) game::keepReplay(m_userFolder, m_keepReplays);
@@ -193,29 +193,29 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
                          asset::ModelCache& models) {
     if (!m_game || !m_match || !m_failure.empty() || m_left) return;
     if (!m_frontReady) {
-        game::FrontendConfig c; // 바인딩은 프로젝트 것만 (플레이어가 바꾼 키 파일 없음), 화면 항목은 적용하지 않는다
+        game::FrontendConfig c; // only the project's bindings (no player-changed key file), display options aren't applied
         c.renderer = &renderer;
         c.audio = m_audio;
         c.feedback = m_feedback;
         c.projectLanguage = editor.project().settings.language;
         c.settingsFile = game::userFolder(editor.project().settings) + "/" + settings::kSettingsFile;
-        m_front.init(c); // 화면용 튜닝은 에디터가 넘긴다 (패널에서 고친 값)
+        m_front.init(c); // view tuning is passed by the editor (values edited in the panel)
         m_frontReady = true;
     }
     net::LockstepSession& session = m_match->session();
     m_match->update(now);
-    if (m_match->phase() == game::MatchPhase::Menu) { // 게임이 [나가기]를 눌렀다 (리플레이는 결과 화면 뒤)
+    if (m_match->phase() == game::MatchPhase::Menu) { // the game pressed [Leave] (replay after the results screen)
         m_left = true;
         return;
     }
-    // 리플레이가 기록과 갈라지면 그 틱에서 멈춘다 (되감기·[상태] 패널로 본다)
+    // When the replay diverges from the recording, pause at that tick (inspect with rewind/[State] panel)
     if (session.isReplay() && session.desynced() && !m_replayStopped && m_game->debug()) {
         m_game->debug()->setPaused(true);
         m_replayStopped = true;
         editor.showMessage(trf("The replay diverged from the recording at tick %u (different build or data).",
                                session.desyncTick()));
     }
-    // 버그 리포트는 기록이 끝난 틱(F9를 누른 때)에서 멈춘다
+    // Bug reports pause at the tick where the recording ended (when F9 was pressed)
     if (m_bugReport && !m_replayStopped && m_game->started() && m_game->debug() &&
         m_game->debug()->timeline().live >= session.replayTicks()) {
         m_game->debug()->setPaused(true);
@@ -224,7 +224,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     if (!m_game->started() && session.state() == net::SessionState::Lobby)
         m_game->lobby(session, m_options, game::userFolder(editor.project().settings));
 
-    // 방장: 첫 매치는 모두 들어오면 시작한다 (그다음 매치는 게임의 로비 화면이 시작한다)
+    // Host: the first match starts when everyone is in (later matches are started by the game's lobby screen)
     if (!m_firstMatch && session.isHost() && session.state() == net::SessionState::Lobby &&
         session.lobbyPlayerCount() >= m_config.players) {
         m_match->start(m_config.bodies);
@@ -247,7 +247,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         return;
     }
 
-    // 화면용 튜닝: 에디터 값을 그대로 넘기고, 여러 명이면 참가 창이 읽는 사본을 다시 쓴다 (0.2초에 한 번까지)
+    // View tuning: pass the editor values as is, and with multiple players rewrite the copy join windows read (at most once every 0.2 s)
     m_viewTuningTimer += dt;
     if (multiplayer() && m_viewTuningTimer >= 0.2 && editor.takeViewTuningChanged()) {
         editor.writePlayViewTuning();
@@ -260,7 +260,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     ctx.viewTuningData = editor.viewTuning();
     ctx.userFolder = game::userFolder(editor.project().settings);
     ctx.scene = &editor.scene();
-    // 매치 시작(로딩 화면을 한 번 그린 뒤)과 끝(로비로 돌아감)
+    // Match start (after drawing the loading screen once) and end (back to the lobby)
     if (!m_game->started() && session.state() == net::SessionState::Running) {
         if (m_loadingShown) {
             m_game->start(ctx, editor.scene(), m_options);
@@ -271,12 +271,12 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         m_game->stop(ctx);
         m_loadingShown = false;
     }
-    // 패드는 게임 뷰가 키보드를 받을 때만 (다른 패널을 고치는 동안 캐릭터가 움직이지 않게)
+    // Gamepads only when the game view has the keyboard (so the character doesn't move while editing other panels)
     m_front.update(now, dt, window.input(), editor.gameKeyboardAllowed(), ctx);
-    // 혼자 플레이: 튜닝을 바꾸면 바로 적용. 여러 명이면 피어마다 달라져 디싱크가 나므로 적용하지 않는다.
+    // Solo play: tuning changes apply immediately. With multiple players they'd differ per peer and desync, so they aren't applied.
     if (editor.takeTuningChanged() && !multiplayer()) m_game->setTuning(editor.tuningData());
     m_game->update(ctx, dt);
-    m_game->debugUi(ctx); // 에디터 ImGui 프레임 안 (게임 DLL도 mealkit.dll의 같은 ImGui를 쓴다)
+    m_game->debugUi(ctx); // inside the editor's ImGui frame (the game DLL uses the same ImGui from mealkit.dll)
     editor.setStateView(m_game->stateView());
     editor.setSimDebug(m_game->debug(), !multiplayer());
 
@@ -301,7 +301,7 @@ void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Re
     ctx.viewTuningData = editor.viewTuning();
     ctx.scene = &editor.scene();
     m_game->buildFrame(ctx, now, frame, out);
-    debug::flushDebugDraw(out, models.boxMesh(), frame, now, true); // 게임 코드의 debug::line/box/text
+    debug::flushDebugDraw(out, models.boxMesh(), frame, now, true); // game code's debug::line/box/text
     m_front.afterBuildFrame(frame);
 }
 
@@ -309,20 +309,20 @@ void PlaySession::renderUi(render::Renderer& renderer) {
     if (m_game && m_match && m_frontReady) m_front.renderUi(renderer);
 }
 
-// ---------------------------------------------------------------- 참가 창
+// ---------------------------------------------------------------- Join windows
 
-// 참가 모드 출시 exe와 같은 명령줄·루프(game::parseGameArgs, game::runGame)에 에디터 쪽 차이만 넘긴다
+// Passes only the editor-side differences to the same command line/loop as the join-mode shipping exe (game::parseGameArgs, game::runGame)
 int runPlayer(int argc, char** argv) {
     log::setDialogs(false);
     std::string projectDir, viewTuningPath;
-    u32 index = 2; // 창 제목에 쓰는 번호
+    u32 index = 2; // number used in the window title
     std::vector<char*> gameArgs{argv[0]};
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--player-window") continue;
         if (a == "--project" && i + 1 < argc) projectDir = argv[++i];
         else if (a == "--player-index" && i + 1 < argc) index = static_cast<u32>(std::atoi(argv[++i]));
-        else if (a == "--view-tuning" && i + 1 < argc) viewTuningPath = argv[++i]; // 에디터가 고칠 때마다 다시 쓰는 사본
+        else if (a == "--view-tuning" && i + 1 < argc) viewTuningPath = argv[++i]; // copy rewritten whenever the editor edits
         else gameArgs.push_back(argv[i]);
     }
     game::MatchOptions match;
@@ -331,7 +331,7 @@ int runPlayer(int argc, char** argv) {
     game::WindowOptions window;
     window.width = 960;
     window.height = 540;
-    window.mute = true; // 같은 PC에서 여러 개가 뜬다 (게임 코드는 똑같이 소리를 부른다)
+    window.mute = true; // several open on the same PC (game code calls sounds the same way)
     if (!game::parseGameArgs(static_cast<int>(gameArgs.size()), gameArgs.data(), match, &window)) return 1;
 
     ProjectInfo project;
@@ -355,7 +355,7 @@ int runPlayer(int argc, char** argv) {
     run.title = "MealKit - " + project.name() + " - " + trf("Player %u", static_cast<unsigned>(index));
     run.captionColor = kEditorCaptionColor;
     run.viewTuningPath = viewTuningPath;
-    run.playerFiles = false; // 설정·바꾼 키는 기본값, 저장하지 않는다 (같은 PC의 여러 창이 한 파일을 쓰지 않게)
+    run.playerFiles = false; // settings/rebound keys are defaults and not saved (so multiple windows on the same PC don't share one file)
     run.onlineService = false;
     run.exitWhenSessionEnds = true;
     const int exitCode = game::runGame(std::move(match), window, spec, run);

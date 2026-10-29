@@ -16,7 +16,7 @@ std::string TuningPanel::docPath(const Doc& doc) const {
 }
 
 void TuningPanel::setDocType(Doc& doc, const reflect::TypeInfo* type) {
-    if (doc.value.type()) { // 지금 값을 텍스트로 보존
+    if (doc.value.type()) { // keep the current values as text
         doc.text.clear();
         reflect::toText(*doc.value.type(), doc.value.data(), doc.text);
     }
@@ -35,7 +35,7 @@ void TuningPanel::setDocType(Doc& doc, const reflect::TypeInfo* type) {
 
 bool TuningPanel::load(Doc& doc) {
     if (!doc.value.type()) return false;
-    doc.value = reflect::Instance(*doc.value.type()); // 기본값부터
+    doc.value = reflect::Instance(*doc.value.type()); // starting from defaults
     const std::string path = docPath(doc);
     doc.dirty = false;
     doc.changed = true;
@@ -114,7 +114,7 @@ void TuningPanel::drawDoc(Doc& doc, bool liveInMultiplayer, bool playing, bool m
 }
 
 void TuningPanel::draw(const char* dockWith, bool playing, bool multiplayer, const data::TableIndexList& index) {
-    // 예전 레이아웃 파일에는 이 창이 없다: 처음 열 때 dockWith 창과 같은 자리에 탭으로 붙인다
+    // Old layout files don't have this window: on first open, dock it as a tab in the same place as the dockWith window
     if (ImGuiWindow* other = ImGui::FindWindowByName(dockWith); other && other->DockId)
         ImGui::SetNextWindowDockID(other->DockId, ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(trl(kWindow))) {
@@ -126,7 +126,7 @@ void TuningPanel::draw(const char* dockWith, bool playing, bool multiplayer, con
         ImGui::End();
         return;
     }
-    // 게임 = 시뮬레이션 규칙 값(콘텐츠 해시), 화면 = 보이기만 하는 값(해시 밖, 여러 명 플레이 중에도 바로 적용)
+    // Game = simulation rule values (content hash), View = display-only values (outside the hash, applied immediately even during multiplayer play)
     if (ImGui::BeginTabBar("##tuningTabs")) {
         if (ImGui::BeginTabItem(trl("Game###GameTuning"))) {
             drawDoc(m_tuning, false, playing, multiplayer, index);

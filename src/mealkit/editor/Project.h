@@ -5,13 +5,13 @@
 #include <string>
 #include <vector>
 
-// 게임 프로젝트 폴더: 최상위에 mealkit.project(game::ProjectSettings, mealkit/game/ProjectSettings.h)가 있다.
+// Game project folder: has mealkit.project (game::ProjectSettings, mealkit/game/ProjectSettings.h) at the top level.
 namespace mealkit::editor {
 
 inline constexpr const char* kProjectFileName = game::kProjectFileName;
 
 struct ProjectInfo : game::ProjectFile {
-    std::string directory; // 프로젝트 폴더 (끝에 구분자 없음, 역슬래시)
+    std::string directory; // project folder (no trailing separator, backslashes)
 
     const std::string& name() const { return settings.name; }
     std::string filePath() const;        // <directory>\mealkit.project
@@ -21,25 +21,25 @@ struct ProjectInfo : game::ProjectFile {
     std::string exportDirectory() const; // export\<name>
 };
 
-// 이 에디터의 빌드 이름 = build.bat 인자: "Editor"(DX12) 또는 "VulkanEditor" (exe가 있는 build\<이름>\bin에서)
+// This editor's build name = build.bat argument: "Editor" (DX12) or "VulkanEditor" (from build\<name>\bin where the exe is)
 const std::string& editorBuildName();
 
-// directory\mealkit.project를 읽는다. 실패하면 false와 이유.
+// Reads directory\mealkit.project. On failure, false and a reason.
 bool loadProject(const std::string& directory, ProjectInfo& out, std::string* error = nullptr);
 bool isProjectDirectory(const std::string& directory);
 
-// 사용자별 에디터 파일 폴더 (%LOCALAPPDATA%\MealKit): 프로젝트 목록, 즐겨찾기, 에디터 설정
+// Per-user editor file folder (%LOCALAPPDATA%\MealKit): project list, favorites, editor settings
 std::string editorUserDirectory();
-bool sameProjectDirectory(const std::string& a, const std::string& b); // 대소문자·슬래시·끝 구분자 무시
+bool sameProjectDirectory(const std::string& a, const std::string& b); // ignores case, slashes, trailing separator
 
-// 프로젝트 관리자 목록 (recent_projects.txt). 최근에 연 것이 먼저.
+// Project manager list (recent_projects.txt). Most recently opened first.
 std::vector<std::string> loadRecentProjects();
 void addRecentProject(const std::string& directory);
-void removeRecentProject(const std::string& directory); // 즐겨찾기에서도 뺀다
-// 즐겨찾기 (favorite_projects.txt). 목록 맨 위에 보인다
+void removeRecentProject(const std::string& directory); // also removed from favorites
+// Favorites (favorite_projects.txt). Shown at the top of the list
 std::vector<std::string> loadFavoriteProjects();
 void setFavoriteProject(const std::string& directory, bool favorite);
-// 프로젝트 폴더를 옮긴 뒤 목록과 즐겨찾기의 경로를 바꾼다
+// After moving a project folder, changes the path in the list and favorites
 void replaceProjectDirectory(const std::string& from, const std::string& to);
 
 } // namespace mealkit::editor

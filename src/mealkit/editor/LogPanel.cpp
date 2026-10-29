@@ -13,7 +13,7 @@ namespace mealkit::editor {
 namespace {
 
 constexpr size_t kMaxEntries = 5000;
-LogPanel* g_panel = nullptr; // 로그 싱크는 함수 포인터라 창 하나를 전역으로 잡는다
+LogPanel* g_panel = nullptr; // the log sink is a function pointer, so one window is held globally
 
 const ImVec4 kColors[3] = {ImVec4(0.80f, 0.80f, 0.80f, 1.0f), ImVec4(0.95f, 0.80f, 0.35f, 1.0f),
                            ImVec4(1.0f, 0.45f, 0.40f, 1.0f)};

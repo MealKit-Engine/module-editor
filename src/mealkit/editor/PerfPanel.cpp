@@ -37,7 +37,7 @@ void PerfPanel::draw() {
     }
     const game::FrameSample& last = m_samples.back();
     const ImVec4 red(1.0f, 0.45f, 0.4f, 1.0f), ok(0.6f, 0.88f, 0.6f, 1.0f);
-    // 한 줄: 이름, 지금 값 / 예산, 최근 30초 그래프 (예산선은 그래프 높이의 기준)
+    // One row: name, current value / budget, graph of the last 30 seconds (the budget line is the graph's height reference)
     const auto row = [&](const char* name, bool has, const char* unit, f64 budget,
                          const std::function<f64(const game::FrameSample&)>& get) {
         if (!has) return;
@@ -61,7 +61,7 @@ void PerfPanel::draw() {
         ImGui::PushID(name);
         ImGui::PlotLines("##plot", values.data(), static_cast<int>(values.size()), 0, nullptr, 0.0f,
                          static_cast<float>(peak * 1.1), size);
-        // 예산선
+        // Budget line
         const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
         const f32 y = max.y - (max.y - min.y) * static_cast<f32>(budget / (peak * 1.1));
         ImGui::GetWindowDrawList()->AddLine(ImVec2(min.x, y), ImVec2(max.x, y), ImGui::GetColorU32(red), 1.0f);

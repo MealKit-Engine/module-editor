@@ -33,8 +33,8 @@ bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
         return false;
     }
 
-    // hot\<이름>.<프로세스>.<번호>.dll 로 복사해서 불러온다.
-    // 프로세스 번호를 넣는다: 여러 명 플레이의 참가 창(같은 에디터 실행 파일)도 각자 복사본을 쓴다
+    // Copied to hot\<name>.<process>.<number>.dll and loaded.
+    // Includes the process number: join windows of multiplayer play (same editor executable) each use their own copy
     const fs::path hotDir = source.parent_path() / "hot";
     fs::create_directories(hotDir, ec);
     const u32 next = m_generation + 1;
@@ -44,8 +44,8 @@ bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
         error = "cannot copy the game DLL (still being written?): " + ec.message();
         return false;
     }
-    // 지난 복사본 지우기: 내 것은 모두, 다른 프로세스 것은 1분 넘게 된 것만 (막 복사해 불러오려는 참가 창의 파일을 지우지 않게).
-    // 불러온 DLL은 지워지지 않으므로 남는다. 만든 시각은 OS 단위(Windows 100ns)라 내 새 복사본과 비교한다
+    // Delete old copies: all of mine, and others' only if older than 1 minute (so a join window's just-copied file isn't deleted before loading).
+    // Loaded DLLs can't be deleted, so they remain. Creation time is in OS units (Windows 100ns), so compared with my new copy
     const unsigned long long now = fileCreationTime(toUtf8(copy));
     constexpr unsigned long long kStale = 60ull * 10'000'000ull;
     for (const auto& entry : fs::directory_iterator(hotDir, ec)) {
@@ -76,7 +76,7 @@ bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
         return false;
     }
 
-    unload(); // 새 모듈이 준비된 뒤에만 이전 것을 내린다
+    unload(); // the previous one is unloaded only after the new module is ready
     m_dll = dll;
     m_module = module;
     m_sourcePath = dllPath;
@@ -109,17 +109,17 @@ bool GameModuleHost::sourceChangedAndStable() {
 bool GameModuleHost::olderThanEngine(const std::string& dllPath, const std::string& engineDirectory) {
     const u64 game = fileWriteTime(dllPath);
     if (game == 0) return false;
-    // mealkit.dll 시각은 쓰지 않는다: 엔진 .cpp만 바뀌어도 다시 링크되지만 게임 DLL은 다시 링크되지 않는다.
-    // import lib은 내보내기가 바뀔 때만 링커가 다시 쓴다 → 게임 DLL이 다시 링크돼야 하는 때와 맞다.
+    // mealkit.dll's time isn't used: it's relinked even when only engine .cpp changes, but the game DLL isn't relinked.
+    // The linker rewrites the import lib only when exports change → matches when the game DLL needs relinking.
     const std::string bin = executableDirectory();
     u64 engine = fileWriteTime(toUtf8(fromUtf8(bin).parent_path() / "engine" / "mealkit.lib"));
-    if (engine == 0) engine = fileWriteTime(bin + "\\mealkit.dll"); // import lib이 없는 배치
-    // 헤더만 바뀐 경우(구조체 배치, 인라인 함수)는 내보내기가 같아도 게임 코드를 다시 컴파일해야 한다
+    if (engine == 0) engine = fileWriteTime(bin + "\\mealkit.dll"); // layouts without an import lib
+    // When only headers changed (struct layout, inline functions), game code must be recompiled even if exports are the same
     std::error_code ec;
     const fs::path headers = fromUtf8(engineDirectory) / "engine" / "src" / "mealkit";
     for (fs::recursive_directory_iterator it(headers, ec), end; !ec && it != end; it.increment(ec)) {
         const fs::path& path = it->path();
-        if (it.depth() == 0 && path.filename() == "editor") { // 에디터 헤더는 게임 코드가 쓰지 않는다
+        if (it.depth() == 0 && path.filename() == "editor") { // editor headers aren't used by game code
             it.disable_recursion_pending();
             continue;
         }

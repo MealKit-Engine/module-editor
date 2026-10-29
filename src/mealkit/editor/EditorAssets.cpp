@@ -1,5 +1,5 @@
-// [에셋] 창: assets/ 폴더 트리와 파일, 모델을 씬 뷰로 끌어 놓기, 이름 바꾸기·옮기기(참조 같이 고침), 끊긴 참조 목록.
-// 에셋은 assets 기준 경로("models/tree.glb")로 참조한다 (docs/CODING_MODEL.md "에셋 참조와 적재").
+// [Assets] window: assets/ folder tree and files, drag models into the scene view, rename/move (references fixed too), broken reference list.
+// Assets are referenced by paths relative to assets ("models/tree.glb") (docs/CODING_MODEL.md "Asset references and loading").
 #include "mealkit/editor/Editor.h"
 
 #include "mealkit/asset/ModelCache.h"
@@ -39,7 +39,7 @@ const char* assetIcon(const std::string& name) {
     return icon::kFlag;
 }
 
-// 경로를 참조할 수 있는 텍스트 파일 (씬·튜닝·UI·표·효과·소리 이벤트·입력)
+// Text files that can reference paths (scenes, tuning, UI, tables, effects, sound events, input)
 bool referenceFile(const std::string& name) {
     const std::string ext = lowerExtension(name);
     for (const char* e : {".scene", ".tuning", ".ui", ".table", ".fx", ".events", ".bindings", ".txt"})
@@ -61,7 +61,7 @@ std::string toNative(std::string path) {
 
 bool pathChar(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '.' || c == '/'; }
 
-// text 안의 from을 to로 (앞뒤가 경로 글자가 아닌 곳만). 바꾼 수
+// Replaces from with to in text (only where the surrounding characters aren't path characters). Returns the count
 size_t replacePath(std::string& text, const std::string& from, const std::string& to) {
     size_t count = 0;
     for (size_t at = text.find(from); at != std::string::npos; at = text.find(from, at)) {
@@ -104,18 +104,18 @@ void Editor::drawAssetBrowser() {
         return;
     }
     const std::string root = asset::ModelCache::assetsRoot();
-    // 왼쪽: 폴더
+    // Left: folders
     if (ImGui::BeginChild("##folders", ImVec2(ImGui::GetFontSize() * 13.0f, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders)) {
         if (ImGui::Selectable((std::string(icon::kFolder) + "  assets").c_str(), m_assetFolder.empty())) m_assetFolder.clear();
         drawAssetFolder(root, {});
     }
     ImGui::EndChild();
     ImGui::SameLine();
-    // 오른쪽: 파일 (모델은 씬 뷰로 끌어 놓는다, 씬은 두 번 눌러 연다)
+    // Right: files (drag models into the scene view, double-click scenes to open)
     if (ImGui::BeginChild("##files")) {
         const std::string folder = m_assetFolder.empty() ? root : root + "\\" + toNative(m_assetFolder);
         ImGui::TextDisabled("assets/%s", m_assetFolder.c_str());
-        // 지금 씬의 끊긴 모델 참조 (탐색기에서 바꿔 경로가 없어진 것)
+        // Broken model references in the current scene (paths gone after renaming in Explorer)
         std::set<std::string> missing;
         for (const scene::Entity& e : m_scene.entities)
             if (!e.model.empty() && !fileExists(root + "\\" + toNative(e.model)) && !fileExists(e.model)) missing.insert(e.model);
@@ -176,7 +176,7 @@ void Editor::drawAssetBrowser() {
     ImGui::End();
 }
 
-// 모델을 씬 뷰에 놓으면 마우스가 가리키는 곳(맞는 물체 위, 없으면 y = 0 바닥)에 모델 물체를 더한다
+// Dropping a model on the scene view adds a model object where the mouse points (on a hit object, or the y = 0 floor if none)
 void Editor::handleAssetDrop() {
     const ImGuiPayload* payload = ImGui::GetDragDropPayload();
     if (!payload || !payload->IsDataType(kAssetPayload) || !ImGui::IsMouseReleased(ImGuiMouseButton_Left)) return;
@@ -194,7 +194,7 @@ void Editor::handleAssetDrop() {
     addModelEntity(static_cast<const char*>(payload->Data), &at);
 }
 
-// 파일을 옮기고, assets 아래 텍스트 파일과 mealkit.project의 경로 참조를 같이 고친다. 열린 씬도 메모리에서 고친다
+// Moves the file and fixes path references in text files under assets and in mealkit.project. The open scene is fixed in memory too
 void Editor::renameAsset(const std::string& from, const std::string& toRaw) {
     std::string to = toRaw;
     std::replace(to.begin(), to.end(), '\\', '/');
@@ -212,7 +212,7 @@ void Editor::renameAsset(const std::string& from, const std::string& toRaw) {
         setStatus(trf("Could not move %s", from.c_str()), true);
         return;
     }
-    // 참조 고치기
+    // Fix references
     std::vector<std::string> files;
     collectFiles(root, {}, files);
     size_t changedFiles = 0, changedRefs = 0;
@@ -225,12 +225,12 @@ void Editor::renameAsset(const std::string& from, const std::string& toRaw) {
         if (!readTextFile(path, text)) continue;
         const size_t n = replacePath(text, from, to);
         if (n == 0) continue;
-        if (path == m_scenePath && m_dirty) continue; // 저장 안 된 열린 씬은 아래에서 메모리를 고치고 저장할 때 쓴다
+        if (path == m_scenePath && m_dirty) continue; // the unsaved open scene is fixed in memory below and written on save
         writeTextFile(path, text);
         ++changedFiles;
         changedRefs += n;
     }
-    // 열린 씬 (메모리)
+    // Open scene (memory)
     for (scene::Entity& e : m_scene.entities) {
         if (e.model == from) {
             e.model = to;
@@ -238,7 +238,7 @@ void Editor::renameAsset(const std::string& from, const std::string& toRaw) {
         }
         for (auto& [path, value] : e.fields) changedRefs += replacePath(value, from, to);
     }
-    if (!m_scenePath.empty()) m_sceneTime = fileWriteTime(m_scenePath); // 위에서 고쳐 쓴 씬을 "바깥에서 바뀜"으로 보지 않게
+    if (!m_scenePath.empty()) m_sceneTime = fileWriteTime(m_scenePath); // so the scene rewritten above isn't seen as "changed outside"
     if (m_assetSelected == from) m_assetSelected = to;
     setStatus(trf("Moved %s -> %s (%zu references in %zu files)", from.c_str(), to.c_str(), changedRefs, changedFiles));
     MEALKIT_INFO("Asset moved: %s -> %s (%zu references in %zu files)", from.c_str(), to.c_str(), changedRefs, changedFiles);

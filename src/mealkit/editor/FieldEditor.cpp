@@ -32,7 +32,7 @@ ImGuiDataType dataType(const ValueInfo& v) {
     }
 }
 
-// std::string을 직접 고치는 입력 칸 (버퍼가 모자라면 문자열을 늘린다)
+// Input field that edits a std::string directly (grows the string if the buffer is too small)
 bool inputString(const char* label, std::string& text) {
     auto resize = [](ImGuiInputTextCallbackData* data) {
         if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
@@ -49,7 +49,7 @@ void nameTooltip(const char* name) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", name);
 }
 
-// 살아 있는 슬롯 목록 (Pool 표시용)
+// List of live slots (for Pool display)
 std::vector<u32> liveSlots(const ValueInfo& v, const void* data) {
     std::vector<u32> slots;
     const u32 capacity = v.ops->capacity(data);
@@ -133,7 +133,7 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
     }
 }
 
-// 행 참조: 가리키는 표의 행 id를 고른다 (표를 모르면 글자로)
+// Row reference: pick a row id of the referenced table (as text if the table is unknown)
 bool drawRowRef(const char* label, const ValueInfo& v, void* data, const FieldContext* context) {
     const reflect::RowRefView ref = reflect::rowRefOf(data);
     const std::vector<std::string>* ids = nullptr;
@@ -173,7 +173,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
     case Kind::Bool: changed = ImGui::Checkbox(label, static_cast<bool*>(data)); break;
     case Kind::Int:
     case Kind::UInt:
-        if (!v.enumNames.empty()) { // MEALKIT_ENUM: 이름 고르기
+        if (!v.enumNames.empty()) { // MEALKIT_ENUM: pick a name
             u64 value = 0;
             std::memcpy(&value, data, v.size);
             const std::string preview = reflect::formatScalar(v, data);
@@ -181,7 +181,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
                 for (size_t i = 0; i < v.enumNames.size(); ++i)
                     if (ImGui::Selectable(v.enumNames[i].c_str(), value == i)) {
                         const u64 next = i;
-                        std::memcpy(data, &next, v.size); // 리틀 엔디언: 아래 바이트부터
+                        std::memcpy(data, &next, v.size); // little endian: from the low bytes
                         changed = true;
                     }
                 ImGui::EndCombo();
@@ -202,7 +202,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
     }
     case Kind::String: changed = inputString(label, *static_cast<std::string*>(data)); break;
     case Kind::RowRef: changed = drawRowRef(label, v, data, context); break;
-    case Kind::Ticks: { // 초로 고치고 틱으로 반올림한다
+    case Kind::Ticks: { // edited in seconds and rounded to ticks
         Ticks& t = *static_cast<Ticks*>(data);
         f32 seconds = t.toSeconds();
         const f32 step = 1.0f / static_cast<f32>(reflect::tickRate());
@@ -279,7 +279,7 @@ FieldLabel splitFieldLabel(const char* label) {
 
 namespace {
 
-// 필드 하나의 텍스트 줄들 (경로가 name이거나 name. / name[ 로 시작)
+// Text lines of one field (paths equal to name or starting with name. / name[)
 reflect::TextFields fieldText(const TypeInfo& type, const void* data, const char* name) {
     reflect::TextFields all, out;
     reflect::toText(type, data, all);
@@ -290,7 +290,7 @@ reflect::TextFields fieldText(const TypeInfo& type, const void* data, const char
 }
 
 struct FieldClipboard {
-    const reflect::ValueInfo* value = nullptr; // 같은 모양의 필드에만 붙여 넣는다
+    const reflect::ValueInfo* value = nullptr; // paste only into fields of the same shape
     std::string name;
     reflect::TextFields lines;
 };
@@ -305,14 +305,14 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         const bool readOnly = (f.flags & reflect::kFieldReadOnly) != 0;
         ImGui::BeginDisabled(readOnly);
         const FieldLabel label = splitFieldLabel(f.label);
-        // 안쪽 구조체·배열은 defaults도 같은 필드 자리로 옮겨 넘긴다
+        // For inner structs/arrays, defaults are moved to the same field position too
         FieldContext inner = context ? *context : FieldContext{};
         if (inner.defaults) inner.defaults = at(inner.defaults, f.offset);
         changed |= drawValue(trData(label.name.c_str()), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr);
         ImGui::EndDisabled();
         if (!label.tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", trData(label.tooltip.c_str()));
-        // 기본값과 다르면 왼쪽에 점
+        // Dot on the left if different from the default
         const bool hasDefaults = context && context->defaults;
         bool differs = false;
         if (hasDefaults) {
@@ -326,7 +326,7 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
                                                             2.5f, ImGui::GetColorU32(ImVec4(0.45f, 0.70f, 1.0f, 1.0f)));
             }
         }
-        // 오른쪽 클릭: 기본값으로 / 값 복사 / 붙여넣기
+        // Right click: reset to default / copy value / paste
         if (!readOnly && ImGui::BeginPopupContextItem("##fieldMenu")) {
             if (ImGui::MenuItem(tr("Reset to Default"), nullptr, false, hasDefaults && differs)) {
                 for (auto& [path, value] : fieldText(type, context->defaults, f.name)) reflect::setFromText(type, data, path, value);

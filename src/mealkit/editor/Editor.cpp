@@ -35,11 +35,11 @@ constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
 constexpr const char* kHierarchyWindow = "Scene Tree###Hierarchy";
 constexpr const char* kInspectorWindow = "Inspector###Inspector";
 constexpr const char* kStateWindow = "State###State";
-// 아래 가로 칸에 탭으로 붙는 창 (기본 레이아웃)
-const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // 플레이 중 메뉴 막대
+// Windows docked as tabs in the bottom row (default layout)
+const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // menu bar during play
 const char* const kBottomWindows[] = {LogPanel::kWindow, "Assets###Assets", BuildPanel::kWindow, TablesPanel::kWindow};
 
-// 대소문자를 무시한 부분 문자열 (씬 트리 찾기)
+// Case-insensitive substring (scene tree search)
 bool containsNoCase(const std::string& text, const char* needle) {
     const size_t n = strlen(needle);
     for (size_t i = 0; i + n <= text.size(); ++i)
@@ -51,23 +51,23 @@ constexpr size_t kUndoLimit = 100;
 const Vec3 kSpawnSize{0.8f, 1.8f, 0.8f};
 
 constexpr const char* kEntityPayload = "MEALKIT_ENTITY";
-constexpr f32 kAreaEdgeDraw = 0.0025f; // 영역 모서리 두께 (카메라 거리의 비율, 멀어도 보이게)
-constexpr f32 kAreaEdgePick = 0.6f;   // 영역 모서리를 누를 수 있는 두께 (m)
+constexpr f32 kAreaEdgeDraw = 0.0025f; // area edge thickness (fraction of camera distance, so it's visible from afar)
+constexpr f32 kAreaEdgePick = 0.6f;   // clickable thickness of area edges (m)
 
-// 영역 상자의 모서리 12개: 물체 로컬(크기 적용) 공간의 중심과 반 크기
+// The 12 edges of an area box: center and half size in object local (scaled) space
 void areaEdges(Vec3 half, f32 thickness, Vec3 centers[12], Vec3 halves[12]) {
     const f32 t = thickness * 0.5f;
     int n = 0;
     for (int a = -1; a <= 1; a += 2)
         for (int b = -1; b <= 1; b += 2) {
             const f32 fa = static_cast<f32>(a), fb = static_cast<f32>(b);
-            centers[n] = {0.0f, fa * half.y, fb * half.z}, halves[n++] = {half.x + t, t, t}; // x 방향
-            centers[n] = {fa * half.x, 0.0f, fb * half.z}, halves[n++] = {t, half.y + t, t}; // y 방향
-            centers[n] = {fa * half.x, fb * half.y, 0.0f}, halves[n++] = {t, t, half.z + t}; // z 방향
+            centers[n] = {0.0f, fa * half.y, fb * half.z}, halves[n++] = {half.x + t, t, t}; // x direction
+            centers[n] = {fa * half.x, 0.0f, fb * half.z}, halves[n++] = {t, half.y + t, t}; // y direction
+            centers[n] = {fa * half.x, fb * half.y, 0.0f}, halves[n++] = {t, t, half.z + t}; // z direction
         }
 }
 
-// 행 벡터 규약 TRS 행렬 (ImGuizmo와 같은 메모리 배치: 이동이 [12..14])
+// Row vector convention TRS matrix (same memory layout as ImGuizmo: translation at [12..14])
 void compose(const scene::Transform& e, f32 out[16]) {
     const Vec3 x = rotate(e.rotation, {1, 0, 0}) * e.scale.x;
     const Vec3 y = rotate(e.rotation, {0, 1, 0}) * e.scale.y;
@@ -83,7 +83,7 @@ void decompose(const f32 m[16], scene::Transform& e) {
     x = x / sx;
     y = y / sy;
     z = z / sz;
-    // 회전 행렬 R(열 규약)의 원소 Rij = (행 j)의 i번째 성분
+    // Element Rij of rotation matrix R (column convention) = i-th component of (row j)
     const f32 r00 = x.x, r11 = y.y, r22 = z.z;
     const f32 r21 = y.z, r12 = z.y, r02 = z.x, r20 = x.z, r10 = x.y, r01 = y.x;
     Quat q;
@@ -106,7 +106,7 @@ void decompose(const f32 m[16], scene::Transform& e) {
     e.rotation = normalize(q);
 }
 
-// 광선과 회전된 상자(엔티티 로컬 공간의 center ± half)의 교차 거리. 맞지 않으면 음수.
+// Intersection distance of a ray and a rotated box (center ± half in entity local space). Negative if it misses.
 f32 rayBox(Vec3 origin, Vec3 dir, const scene::Transform& e, Vec3 center, Vec3 half) {
     const Quat inv{-e.rotation.x, -e.rotation.y, -e.rotation.z, e.rotation.w};
     const Vec3 o = rotate(inv, origin - e.position) - center;
@@ -151,7 +151,7 @@ bool toolButton(const char* label, bool active) {
     return pressed;
 }
 
-// root 폴더 안의 파일이면 root 기준 상대 경로('/' 구분), 밖이면 빈 문자열
+// Path relative to root ('/' separated) if the file is inside the root folder, empty string if outside
 std::string relativeTo(const std::string& root, const std::string& path) {
     auto lower = [](std::string s) {
         std::transform(s.begin(), s.end(), s.begin(),
@@ -174,7 +174,7 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     m_window = &window;
     m_renderer = &renderer;
     m_models = &models;
-    focusPanel(kInspectorWindow); // 편집 모드로 시작: 인스펙터를 앞으로
+    focusPanel(kInspectorWindow); // starts in edit mode: bring the inspector to front
     if (!m_imgui.init(window, renderer, executableDirectory() + "\\mealkit_editor.ini")) {
         MEALKIT_ERROR("Editor UI initialization failed");
         return false;
@@ -182,7 +182,7 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     if (fileExists(scenePath)) {
         if (!loadScene(scenePath)) {
             m_scene = scene::makeDefault();
-            m_scenePath.clear(); // 망가진 파일을 덮어쓰지 않는다
+            m_scenePath.clear(); // don't overwrite a broken file
         }
     } else {
         m_scene = scene::makeDefault();
@@ -201,7 +201,7 @@ void Editor::update(f64 dt) {
     if (m_perf.update(dt, {m_renderer})) {
         if (m_live.listening("stats")) m_live.publish("stats", m_perf.json());
         game::FrameSample sample = m_perf.sample();
-        if (m_mode == Mode::Play) { // 시뮬레이션·네트워크는 플레이 세션의 것
+        if (m_mode == Mode::Play) { // simulation/network belong to the play session
             const game::FrameSample& p = m_playSample;
             sample.hasGame = p.hasGame;
             sample.simMsPerTick = p.simMsPerTick;
@@ -217,7 +217,7 @@ void Editor::update(f64 dt) {
     m_live.update();
     for (const std::string& e : m_import.takeEvents()) {
         setStatus(e);
-        m_uiPanel.refresh(); // 새 .ui 파일 (고친 파일은 ui::System이 다시 읽는다)
+        m_uiPanel.refresh(); // new .ui files (ui::System rereads modified files)
     }
     updateHotReload(dt);
 
@@ -263,7 +263,7 @@ void Editor::update(f64 dt) {
     if (m_feedbackOpen) m_feedbackPanel.draw(m_feedback, m_cameraPos + cameraForward() * 10.0f, dt, &m_feedbackOpen);
     if (m_uiPanelOpen) m_uiPanel.draw(&m_uiPanelOpen);
     if (m_lookdevOpen && m_renderer) m_lookdev.draw(*m_renderer, &m_lookdevOpen);
-    // 소리 이벤트 표(화면 전용)를 고치면 저장해 바로 들리게 한다 (오디오가 파일을 다시 읽는다)
+    // Editing the sound event table (view-only) saves it so changes are heard immediately (audio rereads the file)
     m_viewTableDirty |= m_tablesPanel.takeViewTableChanged();
     m_viewTableTimer += dt;
     if (m_viewTableDirty && m_viewTableTimer >= 0.3) {
@@ -275,7 +275,7 @@ void Editor::update(f64 dt) {
     updateRowProblems(dt);
     m_projectPanel.draw(m_project, relativeTo(m_project.directory + "\\assets", m_scenePath));
     m_modulesPanel.draw(m_project, m_engineDirectory, m_mode == Mode::Edit);
-    // 모듈 sim/·view/는 게임 코드다: 더하거나 바꾸면 게임 DLL을 다시 빌드한다
+    // Module sim/ and view/ are game code: adding or changing them rebuilds the game DLL
     if (m_modulesPanel.takeChanged()) startBuild(BuildKind::GameCode);
     drawState();
     pollBuild();
@@ -292,7 +292,7 @@ void Editor::update(f64 dt) {
     drawShortcutHelp();
     drawPlayFrame();
     drawEmptyViewport();
-    if (ImGui::IsKeyPressed(ImGuiKey_F11, false) && rhi::gpuCaptureTool()) captureGpuFrame(); // 편집·플레이 모두
+    if (ImGui::IsKeyPressed(ImGuiKey_F11, false) && rhi::gpuCaptureTool()) captureGpuFrame(); // both edit and play
 
     runShortcuts();
     drawCommandPalette();
@@ -309,7 +309,7 @@ void Editor::update(f64 dt) {
     }
     reportSimProblems();
 
-    // 되돌리기: 편집이 시작된 순간의 상태(프레임 시작 시 캡처)를 한 번만 쌓는다. 드래그 중에는 쌓지 않는다.
+    // Undo: pushes the state at the moment editing started (captured at frame start) only once. Not pushed while dragging.
     if (m_changed && !m_editActive) {
         pushUndo(std::move(m_pending));
         m_editActive = true;
@@ -327,7 +327,7 @@ void Editor::setSimDebug(game::SimDebug* debug, bool canPause) {
     m_canPause = canPause;
 }
 
-// 플레이 중 메뉴 막대: 일시정지, 한 틱, 타임라인(기록된 범위), 그림자 시뮬레이션 상태
+// Menu bar during play: pause, single tick, timeline (recorded range), shadow simulation status
 void Editor::drawPlayControls() {
     if (!m_simDebug) return;
     const game::Timeline t = m_simDebug->timeline();
@@ -377,7 +377,7 @@ void Editor::reportSimProblems() {
 
 void Editor::focusPanel(const char* window) {
     m_focusPanel = window;
-    m_focusFrames = 3; // 도킹 노드가 아직 없는 첫 프레임에는 포커스가 안 먹으므로 몇 프레임 동안 요청한다
+    m_focusFrames = 3; // focus doesn't take on the first frame when the docking node doesn't exist yet, so request it for a few frames
 }
 
 void Editor::focusPanelNow() {
@@ -385,18 +385,18 @@ void Editor::focusPanelNow() {
     if (--m_focusFrames <= 0) m_focusPanel = nullptr;
 }
 
-// 에셋 핫 리로드: 외부 도구(Blender 등)가 내보낸 모델과 밖에서 고친 씬을 다시 읽는다. 플레이 중에는 하지 않는다
-// (모델의 충돌 껍질은 시뮬레이션에 닿으므로 매치 중에 바꾸면 피어가 갈린다). 플레이가 끝나면 그때 바뀐 것을 읽는다
+// Asset hot reload: rereads models exported by external tools (Blender etc.) and scenes edited outside. Not done during play
+// (a model's collision hull touches the simulation, so changing it mid-match would split peers). Changes are read when play ends
 void Editor::updateHotReload(f64 dt) {
-    constexpr f64 kHotReloadSeconds = 0.5; // 파일 시각을 보는 간격
+    constexpr f64 kHotReloadSeconds = 0.5; // interval for checking file times
     m_hotReloadTimer -= dt;
     if (m_hotReloadTimer > 0.0 || m_mode != Mode::Edit) return;
     m_hotReloadTimer = kHotReloadSeconds;
 
-    // 프로젝트 설정 창에서 바꾼 조명 모델·툰 램프, 밖에서 고친 램프 그림
+    // Lighting model/toon ramp changed in the project settings window, and ramp images edited outside
     applyRenderStyle(m_project.settings);
 
-    // 프로젝트 설정 창에서 바꾼 에셋 예산 (저장하면 m_project가 바뀐다)
+    // Asset budgets changed in the project settings window (saving changes m_project)
     asset::ModelBudget budgets[asset::kModelKindCount];
     game::modelBudgets(m_project.settings, budgets);
     for (u32 k = 0; k < asset::kModelKindCount; ++k) {
@@ -416,14 +416,14 @@ void Editor::updateHotReload(f64 dt) {
     if (m_scenePath.empty()) return;
     const unsigned long long time = fileWriteTime(m_scenePath);
     if (time == m_sceneTime || time == 0) return;
-    if (m_dirty) { // 고친 것이 있으면 덮어쓰지 않는다 (저장하면 디스크 쪽이 덮인다)
+    if (m_dirty) { // don't overwrite if there are edits (saving overwrites the disk side)
         if (!m_sceneChangedWarned) setStatus(tr("The scene file changed on disk; you have unsaved changes"));
         m_sceneChangedWarned = true;
         return;
     }
     const u32 selected = m_selected;
     if (loadScene(m_scenePath)) {
-        if (m_scene.find(selected)) m_selected = selected; // 같은 id가 있으면 선택을 지킨다
+        if (m_scene.find(selected)) m_selected = selected; // keep the selection if the same id exists
         MEALKIT_INFO("Hot reload: scene %s", m_scenePath.c_str());
         setStatus(trf("Reloaded scene: %s", fileName(m_scenePath).c_str()));
     }
@@ -433,7 +433,7 @@ void Editor::updateAutosave(f64 dt) {
     if (m_changed) m_autosavePending = true;
     if (m_mode != Mode::Edit) return;
     m_autosaveTimer += dt;
-    // 저장 안 된 변경이 있으면 환경설정 간격으로 <씬>.autosave에 쓴다 (0 = 끄기)
+    // With unsaved changes, write to <scene>.autosave at the preference interval (0 = off)
     if (m_prefs.autosaveSeconds == 0 || m_autosaveTimer < m_prefs.autosaveSeconds) return;
     m_autosaveTimer = 0.0;
     if (m_dirty && m_autosavePending) {
@@ -545,7 +545,7 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
     frame.probeCount = static_cast<u32>(m_probeList.size());
     frame.debugView = m_debugView;
     addSceneObjects(out, m_cameraPos, false);
-    if (m_showGrid && m_mode == Mode::Edit && !m_automated) addGrid(out); // 자동 캡처·골든 이미지는 그리드 없이
+    if (m_showGrid && m_mode == Mode::Edit && !m_automated) addGrid(out); // automated captures/golden images have no grid
 }
 
 void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) const {
@@ -554,7 +554,7 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
         if (gameView && !scene::visibleInGame(e, m_gameTypes)) continue;
         if (!gameView && isHidden(e)) continue;
         const scene::Transform world = scene::worldTransform(m_scene, e);
-        if (isArea(e)) { // 보이지 않는 영역: 안이 가려지지 않게 모서리만
+        if (isArea(e)) { // invisible area: only edges, so the inside isn't hidden
             Vec3 centers[12], halves[12];
             const f32 thickness = std::max(0.05f, length(world.position - eye) * kAreaEdgeDraw);
             areaEdges(world.scale * 0.5f, thickness, centers, halves);
@@ -575,19 +575,19 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
         inst.scale = isMarker(e) ? kSpawnSize : world.scale;
         inst.color = e.color;
         inst.flags = e.flags;
-        if (e.is(scene::kTypePointLight)) { // 점광원: 빛 색의 작은 상자 (빛을 가리지 않게)
+        if (e.is(scene::kTypePointLight)) { // point light: a small box in the light's color (so it doesn't block the light)
             inst.scale = {0.2f, 0.2f, 0.2f};
             inst.color = scene::readObject<scene::PointLightFields>(e).color.value;
         }
         if (!gameView && isSelected(e.id)) inst.flags |= render::kInstanceHighlight;
         const asset::Model* model = e.model.empty() ? nullptr : m_models->get(e.model);
         const render::MeshId mesh = model ? m_models->pickLod(*model, eye, world.position, world.scale) : box;
-        if (model && m_debugView != render::DebugView::None && !gameView) { // 보기 모드: 그린 LOD 단계, 예산 초과
+        if (model && m_debugView != render::DebugView::None && !gameView) { // view modes: drawn LOD level, over budget
             for (u32 lod = 0; lod < model->lodCount; ++lod)
                 if (model->lods[lod] == mesh) inst.flags |= lod << render::kInstanceLodShift;
             if (!model->budgetProblems.empty()) inst.flags |= render::kInstanceOverBudget;
         }
-        if (model) asset::addModel(out, *model, mesh, inst, scene::animField(e), m_animTime); // 스킨 모델은 anim 필드의 클립
+        if (model) asset::addModel(out, *model, mesh, inst, scene::animField(e), m_animTime); // skinned models use the clip from the anim field
         else out.add(mesh, inst);
     }
 }
@@ -603,15 +603,15 @@ void Editor::bakeProbes(u32 onlyId) {
 
 void Editor::renderProbeBake(render::Renderer& renderer) {
     if (m_probeQueue.empty() || !m_models) return;
-    u32 size = 16; // 2의 거듭제곱 (밉이 반씩 줄어든다)
+    u32 size = 16; // power of two (mips halve)
     while (size * 2 <= std::clamp<u32>(m_project.settings.probeSize, 16, 512)) size *= 2;
     if (!m_probeTarget || m_probeTargetSize != size) {
-        m_probeTarget = renderer.createRenderTarget(size, size); // 크기를 바꾸면 옛 대상은 남는다 (렌더러가 지우지 않는다)
+        m_probeTarget = renderer.createRenderTarget(size, size); // when the size changes the old target remains (the renderer doesn't delete it)
         m_probeTargetSize = size;
         m_probeFace = 0;
         m_probeCapturePending = false;
     }
-    if (m_probeCapturePending) { // 지난 프레임에 그린 면: sRGB 8비트 → 선형
+    if (m_probeCapturePending) { // face drawn last frame: sRGB 8-bit → linear
         m_probeCapturePending = false;
         m_probeFaces.resize(static_cast<size_t>(size) * size * 18);
         if (m_probeCapture.width == size && m_probeCapture.height == size) {
@@ -638,7 +638,7 @@ void Editor::renderProbeBake(render::Renderer& renderer) {
                         e->fields.emplace_back(scene::kProbeFileField, path);
                         markChanged();
                     }
-                    m_models->reloadChanged(); // 같은 경로를 다시 구웠으면 다시 올린다
+                    m_models->reloadChanged(); // re-upload if the same path was rebaked
                     MEALKIT_INFO("Reflection probe baked: %s (%u, %u mips)", path.c_str(), probe.size, probe.mips);
                     setStatus(trf("Baked reflection probe: %s", path.c_str()));
                 } else {
@@ -654,7 +654,7 @@ void Editor::renderProbeBake(render::Renderer& renderer) {
         m_probeFace = 0;
         return;
     }
-    // 큐브 면 방향 (asset::cubeDirection과 같은 배치: 왼손 lookAt의 오른쪽 = cross(위, 앞))
+    // Cube face orientations (same layout as asset::cubeDirection: right of a left-handed lookAt = cross(up, forward))
     static const Vec3 kForward[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     static const Vec3 kUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
     const Vec3 eye = scene::worldTransform(m_scene, *e).position;
@@ -663,8 +663,8 @@ void Editor::renderProbeBake(render::Renderer& renderer) {
                      perspectiveReversedZ(3.14159265f * 0.5f, 1.0f, 0.05f, 2000.0f);
     frame.cameraPos = eye;
     frame.cameraForward = kForward[m_probeFace];
-    fillEnvironment(frame); // 프로브는 쓰지 않는다 (다른 프로브의 옛 그림이 섞이지 않게)
-    frame.post.toneMapping = false; // 반사는 선형 값 그대로 (톤 매핑은 그 반사를 받는 화면에서 한 번)
+    fillEnvironment(frame); // probes aren't used (so old images of other probes don't mix in)
+    frame.post.toneMapping = false; // reflections stay linear (tone mapping happens once on the screen that receives them)
     render::DrawList list;
     addSceneObjects(list, eye, true);
     renderer.drawToTarget(m_probeTarget, frame, list, static_cast<render::LightingModel>(m_project.settings.lightingModel));
@@ -673,7 +673,7 @@ void Editor::renderProbeBake(render::Renderer& renderer) {
 }
 
 void Editor::renderGradeCapture(render::Renderer& renderer) {
-    if (m_gradeCapturePending) { // 지난 프레임에 그린 것을 endFrame이 읽었다
+    if (m_gradeCapturePending) { // endFrame read what was drawn last frame
         m_gradeCapturePending = false;
         std::string stem = m_scenePath.empty() ? std::string("untitled") : fileName(m_scenePath);
         if (const size_t dot = stem.find_last_of('.'); dot != std::string::npos) stem.resize(dot);
@@ -692,7 +692,7 @@ void Editor::renderGradeCapture(render::Renderer& renderer) {
     if (!m_gradeRequested || !m_models || bakingProbes()) return;
     m_gradeRequested = false;
     const u32 w = std::max(64u, static_cast<u32>(m_viewport.width)), h = std::max(64u, static_cast<u32>(m_viewport.height));
-    if (!m_gradeTarget || m_gradeTargetSize[0] != w || m_gradeTargetSize[1] != h) { // 크기가 바뀌면 옛 대상은 남는다
+    if (!m_gradeTarget || m_gradeTargetSize[0] != w || m_gradeTargetSize[1] != h) { // when the size changes the old target remains
         m_gradeTarget = renderer.createRenderTarget(w, h);
         m_gradeTargetSize[0] = w;
         m_gradeTargetSize[1] = h;
@@ -706,7 +706,7 @@ void Editor::renderGradeCapture(render::Renderer& renderer) {
     m_models->probes(m_scene, m_probeList);
     frame.probes = m_probeList.data();
     frame.probeCount = static_cast<u32>(m_probeList.size());
-    frame.post.lut = 0; // 보정 전 그림 (톤 매핑까지)
+    frame.post.lut = 0; // image before grading (up to tone mapping)
     addSceneObjects(list, m_cameraPos, true);
     renderer.drawToTarget(m_gradeTarget, frame, list, static_cast<render::LightingModel>(m_project.settings.lightingModel));
     renderer.captureTarget(m_gradeTarget, &m_gradeCapture);
@@ -719,8 +719,8 @@ void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 widt
     m_cameraPos = position;
     m_cameraYaw = yawDegrees * kDegrees;
     m_cameraPitch = pitchDegrees * kDegrees;
-    m_selected = 0; // 선택 강조 없이
-    m_animTime = 0.0; // 애니메이션은 클립의 어긋남(anim 필드)만
+    m_selected = 0; // no selection highlight
+    m_animTime = 0.0; // animation only uses the clip offset (anim field)
     m_viewport = {0.0f, 0.0f, width, height};
     m_proj = perspectiveReversedZ(kFovY, width / std::max(height, 1.0f), 0.1f, 2000.0f);
     m_view = lookAtLH(m_cameraPos, m_cameraPos + cameraForward(), {0, 1, 0});
@@ -729,7 +729,7 @@ void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 widt
 
 void Editor::renderLookdev(render::Renderer& renderer, f64 dt) {
     if (!m_lookdevOpen || !m_models) return;
-    // 고른 물체의 모델을 따라간다 (모델 없는 물체를 고르면 앞의 모델을 그대로 둔다)
+    // Follows the selected object's model (selecting an object without a model keeps the previous model)
     if (const Entity* e = selected(); e && !e->model.empty()) m_lookdev.setModel(e->model);
     m_lookdev.render(renderer, *m_models, static_cast<render::LightingModel>(m_project.settings.lightingModel), dt);
 }
@@ -741,7 +741,7 @@ void Editor::captureGpuFrame() {
 void Editor::setMode(Mode mode) {
     if (mode == Mode::Play && m_playFromHere && m_playPlayers == 1) moveSpawnsHere();
     m_playFromHere = false;
-    if (mode == Mode::Edit && !m_spawnBackup.empty()) { // 여기서 플레이: 스폰 지점을 되돌린다 (씬 파일은 그대로)
+    if (mode == Mode::Edit && !m_spawnBackup.empty()) { // play from here: restore spawn points (scene file unchanged)
         for (const auto& [id, world] : m_spawnBackup)
             if (Entity* e = m_scene.find(id)) scene::setWorldTransform(m_scene, *e, world);
         m_spawnBackup.clear();
@@ -750,10 +750,10 @@ void Editor::setMode(Mode mode) {
     m_looking = false;
     m_window->setCursorCaptured(false);
     if (mode == Mode::Edit) m_playStatus.clear();
-    focusPanel(mode == Mode::Play ? kStateWindow : kInspectorWindow); // 플레이 중에는 [상태] 탭을 앞으로
+    focusPanel(mode == Mode::Play ? kStateWindow : kInspectorWindow); // during play, bring the [State] tab to front
 }
 
-// 고른 물체가 스폰이면 그 자리, 아니면 카메라 아래 바닥(카메라가 보는 방향)으로 모든 스폰 지점을 잠시 옮긴다
+// Temporarily moves all spawn points to the selected object if it's a spawn, otherwise to the floor under the camera (in the camera's view direction)
 void Editor::moveSpawnsHere() {
     scene::Transform target;
     const Entity* picked = selected();
@@ -803,7 +803,7 @@ void Editor::saveBackupIfDirty() {
 }
 
 void Editor::selectByIndex(int index, bool add) {
-    if (index == -2) { // 씬 줄 (인스펙터 = 환경)
+    if (index == -2) { // scene row (inspector = environment)
         m_selected = 0;
         m_sceneRow = true;
         return;
@@ -814,8 +814,8 @@ void Editor::selectByIndex(int index, bool add) {
 
 // ---------------------------------------------------------------- UI
 
-// 미리 정한 레이아웃: 왼쪽 씬 트리, 오른쪽 기둥 하나(인스펙터 + [상태]·[튜닝] 탭), 아래 가로 칸(빌드 로그·표).
-// 플레이는 아래 칸을 줄이고 [상태]를 앞으로, 룩데브는 오른쪽 위에 [룩데브] 창을 크게 둔다.
+// Predefined layouts: scene tree on the left, one column on the right (inspector + [State]/[Tuning] tabs), bottom row (build log, tables).
+// Play shrinks the bottom row and brings [State] to front; lookdev puts a large [Lookdev] window at the top right.
 void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::DockBuilderRemoveNode(dockId);
@@ -844,7 +844,7 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
 
 void Editor::drawMenuBar() {
     const bool editing = m_mode == Mode::Edit;
-    if (!editing) ImGui::PushStyleColor(ImGuiCol_MenuBarBg, kPlayColor); // 플레이 중인 것을 헷갈리지 않게
+    if (!editing) ImGui::PushStyleColor(ImGuiCol_MenuBarBg, kPlayColor); // so it's clear you're in play
     const bool open = ImGui::BeginMainMenuBar();
     if (!editing) ImGui::PopStyleColor();
     if (!open) return;
@@ -918,7 +918,7 @@ void Editor::drawMenuBar() {
             ImGui::EndMenu();
         }
         ImGui::Separator();
-        // 보기 모드: 무엇이 비싼지 색으로 (편집 화면, 출시 빌드에는 없다)
+        // View modes: what's expensive, by color (edit screen, not in shipping builds)
         if (ImGui::BeginMenu(tr("View Mode"))) {
             const char* names[] = {tr("Lit"), tr("Wireframe"), tr("Normals"), tr("LOD Level"), tr("Overdraw"),
                                    tr("Over Budget"), tr("Material Features")};
@@ -930,7 +930,7 @@ void Editor::drawMenuBar() {
             }
             ImGui::EndMenu();
         }
-        // GPU 캡처 (--gpu-capture로 RenderDoc·PIX를 불러왔을 때만)
+        // GPU capture (only when RenderDoc/PIX was loaded with --gpu-capture)
         if (const char* tool = rhi::gpuCaptureTool()) {
             if (ImGui::MenuItem(trf("GPU Capture (%s)", tool).c_str(), "F11")) captureGpuFrame();
         }
@@ -951,7 +951,7 @@ void Editor::drawMenuBar() {
         commandMenuItem("Performance", m_perfPanel.openFlag());
         ImGui::EndMenu();
     }
-    // 도구 제품군 (editor/Tools.h): 별도 저장소의 MealKit 도구를 이 프로젝트로 연다
+    // Tool suite (editor/Tools.h): opens MealKit tools from separate repos with this project
     if (ImGui::BeginMenu(tr("Tools"), !m_project.directory.empty())) {
         if (m_tools.empty()) ImGui::MenuItem(tr("No tools installed"), nullptr, false, false);
         for (const ToolInfo& t : m_tools) {
@@ -982,7 +982,7 @@ void Editor::drawMenuBar() {
     const ImVec4 color = editing ? ImVec4(0.18f, 0.48f, 0.26f, 1.0f) : ImVec4(0.62f, 0.20f, 0.18f, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Button, color);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x * 1.25f, color.y * 1.25f, color.z * 1.25f, 1.0f));
-    ImGui::BeginDisabled(editing && !m_gameLoaded); // 게임 DLL이 없으면 플레이할 수 없다
+    ImGui::BeginDisabled(editing && !m_gameLoaded); // can't play without the game DLL
     if (ImGui::Button(playLabel.c_str())) {
         if (editing) m_playRequest = true;
         else m_stopRequest = true;
@@ -992,7 +992,7 @@ void Editor::drawMenuBar() {
     if (editing && !m_gameLoaded && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("%s", m_gameStatus.c_str());
 
-    // 플레이 인원 (여러 명이면 참가 창을 더 띄운다)
+    // Player count (with multiple, more join windows open)
     ImGui::BeginDisabled(!editing);
     const char* counts[] = {tr("Solo"), tr("2 players"), tr("3 players"), tr("4 players")};
     int players = static_cast<int>(m_playPlayers) - 1;
@@ -1038,7 +1038,7 @@ void Editor::drawStatusBar() {
                     "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));
             const char* fps = "0000 fps";
             ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - 16.0f);
-            // 예산을 넘으면 빨강, 누르면 [성능] 창
+            // Red when over budget; clicking opens the [Performance] window
             const ImVec4 fpsColor = m_perfPanel.overBudget() ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
                                                              : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
             ImGui::TextColored(fpsColor, "%.0f fps", m_perf.sample().fps);
@@ -1066,7 +1066,7 @@ void Editor::drawHierarchy(bool editing) {
         drawTypeMenuItems();
         ImGui::EndPopup();
     }
-    // 찾기 (이름·종류, Ctrl+F): 글자가 있으면 맞는 물체만 평평하게
+    // Search (name/kind, Ctrl+F): with text, only matching objects, flat
     if (m_treeSearchFocus) {
         ImGui::SetKeyboardFocusHere();
         m_treeSearchFocus = false;
@@ -1077,7 +1077,7 @@ void Editor::drawHierarchy(bool editing) {
     ImGui::Separator();
 
     if (ImGui::BeginChild("##entities")) {
-        // 부모 → 자식 목록 (entities 순서)
+        // parent → child list (entities order)
         std::unordered_map<u32, std::vector<size_t>> children;
         std::vector<size_t> roots;
         for (size_t i = 0; i < m_scene.entities.size(); ++i) {
@@ -1086,7 +1086,7 @@ void Editor::drawHierarchy(bool editing) {
             else roots.push_back(i);
         }
         m_treeAction = {};
-        // 맨 위 고정 줄 "씬": 고르면 인스펙터가 씬 환경을 보여 준다 (docs/DECISIONS.md 2026-10-28)
+        // Fixed top row "Scene": selecting it makes the inspector show the scene environment (docs/DECISIONS.md 2026-10-28)
         const std::string sceneName = m_scenePath.empty() ? tr("Untitled") : fileName(m_scenePath);
         const std::string sceneLabel = trf("Scene: %s", sceneName.c_str());
         if (ImGui::Selectable(sceneLabel.c_str(), m_sceneRow && m_selected == 0, ImGuiSelectableFlags_SpanAvailWidth)) {
@@ -1106,7 +1106,7 @@ void Editor::drawHierarchy(bool editing) {
             for (size_t i : roots) drawEntityNode(i, children);
         }
         m_treeRevealed = m_selected;
-        // 빈 곳에 놓으면 최상위로
+        // Dropping on empty space moves to top level
         const ImVec2 rest = ImGui::GetContentRegionAvail();
         ImGui::InvisibleButton("##treeRoot", ImVec2(std::max(rest.x, 1.0f), std::max(rest.y, ImGui::GetFrameHeight())));
         if (ImGui::BeginDragDropTarget()) {
@@ -1116,7 +1116,7 @@ void Editor::drawHierarchy(bool editing) {
         }
     }
     ImGui::EndChild();
-    // 트리를 다 그린 뒤에 구조를 바꾼다 (그리는 도중에 목록이 바뀌지 않게)
+    // Change the structure after drawing the whole tree (so the list doesn't change mid-draw)
     switch (m_treeAction.kind) {
     case TreeAction::Reparent: reparent(m_treeAction.entity, m_treeAction.parent); break;
     case TreeAction::Duplicate: duplicateSelected(); break;
@@ -1144,11 +1144,11 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
                                ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap;
     if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     if (isSelected(id)) flags |= ImGuiTreeNodeFlags_Selected;
-    // 새로 고른 물체는 조상을 펼치고 그 줄로 스크롤한다 (뷰포트에서 골랐을 때)
+    // Newly selected objects expand their ancestors and scroll to their row (when selected in the viewport)
     const bool reveal = m_selected != m_treeRevealed && m_selected != 0;
     if (reveal && !leaf && m_scene.find(m_selected) && scene::isDescendant(m_scene, m_selected, id))
         ImGui::SetNextItemOpen(true);
-    // 라벨 앞에 종류 아이콘 자리를 비워 두고 물체 색으로 그린다
+    // Leave room for the kind icon before the label and draw it in the object's color
     const bool hiddenRow = isHidden(e);
     if (hiddenRow) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
     const bool open = ImGui::TreeNodeEx("##node", flags, "      %s", label.c_str());
@@ -1158,7 +1158,7 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
                                         ImGui::ColorConvertFloat4ToU32(ImVec4(rgb[0], rgb[1], rgb[2], 1.0f)),
                                         entityIcon(e));
     if (hiddenRow) ImGui::PopStyleVar();
-    // 클릭 선택, 더블클릭 이동, 끌어서 부모 바꾸기
+    // Click to select, double-click to move to, drag to reparent
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
         if (ImGui::GetIO().KeyShift) {
             toggleSelect(id);
@@ -1177,7 +1177,7 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
             m_treeAction = {TreeAction::Reparent, *static_cast<const u32*>(payload->Data), id};
         ImGui::EndDragDropTarget();
     }
-    // 줄 오른쪽 보이기·잠금 토글 (마우스를 올렸거나 켜져 있을 때만 보인다)
+    // Visibility/lock toggles on the right of the row (shown only on hover or when on)
     {
         const bool hovered = ImGui::IsItemHovered();
         const f32 w = ImGui::GetFrameHeight();
@@ -1229,7 +1229,7 @@ void Editor::reparent(u32 entityId, u32 parentId) {
         return;
     }
     pushUndo(capture());
-    const scene::Transform world = scene::worldTransform(m_scene, *e); // 화면에서 제자리를 지킨다
+    const scene::Transform world = scene::worldTransform(m_scene, *e); // keeps its place on screen
     e->parent = parentId;
     scene::setWorldTransform(m_scene, *e, world);
     const Entity* parent = parentId ? m_scene.find(parentId) : nullptr;
@@ -1245,7 +1245,7 @@ void Editor::drawInspector(bool editing) {
     if (!editing)
         ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.35f, 1.0f), "%s", tr("Playing - scene values go back when you stop"));
     ImGui::BeginDisabled(!editing);
-    if (m_selected != 0) m_sceneRow = false; // 물체를 고르면 씬 줄 선택은 풀린다
+    if (m_selected != 0) m_sceneRow = false; // selecting an object deselects the scene row
     if (!m_multi.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
         ImGui::TextWrapped("%s", trf("%zu objects selected - the gizmo moves all, this panel edits the last one",
@@ -1280,7 +1280,7 @@ void Editor::drawInspector(bool editing) {
             }
             ImGui::EndCombo();
         }
-        // 게임 종류의 선언(MEALKIT_OBJECT)을 코드 편집기로 연다 (프로젝트 source 폴더, 엔진 저장소면 samples 폴더)
+        // Opens the game kind's declaration (MEALKIT_OBJECT) in the code editor (project source folder, or the samples folder in the engine repo)
         if (type && !scene::findType(e->type, nullptr)) {
             if (ImGui::SmallButton(tr("Open Code"))) {
                 FileLine at;
@@ -1294,7 +1294,7 @@ void Editor::drawInspector(bool editing) {
 
         if (const asset::Model* model = e->model.empty() ? nullptr : m_models->get(e->model);
             model && model->skinned() && ImGui::CollapsingHeader(tr("Animation"), ImGuiTreeNodeFlags_DefaultOpen)) {
-            // 스킨 모델: 화면용 반복 클립 (씬 필드 anim, 게임 화면도 같이 재생한다)
+            // Skinned model: looping view clip (scene field anim, also played on the game screen)
             ImGui::TextDisabled(tr("%u joints, %u clips"), model->bones, static_cast<u32>(model->clips.size()));
             const std::string current = scene::animField(*e);
             const std::string currentClip = current.substr(0, current.find(' '));
@@ -1315,7 +1315,7 @@ void Editor::drawInspector(bool editing) {
         }
 
         if (e->is(scene::kTypeProbe) && ImGui::CollapsingHeader(tr("Reflection probe"), ImGuiTreeNodeFlags_DefaultOpen)) {
-            // 반사 프로브: 굽기 (편집 모드, 구운 파일은 assets/probes/)
+            // Reflection probe: bake (edit mode, baked files in assets/probes/)
             const std::string file = scene::probeFile(*e);
             ImGui::TextDisabled("%s", file.empty() ? tr("Not baked") : file.c_str());
             ImGui::BeginDisabled(bakingProbes());
@@ -1337,7 +1337,7 @@ void Editor::drawInspector(bool editing) {
                 ImGui::TextUnformatted(e->model.c_str());
                 if (const asset::Model* model = m_models->get(e->model)) {
                     ImGui::TextDisabled(tr("%u triangles · %u LODs"), model->triangles[0], model->lodCount);
-                    // 에셋 예산: 종류(폴더)의 한도 대비 사용량, 넘으면 빨강 (mealkit.project budget*)
+                    // Asset budget: usage vs. the kind's (folder's) limit, red when over (mealkit.project budget*)
                     const asset::ModelBudget& b = m_models->budget(model->kind);
                     const ImVec4 red(1.0f, 0.45f, 0.4f, 1.0f);
                     const auto usage = [&](u32 used, u32 limit, const char* what) {
@@ -1408,13 +1408,13 @@ void Editor::drawInspector(bool editing) {
         ImGui::Spacing();
         if (ImGui::Button(tr("Duplicate (Ctrl+D)"))) duplicateSelected();
         ImGui::SameLine();
-        if (ImGui::Button(tr("Delete (Del)"))) deleteSelected(); // 이후 e를 쓰지 않는다
+        if (ImGui::Button(tr("Delete (Del)"))) deleteSelected(); // e isn't used after this
     }
     ImGui::EndDisabled();
     ImGui::End();
 }
 
-// 변환 한 줄: 기본값과 다르면 점, 오른쪽 클릭 "기본값으로 / 복사 / 붙여넣기", 크기는 비율 고정 토글
+// One transform row: dot if different from default, right-click "Reset to default / Copy / Paste", scale has a lock-ratio toggle
 bool Editor::transformRow(const char* label, const char* id, f32 v[3], f32 speed, f32 lo, f32 hi, const char* format,
                           f32 defaultValue, bool* lockRatio) {
     ImGui::PushID(id);
@@ -1426,7 +1426,7 @@ bool Editor::transformRow(const char* label, const char* id, f32 v[3], f32 speed
         ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetItemRectSize().x - ImGui::GetStyle().ItemSpacing.x);
     }
     bool changed = ImGui::DragFloat3(label, v, speed, lo, hi, format);
-    if (changed && lockRatio && *lockRatio) { // 바꾼 축의 비율만큼 나머지도
+    if (changed && lockRatio && *lockRatio) { // the rest follow the ratio of the changed axis
         for (int i = 0; i < 3; ++i)
             if (v[i] != before[i] && before[i] != 0.0f) {
                 const f32 k = v[i] / before[i];
@@ -1465,7 +1465,7 @@ bool Editor::transformRow(const char* label, const char* id, f32 v[3], f32 speed
     return changed;
 }
 
-// [편집] > [기록]: 위가 오래된 것. 누르면 그 변경 직전으로 되돌린다 (다시 하기로 앞으로 갈 수 있다)
+// [Edit] > [History]: oldest at top. Clicking reverts to just before that change (redo can go forward)
 void Editor::drawHistory() {
     if (!m_historyOpen) return;
     ImGui::SetNextWindowSize(ImVec2(320, 380), ImGuiCond_FirstUseEver);
@@ -1474,7 +1474,7 @@ void Editor::drawHistory() {
         return;
     }
     ImGui::BeginDisabled(m_mode != Mode::Edit);
-    int target = -1; // 되돌릴 개수
+    int target = -1; // number to undo
     for (size_t i = 0; i < m_undo.size(); ++i) {
         ImGui::PushID(static_cast<int>(i));
         if (ImGui::Selectable(m_undo[i].label.c_str())) target = static_cast<int>(m_undo.size() - i);
@@ -1519,7 +1519,7 @@ void Editor::rememberRecentScene(const std::string& path) {
     writeTextFile(m_project.directory + "\\build\\editor\\recent_scenes.txt", text);
 }
 
-// [파일] > [씬]: assets/scenes의 씬. 시작 씬(★, mealkit.project scene)을 정하고, 두 번 누르면 연다
+// [File] > [Scenes]: scenes in assets/scenes. Set the start scene (★, mealkit.project scene); double-click to open
 void Editor::drawSceneList() {
     if (!m_sceneListOpen) return;
     ImGui::SetNextWindowSize(ImVec2(360, 360), ImGuiCond_FirstUseEver);
@@ -1557,7 +1557,7 @@ void Editor::drawSceneList() {
     if (!open.empty()) openSceneFile(open);
 }
 
-// 씬 환경 (인스펙터에서 씬 줄을 골랐을 때)
+// Scene environment (when the scene row is selected in the inspector)
 void Editor::drawEnvironment() {
     ImGui::SeparatorText(tr("Environment"));
     scene::Environment& env = m_scene.environment;
@@ -1570,7 +1570,7 @@ void Editor::drawEnvironment() {
     c |= ImGui::ColorEdit3(tr("Ground bounce"), &env.groundColor.x, hdr);
     c |= ImGui::ColorEdit3(tr("Fog / background"), &env.fogColor.x, hdr);
     c |= ImGui::DragFloat(tr("Fog density"), &env.fogDensity, 0.0002f, 0.0f, 0.1f, "%.4f");
-    // 하늘 HDRI: assets/textures/ 아래의 .hdr 하나 (없음 = 위의 색 그라디언트). 처음 고르면 굽느라 잠깐 멈춘다
+    // Sky HDRI: one .hdr under assets/textures/ (none = the color gradient above). First selection pauses briefly to bake
     if (ImGui::BeginCombo(tr("Sky HDRI"), env.hdri.empty() ? tr("None (sky colors)") : env.hdri.c_str())) {
         if (ImGui::Selectable(tr("None (sky colors)"), env.hdri.empty())) env.hdri.clear(), c = true;
         for (const std::string& h : asset::listHdris(asset::ModelCache::assetsRoot()))
@@ -1582,7 +1582,7 @@ void Editor::drawEnvironment() {
     c |= ImGui::DragFloat(tr("HDRI rotation"), &env.hdriRotation, 1.0f, -360.0f, 360.0f, "%.0f");
     ImGui::EndDisabled();
 
-    // 포스트 프로세싱 (scene::PostFields → render::PostParams). 화면용 값, 플레이어 설정이 효과를 끌 수 있다
+    // Post-processing (scene::PostFields → render::PostParams). View values; player settings can turn effects off
     ImGui::SeparatorText(tr("Post processing"));
     scene::PostFields& post = env.post;
     c |= ImGui::Checkbox(tr("Tone mapping (AgX)"), &post.toneMapping);
@@ -1611,7 +1611,7 @@ void Editor::drawEnvironment() {
     ImGui::TextDisabled("%s", tr("Colors are linear values."));
 }
 
-// ---------------------------------------------------------------- 정의 데이터 표 ([표] 패널)
+// ---------------------------------------------------------------- Definition data tables ([Tables] panel)
 
 void Editor::saveTablesForPlay() {
     std::string status;
@@ -1620,7 +1620,7 @@ void Editor::saveTablesForPlay() {
     else setStatus(status);
 }
 
-// 패널 밖 데이터(튜닝, 씬 물체 필드)의 행 참조도 [표] 패널의 "없는 행 참조" 목록에 넣는다 (0.5초마다)
+// Row references in data outside the panel (tuning, scene object fields) also go into the [Tables] panel's "missing row references" list (every 0.5 s)
 void Editor::updateRowProblems(f64 dt) {
     m_rowCheckTimer += dt;
     if (m_rowCheckTimer < 0.5) return;
@@ -1642,7 +1642,7 @@ void Editor::updateRowProblems(f64 dt) {
     m_tablesPanel.setExtraProblems(std::move(problems));
 }
 
-// 플레이 중인 시뮬레이션 상태 (상태 필드 선언을 그대로 보여 준다)
+// Simulation state during play (shows the state field declarations as is)
 void Editor::drawState() {
     if (ImGuiWindow* inspector = ImGui::FindWindowByName(kInspectorWindow); inspector && inspector->DockId)
         ImGui::SetNextWindowDockID(inspector->DockId, ImGuiCond_FirstUseEver);
@@ -1668,7 +1668,7 @@ void Editor::drawGizmo() {
     ImGuizmo::SetOrthographic(m_ortho);
     ImGuizmo::SetRect(m_viewport.x, m_viewport.y, m_viewport.width, m_viewport.height);
     f32 matrix[16];
-    compose(scene::worldTransform(m_scene, *e), matrix); // 기즈모는 월드 공간, 결과는 부모 기준으로 되돌려 넣는다
+    compose(scene::worldTransform(m_scene, *e), matrix); // the gizmo is in world space; the result is converted back to parent-relative
 
     const ImGuizmo::OPERATION ops[3] = {ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE};
     ImGuizmo::OPERATION op = ops[m_gizmoOp];
@@ -1676,7 +1676,7 @@ void Editor::drawGizmo() {
     const ImGuizmo::MODE mode = (m_gizmoLocal || op == ImGuizmo::SCALE) ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
     const f32 step = op == ImGuizmo::TRANSLATE ? m_prefs.snapMove : op == ImGuizmo::ROTATE ? m_prefs.snapRotate : m_prefs.snapScale;
     const f32 snap[3] = {step, step, step};
-    const bool snapping = ImGui::GetIO().KeyCtrl != m_snapOn; // 툴바 스냅이 켜져 있으면 Ctrl은 잠시 끄기
+    const bool snapping = ImGui::GetIO().KeyCtrl != m_snapOn; // when toolbar snap is on, Ctrl temporarily turns it off
 
     if (ImGuizmo::Manipulate(&m_view.m[0][0], &m_proj.m[0][0], op, mode, matrix, nullptr, snapping ? snap : nullptr)) {
         scene::Transform world;
@@ -1688,7 +1688,7 @@ void Editor::drawGizmo() {
     }
 }
 
-// 뷰포트 위에 겹쳐 그리는 툴바(왼쪽 위)와 축 방향 표시(오른쪽 위, 축을 누르면 그쪽에서 본다)
+// Toolbar overlaid on the viewport (top left) and axis gizmo (top right; clicking an axis views from that side)
 void Editor::drawViewportToolbar() {
     if (m_viewport.width < 200.0f || m_viewport.height < 120.0f) return;
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
@@ -1744,14 +1744,14 @@ void Editor::drawViewportToolbar() {
     ImGui::End();
     ImGui::PopStyleVar();
 
-    // 축 방향 표시: ImGuizmo가 보기 행렬을 돌리면 카메라 각도·위치로 되돌려 넣는다
+    // Axis gizmo: when ImGuizmo rotates the view matrix, convert back to camera angles/position
     const f32 size = 96.0f;
     Mat4 view = m_view;
-    const f32 pivot = 10.0f; // 이 거리 앞의 점을 중심으로 돈다
+    const f32 pivot = 10.0f; // orbits around the point this far ahead
     ImGuizmo::ViewManipulate(&view.m[0][0], pivot, ImVec2(m_viewport.x + m_viewport.width - size - 8.0f, m_viewport.y + 8.0f),
                              ImVec2(size, size), IM_COL32(30, 30, 34, 120));
     if (ImGuizmo::IsUsingViewManipulate() || std::memcmp(&view, &m_view, sizeof(view)) != 0) {
-        // 행 벡터 보기 행렬: 열 2가 앞 방향, 카메라 위치 = -t * R^T
+        // Row vector view matrix: column 2 is forward, camera position = -t * R^T
         const Vec3 forward = normalize(Vec3{view.m[0][2], view.m[1][2], view.m[2][2]});
         const Vec3 t{view.m[3][0], view.m[3][1], view.m[3][2]};
         m_cameraPos = {-(t.x * view.m[0][0] + t.y * view.m[0][1] + t.z * view.m[0][2]),
@@ -1763,9 +1763,9 @@ void Editor::drawViewportToolbar() {
     }
 }
 
-// 바닥(y = 0) 그리드: 카메라 아래 주변만, 스냅 이동 단위 간격. 깊이가 있게 얇은 상자로 그린다
+// Floor (y = 0) grid: only around under the camera, spaced by the snap move unit. Drawn as thin boxes so it has depth
 void Editor::addGrid(render::DrawList& out) const {
-    f32 cell = m_prefs.snapMove; // 스냅 이동 단위, 너무 촘촘하면 묶는다
+    f32 cell = m_prefs.snapMove; // snap move unit; grouped if too dense
     while (cell < 0.25f) cell *= 2.0f;
     const int half = 40;
     const f32 cx = std::round(m_cameraPos.x / cell) * cell, cz = std::round(m_cameraPos.z / cell) * cell;
@@ -1786,7 +1786,7 @@ void Editor::addGrid(render::DrawList& out) const {
     }
 }
 
-// ---------------------------------------------------------------- 입력
+// ---------------------------------------------------------------- Input
 
 Vec3 Editor::cameraForward() const {
     return {std::sin(m_cameraYaw) * std::cos(m_cameraPitch), std::sin(m_cameraPitch),
@@ -1830,7 +1830,7 @@ void Editor::updateCamera(f64 dt) {
         m_cameraPos += normalize(move) * (speed * static_cast<f32>(dt));
     } else {
         io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
-        // Alt + 왼쪽 끌기: 고른 물체(없으면 앞 10 m)를 중심으로 궤도
+        // Alt + left drag: orbit around the selected object (or 10 m ahead if none)
         if (io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && inViewport && !io.WantCaptureMouse) {
             const Entity* e = selected();
             m_orbitPivot = e ? scene::worldTransform(m_scene, *e).position : m_cameraPos + forward * 10.0f;
@@ -1844,9 +1844,9 @@ void Editor::updateCamera(f64 dt) {
             m_cameraPos = m_orbitPivot - cameraForward() * dist;
         } else if (inViewport && !io.WantCaptureMouse) {
             if (io.MouseWheel != 0.0f) {
-                if (m_ortho) { // 정사영: 화면 크기
+                if (m_ortho) { // orthographic: screen size
                     m_orthoHalfHeight = std::clamp(m_orthoHalfHeight * std::pow(0.85f, io.MouseWheel), 0.5f, 500.0f);
-                } else { // 마우스가 가리키는 곳 쪽으로 (맞는 물체가 있으면 그 거리의 15%씩)
+                } else { // toward where the mouse points (15% of the distance at a time if it hits an object)
                     Vec3 origin, dir;
                     mouseRay(mouse.x, mouse.y, &origin, &dir);
                     f32 hit = 0.0f;
@@ -1854,7 +1854,7 @@ void Editor::updateCamera(f64 dt) {
                     m_cameraPos += dir * (io.MouseWheel * step);
                 }
             }
-            if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) { // 가운데 버튼 드래그: 화면 이동
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) { // middle button drag: pan
                 const f32 scale = m_ortho ? m_orthoHalfHeight * 2.0f / std::max(m_viewport.height, 1.0f) : 0.03f;
                 m_cameraPos += (right * -input.mouseDeltaX() + up * input.mouseDeltaY()) * scale;
             }
@@ -1864,8 +1864,8 @@ void Editor::updateCamera(f64 dt) {
 
 Mat4 Editor::projection(f32 aspect) const {
     if (!m_ortho) return perspectiveReversedZ(kFovY, aspect, 0.1f, 2000.0f);
-    // Reversed-Z 정사영 (행 벡터, 왼손): 가까운 면 = 1, 먼 면 = 0
-    constexpr f32 zNear = -500.0f, zFar = 2000.0f; // 카메라 뒤의 물체도 보이게
+    // Reversed-Z orthographic (row vectors, left-handed): near plane = 1, far plane = 0
+    constexpr f32 zNear = -500.0f, zFar = 2000.0f; // so objects behind the camera are visible too
     Mat4 r;
     r.m[0][0] = 1.0f / (m_orthoHalfHeight * aspect);
     r.m[1][1] = 1.0f / m_orthoHalfHeight;
@@ -1892,7 +1892,7 @@ void Editor::mouseRay(f32 mouseX, f32 mouseY, Vec3* origin, Vec3* dir) const {
     *dir = normalize(forward + right * (nx * tanHalf * aspect) + up * (ny * tanHalf));
 }
 
-// 숫자 1~9: 저장한 카메라 위치로, Ctrl+숫자: 지금 위치를 저장 (씬마다 build\editor\<씬>.view)
+// Number keys 1~9: go to a saved camera position; Ctrl+number: save the current position (per scene in build\editor\<scene>.view)
 void Editor::handleBookmarks() {
     const ImGuiIO& io = ImGui::GetIO();
     if (m_mode != Mode::Edit || io.WantTextInput || m_looking || io.KeyAlt || io.KeyShift) return;
@@ -1913,7 +1913,7 @@ void Editor::handleBookmarks() {
     }
 }
 
-// 왼쪽 클릭 = 고르기(Shift = 더하기·빼기), 빈 곳에서 끌기 = 상자 안의 물체 고르기
+// Left click = select (Shift = add/remove), drag on empty space = select objects inside the box
 void Editor::handlePicking() {
     ImGuiIO& io = ImGui::GetIO();
     if (m_boxSelecting) {
@@ -1936,7 +1936,7 @@ void Editor::handlePicking() {
                 const f32 cx = p.x * viewProj.m[0][0] + p.y * viewProj.m[1][0] + p.z * viewProj.m[2][0] + viewProj.m[3][0];
                 const f32 cy = p.x * viewProj.m[0][1] + p.y * viewProj.m[1][1] + p.z * viewProj.m[2][1] + viewProj.m[3][1];
                 const f32 cw = p.x * viewProj.m[0][3] + p.y * viewProj.m[1][3] + p.z * viewProj.m[2][3] + viewProj.m[3][3];
-                if (cw <= 0.0f) continue; // 카메라 뒤
+                if (cw <= 0.0f) continue; // behind the camera
                 const f32 sx = m_viewport.x + (cx / cw * 0.5f + 0.5f) * m_viewport.width;
                 const f32 sy = m_viewport.y + (0.5f - cy / cw * 0.5f) * m_viewport.height;
                 if (sx >= lo.x && sx <= hi.x && sy >= lo.y && sy <= hi.y) inside.push_back(e.id);
@@ -1952,7 +1952,7 @@ void Editor::handlePicking() {
         if (mouse.x < m_viewport.x || mouse.y < m_viewport.y || mouse.x >= m_viewport.x + m_viewport.width ||
             mouse.y >= m_viewport.y + m_viewport.height)
             return;
-        m_boxSelecting = true; // 놓을 때 클릭인지 끌기인지 정한다
+        m_boxSelecting = true; // decide on release whether it was a click or a drag
         m_boxStart = {mouse.x, mouse.y};
         return;
     }
@@ -1973,7 +1973,7 @@ u32 Editor::raycast(Vec3 origin, Vec3 dir, f32* distance, const std::vector<u32>
     for (const Entity& e : m_scene.entities) {
         if (isLocked(e) || isHidden(e) || std::find(skip.begin(), skip.end(), e.id) != skip.end()) continue;
         const scene::Transform w = scene::worldTransform(m_scene, e);
-        if (isArea(e)) { // 영역은 모서리를 눌러야 고른다 (안을 누르면 안의 물체)
+        if (isArea(e)) { // areas are selected by clicking edges (clicking inside selects objects inside)
             Vec3 centers[12], halves[12];
             areaEdges(w.scale * 0.5f, kAreaEdgePick, centers, halves);
             for (int i = 0; i < 12; ++i) {
@@ -1997,7 +1997,7 @@ u32 Editor::raycast(Vec3 origin, Vec3 dir, f32* distance, const std::vector<u32>
     return best;
 }
 
-// 고르기·바닥에 붙이기에 쓰는 상자 (물체 기준, 회전 전): 모델은 경계 상자, 표시는 작은 상자
+// Box used for picking/snapping to the floor (object-relative, before rotation): models use their bounding box, markers a small box
 void Editor::pickBounds(const Entity& e, const scene::Transform& w, Vec3* center, Vec3* half) const {
     *center = {};
     *half = (isMarker(e) ? kSpawnSize : w.scale) * 0.5f;
@@ -2017,7 +2017,7 @@ void Editor::dropToFloor() {
         scene::Transform w = scene::worldTransform(m_scene, *e);
         Vec3 center, half;
         pickBounds(*e, w, &center, &half);
-        // 회전한 상자의 가장 낮은 점까지의 높이
+        // Height down to the lowest point of the rotated box
         f32 below = 0.0f;
         for (int k = 0; k < 8; ++k) {
             const Vec3 corner{k & 1 ? half.x : -half.x, k & 2 ? half.y : -half.y, k & 4 ? half.z : -half.z};
@@ -2098,7 +2098,7 @@ std::vector<u32> Editor::selectionRoots() const {
 }
 
 void Editor::toggleSelect(u32 id) {
-    if (id == m_selected) { // 주 선택을 빼면 다음 것이 주 선택
+    if (id == m_selected) { // removing the primary selection makes the next one primary
         m_selected = m_multi.empty() ? 0 : m_multi.front();
         if (!m_multi.empty()) m_multi.erase(m_multi.begin());
     } else if (auto it = std::find(m_multi.begin(), m_multi.end(), id); it != m_multi.end()) {
@@ -2123,8 +2123,8 @@ void Editor::selectMany(const std::vector<u32>& ids, bool add) {
     m_multiOwner = m_selected;
 }
 
-// 주 선택의 월드 변환이 before → after로 바뀐 만큼 나머지 고른 물체(의 최상위)를 같이 옮긴다.
-// 회전은 주 선택 위치를 중심으로, 크기는 각자 비율로
+// Moves the other selected objects (their top-level ones) by as much as the primary selection's world transform changed from before → after.
+// Rotation around the primary selection's position, scale by each one's ratio
 void Editor::moveOthersWith(const scene::Transform& before, const scene::Transform& after) {
     const Quat inv{-before.rotation.x, -before.rotation.y, -before.rotation.z, before.rotation.w};
     const Quat delta = normalize(after.rotation * inv);
@@ -2142,7 +2142,7 @@ void Editor::moveOthersWith(const scene::Transform& before, const scene::Transfo
     }
 }
 
-// ---------------------------------------------------------------- 편집 동작
+// ---------------------------------------------------------------- Edit actions
 
 Entity* Editor::selected() { return m_selected ? m_scene.find(m_selected) : nullptr; }
 
@@ -2175,7 +2175,7 @@ std::string Editor::viewStatePath() const {
     return m_project.directory + "\\build\\editor\\" + fileName(m_scenePath) + ".view";
 }
 
-// "hidden 3 5" / "locked 7" 두 줄 + 카메라 북마크 "camera <1~9> x y z yaw pitch"
+// Two lines "hidden 3 5" / "locked 7" + camera bookmarks "camera <1~9> x y z yaw pitch"
 void Editor::loadViewState() {
     m_hidden.clear();
     m_locked.clear();
@@ -2265,7 +2265,7 @@ void Editor::drawTypeMenuItems() {
     if (!m_gameTypes) ImGui::TextDisabled("%s", tr("(game types appear when the game code is loaded)"));
 }
 
-// 게임 종류의 필드: 텍스트 값을 선언된 타입의 인스턴스로 읽어 위젯으로 고치고, 다시 텍스트로 쓴다
+// Game kind fields: read text values into an instance of the declared type, edit with widgets, and write back as text
 void Editor::drawObjectFields(Entity& e) {
     const reflect::TypeInfo* type = entityType(e);
     if (type && type->fields.empty()) return;
@@ -2331,7 +2331,7 @@ std::string Editor::chooseModel() {
     const std::string root = asset::ModelCache::assetsRoot();
     const std::string path = openFileDialog(m_window->nativeHandle(), "", root + "\\models", kModelFilters, 2);
     if (path.empty()) return {};
-    // assets 폴더 안이면 상대 경로로 저장한다 (다른 PC에서도 같은 씬 파일이 동작하도록)
+    // Inside the assets folder, saved as a relative path (so the same scene file works on other PCs)
     const std::string relative = relativeTo(root, path);
     if (!relative.empty()) return relative;
     setStatus(tr("The file is outside the assets folder. In multiplayer everyone needs it at the same path"));
@@ -2353,15 +2353,15 @@ void Editor::addModelEntity(const std::string& path, const Vec3* at) {
     Entity* e = selected();
     e->model = path;
     e->scale = {1, 1, 1};
-    e->color = 0xFFFFFFFF;                       // 재질 색을 그대로 보이게
-    if (at) e->position = *at + Vec3{0.0f, 1.0f, 0.0f}; // 끌어 놓은 곳
-    e->position.y += -1.0f - model->boundsMin.y; // 바닥에 닿게 (addEntity가 1만큼 띄워 둔다)
+    e->color = 0xFFFFFFFF;                       // show the material color as is
+    if (at) e->position = *at + Vec3{0.0f, 1.0f, 0.0f}; // where it was dropped
+    e->position.y += -1.0f - model->boundsMin.y; // touch the floor (addEntity raises it by 1)
     const std::string file = fileName(path);
     e->name = file.substr(0, file.find_last_of('.'));
     setStatus(trf("Model added: %s", path.c_str()));
 }
 
-// 선택한 물체와 그 자식들을 같은 구조로 복사한다
+// Copies the selected objects and their children with the same structure
 void Editor::duplicateSelected() {
     if (!selected()) return;
     pushUndo(capture());
@@ -2395,7 +2395,7 @@ void Editor::duplicateSelected() {
     else setStatus(total > 1 ? trf("Duplicated: %s (with %zu children)", name.c_str(), total - 1) : trf("Duplicated: %s", name.c_str()));
 }
 
-// 선택한 물체와 그 자식들을 지운다
+// Deletes the selected objects and their children
 void Editor::deleteSelected() {
     const Entity* e = selected();
     if (!e) return;
@@ -2447,7 +2447,7 @@ void Editor::openSceneDialog() {
 }
 
 void Editor::openReplayDialog() {
-    // 기본 폴더: 이 프로젝트의 사용자 폴더 replays/ (플레이할 때마다 남는다, game/InputRecord.h)
+    // Default folder: this project's user folder replays/ (left after every play, game/InputRecord.h)
     const std::string folder = game::userFolder(m_project.settings) + "/" + game::kReplayFolder;
     const std::string path = openFileDialog(m_window->nativeHandle(), "", folder, kReplayFilters, 2);
     if (!path.empty()) requestReplay(path);
@@ -2469,7 +2469,7 @@ bool Editor::loadScene(const std::string& path) {
     m_sceneChangedWarned = false;
     m_dirty = false;
     m_autosavePending = false;
-    // 지난번에 저장하지 않고 끝났거나 크래시가 났으면 자동 저장본이 더 새롭다
+    // If last time ended without saving or crashed, the autosave is newer
     const std::string autosave = path + ".autosave";
     m_recoverPath = fileExists(autosave) && fileWriteTime(autosave) > fileWriteTime(path) ? autosave : std::string();
     m_undo.clear();
@@ -2490,7 +2490,7 @@ bool Editor::saveScene() {
     m_sceneTime = fileWriteTime(m_scenePath);
     m_sceneChangedWarned = false;
     m_autosavePending = false;
-    removeFile(m_scenePath + ".autosave"); // 저장했으니 자동 저장본은 필요 없다
+    removeFile(m_scenePath + ".autosave"); // saved, so the autosave isn't needed
     setStatus(trf("Saved: %s", fileName(m_scenePath).c_str()));
     return true;
 }
@@ -2546,7 +2546,7 @@ void Editor::redo() {
 void Editor::setStatus(const std::string& text, bool failed, NoticeOpen open) {
     m_status = text;
     m_statusTime = m_time;
-    if (m_undoLabelFrame == ImGui::GetFrameCount() && !m_undo.empty()) m_undo.back().label = text; // 복제·삭제 등의 이름
+    if (m_undoLabelFrame == ImGui::GetFrameCount() && !m_undo.empty()) m_undo.back().label = text; // names like duplicate/delete
     if (m_notices.size() >= 5) m_notices.erase(m_notices.begin());
     m_notices.push_back({text, m_time, failed, failed ? open : NoticeOpen::None});
 }
@@ -2565,14 +2565,14 @@ void Editor::updateTitle() {
     }
 }
 
-// ---------------------------------------------------------------- 프로젝트 빌드
+// ---------------------------------------------------------------- Project builds
 
 void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
-    loadViewState(); // 씬은 프로젝트보다 먼저 열린다
+    loadViewState(); // the scene opens before the project
     loadRecentScenes();
     if (!m_scenePath.empty()) rememberRecentScene(m_scenePath);
-    // 창 배치를 프로젝트마다 (build\editor\layout.ini). 처음 여는 프로젝트는 기본 레이아웃
+    // Window layout per project (build\editor\layout.ini). A project opened for the first time gets the default layout
     if (m_prefs.projectLayout && !project.directory.empty()) {
         const std::string folder = project.directory + "\\build\\editor";
         createDirectories(folder);
@@ -2590,8 +2590,8 @@ void Editor::setProject(const ProjectInfo& project) {
     lc.port = live::kEditorPort;
     lc.token = m_penpotToken;
     m_live.start(lc);
-    m_live.addTopic("stats"); // 에디터 상태 표시줄의 성능 숫자 (game::FrameStats::json)
-    audio::addLiveService(m_live, [this] { return m_audio; }); // MealKit Audio: 에디터에서 재생, 다시 읽기, 상태
+    m_live.addTopic("stats"); // performance numbers in the editor status bar (game::FrameStats::json)
+    audio::addLiveService(m_live, [this] { return m_audio; }); // MealKit Audio: playback in the editor, reload, status
     m_tools = findTools(m_toolPaths);
     if (!m_engineDirectory.empty()) {
         ImportProject ip;
@@ -2603,7 +2603,7 @@ void Editor::setProject(const ProjectInfo& project) {
         m_uiPanel.setPenpotUrl(m_import.pluginUrl());
     }
     m_projectPanel.revert(project);
-    // 엔진 저장소 자신(engine 없음)은 묻지 않는다
+    // Don't ask for the engine repo itself (no engine)
     const game::ProjectSettings& s = project.settings;
     m_upgradeOffer = !s.engine.empty() && s.engineVersion != kEngineVersion;
     if (m_upgradeOffer)
@@ -2612,7 +2612,7 @@ void Editor::setProject(const ProjectInfo& project) {
     startLayoutCheck();
 }
 
-// 폴더 구조 검사 (docs/CODING_MODEL.md "프로젝트 폴더 구조"): 규칙은 엔진의 tools\check_layout.ps1 한 곳에 있고, check.ps1·Export와 같은 결과다
+// Folder layout check (docs/CODING_MODEL.md "Project folder layout"): the rules live in one place, the engine's tools\check_layout.ps1, and give the same result as check.ps1/Export
 void Editor::startLayoutCheck() {
     if (m_engineDirectory.empty() || m_project.directory.empty() || m_layoutCheck.running()) return;
     const std::string script = m_engineDirectory + "\\tools\\check_layout.ps1";
@@ -2651,7 +2651,7 @@ void Editor::pollLayoutCheck() {
 }
 
 void Editor::setGameCodeStatus(bool loaded, const std::string& text) {
-    if (loaded && m_gameLoaded && text != m_gameStatus) setStatus(text); // 핫 리로드
+    if (loaded && m_gameLoaded && text != m_gameStatus) setStatus(text); // hot reload
     m_gameLoaded = loaded;
     m_gameStatus = text;
 }
@@ -2668,7 +2668,7 @@ bool Editor::takeGameCodeBuildFailed() {
     return failed;
 }
 
-// 출시본은 디스크의 assets와 mealkit.project를 복사하므로 저장 안 된 씬·프로젝트 설정을 먼저 저장한다
+// Shipping copies assets and mealkit.project from disk, so unsaved scenes/project settings are saved first
 void Editor::startBuild(BuildKind kind) {
     if (m_buildPanel.running() || m_project.directory.empty()) return;
     if (kind == BuildKind::Export && m_dirty && !m_scenePath.empty() && !saveScene()) return;
@@ -2685,7 +2685,7 @@ void Editor::pollBuild() {
             if (!m_gameLoaded) m_gameStatus = tr("Game code build failed - fix it and press Ctrl+R");
         }
     } else if (kind == BuildKind::Upgrade) {
-        // 업그레이드 도구가 mealkit.project의 engine·engineVersion을 고쳤다: 도구가 관리하는 값만 다시 읽는다
+        // The upgrade tool changed mealkit.project's engine/engineVersion: reread only the values the tool manages
         ProjectInfo upgraded;
         if (loadProject(m_project.directory, upgraded)) {
             m_project.settings.engine = upgraded.settings.engine;
@@ -2693,7 +2693,7 @@ void Editor::pollBuild() {
             m_projectPanel.setToolValues(upgraded.settings);
         }
         MEALKIT_INFO("Project upgraded to engine %s", kEngineVersion);
-        startBuild(BuildKind::GameCode); // 템플릿(CMakeLists 등)이 바뀌었으니 다시 빌드
+        startBuild(BuildKind::GameCode); // templates (CMakeLists etc.) changed, so rebuild
     } else if (kind == BuildKind::GameCode) {
         m_gameCodeBuilt = true;
     }
@@ -2719,7 +2719,7 @@ void Editor::takePanelStatus() {
         setStatus(status, !m_buildPanel.running() && !m_buildPanel.succeeded(), NoticeOpen::BuildLog);
 }
 
-// 뷰포트 오른쪽 아래 알림: 성공은 4초 뒤 사라지고, 실패는 닫을 때까지 남는다. 빌드 중에는 진행 표시
+// Notification at the bottom right of the viewport: success disappears after 4 seconds, failure stays until closed. Shows progress while building
 void Editor::drawNotices() {
     std::erase_if(m_notices, [&](const Notice& n) { return !n.failed && m_time - n.time > 4.0; });
     const bool building = m_buildPanel.running();
@@ -2753,7 +2753,7 @@ void Editor::drawNotices() {
         if (building) {
             if (!m_notices.empty()) ImGui::Separator();
             m_buildPanel.drawStatus(m_time);
-            // 끝을 모르는 진행 막대 (음수 = 왕복 애니메이션)
+            // Indeterminate progress bar (negative = back-and-forth animation)
             ImGui::ProgressBar(-static_cast<f32>(m_time), ImVec2(ImGui::GetFontSize() * 14.0f, 0.0f), "");
         }
         ImGui::PopTextWrapPos();

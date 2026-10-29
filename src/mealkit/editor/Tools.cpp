@@ -19,7 +19,7 @@ std::string trim(const std::string& s) {
     return s.substr(a, b - a);
 }
 
-// "키 값" 줄들 (# 주석, @format 줄은 건너뛴다)
+// "key value" lines (# comments and @format lines are skipped)
 template <class F>
 void forEachLine(const std::string& text, F&& f) {
     size_t pos = 0;
@@ -28,14 +28,14 @@ void forEachLine(const std::string& text, F&& f) {
         if (end == std::string::npos) end = text.size();
         std::string line = trim(text.substr(pos, end - pos));
         pos = end + 1;
-        if (line.rfind("\xEF\xBB\xBF", 0) == 0) line.erase(0, 3); // 메모장이 붙인 BOM
+        if (line.rfind("\xEF\xBB\xBF", 0) == 0) line.erase(0, 3); // BOM added by Notepad
         if (line.empty() || line[0] == '#') continue;
         const size_t space = line.find(' ');
         f(line, line.substr(0, space), space == std::string::npos ? std::string() : trim(line.substr(space + 1)));
     }
 }
 
-// 에디터 설정의 toolPath 줄
+// toolPath lines in editor settings
 std::vector<std::string> settingsToolPaths() {
     std::vector<std::string> out;
     std::string text;
@@ -56,7 +56,7 @@ void addTool(const std::string& folder, std::vector<ToolInfo>& out) {
         return;
     }
     for (const ToolInfo& o : out)
-        if (o.name == t.name) return; // 먼저 찾은 것이 이긴다
+        if (o.name == t.name) return; // the first one found wins
     out.push_back(std::move(t));
 }
 
@@ -72,7 +72,7 @@ bool readToolManifest(const std::string& path, ToolInfo& out, std::string* error
     out.folder = parentDirectory(path);
     std::string exe;
     forEachLine(content, [&](const std::string& line, const std::string& key, const std::string& value) {
-        u32 version = 1; // 지금은 버전 1뿐이라 migrate가 없다
+        u32 version = 1; // only version 1 for now, so no migrate
         if (text::readFormatLine(line, text::kTool, path, version)) return;
         if (key == "name") out.name = value;
         else if (key == "exe") exe = value;
@@ -107,7 +107,7 @@ std::vector<ToolInfo> findTools(const std::vector<std::string>& extraFolders) {
     roots.push_back(defaultToolsFolder());
     for (const std::string& p : settingsToolPaths()) roots.push_back(p);
     for (const std::string& root : roots) {
-        addTool(root, out); // 폴더 자체가 도구
+        addTool(root, out); // the folder itself is a tool
         for (const std::string& d : listDirectories(root)) addTool(root + "\\" + d, out);
     }
     std::sort(out.begin(), out.end(), [](const ToolInfo& a, const ToolInfo& b) { return a.name < b.name; });

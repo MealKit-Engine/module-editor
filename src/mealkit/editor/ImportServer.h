@@ -7,33 +7,33 @@
 #include <string>
 #include <vector>
 
-// Penpot 가져오기 (ROADMAP "게임 화면 UI 2부"): 에디터 라이브 연결 서버(mealkit/live/Server.h)의 penpot/ 서비스.
-//   GET  /<토큰>/penpot/manifest.json, plugin.js, ui.html, icon.png   Penpot 플러그인 파일 (엔진 tools/penpot-plugin/dist)
-//   GET  /<토큰>/penpot/api/project                                   프로젝트 이름, 글꼴, 뷰 모델 필드, .ui에 쓰인 액션 (플러그인 드롭다운)
-//   POST /<토큰>/penpot/api/export                                    받은 .ui·PNG·문자열·테마·Penpot 원본·배치 상자를 프로젝트에 쓴다
-// 보안: 서버가 127.0.0.1·실행마다 무작위 토큰으로 지킨다(플러그인 설치 주소에 들어 있다).
-// Origin은 Penpot(https://*.penpot.app, 직접 띄운 localhost)이나 이 서버여야 하고, 쓰기(POST)는 이 서버의 패널만.
-// 쓰는 경로는 assets/ui/ 아래 .ui·.png, art/ui/ 아래 .penpot·boxes/*.boxes·preview/*.png, 프로젝트 기본 언어의 문자열 표뿐이다(".." 거절).
+// Penpot import (ROADMAP "Game screen UI part 2"): the penpot/ service of the editor's live connection server (mealkit/live/Server.h).
+//   GET  /<token>/penpot/manifest.json, plugin.js, ui.html, icon.png   Penpot plugin files (engine tools/penpot-plugin/dist)
+//   GET  /<token>/penpot/api/project                                   project name, fonts, view model fields, actions used in .ui (plugin dropdowns)
+//   POST /<token>/penpot/api/export                                    writes received .ui/PNG/strings/theme/Penpot source/layout boxes into the project
+// Security: the server guards with 127.0.0.1 and a random per-run token (included in the plugin install address).
+// Origin must be Penpot (https://*.penpot.app, self-hosted localhost) or this server, and writes (POST) only from this server's panel.
+// Written paths are only .ui/.png under assets/ui/, .penpot/boxes/*.boxes/preview/*.png under art/ui/, and the project default language's string table (".." rejected).
 namespace mealkit::editor {
 
 struct ImportProject {
-    std::string engineDir;  // 플러그인 파일 (tools/penpot-plugin/dist)
-    std::string projectDir; // 받은 파일을 쓸 곳
+    std::string engineDir;  // plugin files (tools/penpot-plugin/dist)
+    std::string projectDir; // where received files are written
     std::string name;
-    std::string language; // 새 문자열 키를 더할 표 (assets/strings/<language>.txt)
+    std::string language; // table to add new string keys to (assets/strings/<language>.txt)
 };
 
 class ImportServer {
 public:
-    // server에 penpot/ 서비스를 더한다 (서버가 먼저 열려 있어야 주소가 있다)
+    // Adds the penpot/ service to server (the server must be open first to have an address)
     void attach(live::Server& server, const ImportProject& project);
     void setViewModels(const std::vector<const reflect::TypeInfo*>* types) { m_viewModels = types; }
 
-    std::string pluginUrl() const; // Penpot 플러그인 관리자에 붙여 넣는 주소
-    // 가져오기가 끝날 때마다 한 줄 (상태 표시줄)
+    std::string pluginUrl() const; // address pasted into the Penpot plugin manager
+    // One line every time an import finishes (status bar)
     std::vector<std::string> takeEvents();
 
-    live::Response handle(const live::Request& request); // 서비스 안의 경로 (소켓 없이 시험할 수 있게 공개)
+    live::Response handle(const live::Request& request); // path within the service (public so it can be tested without sockets)
 
 private:
     live::Response serveFile(const std::string& name) const;

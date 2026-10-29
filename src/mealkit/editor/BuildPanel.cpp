@@ -11,9 +11,9 @@
 
 namespace mealkit::editor {
 
-// 프로젝트의 build.bat을 창 없이 실행한다.
-//   GameCode: build.bat Editor → build\Editor\bin\<이름>_game.dll (엔진 mealkit.dll은 이미 빌드되어 있으면 건드리지 않는다)
-//   Export:   build.bat Export → 출시용 exe만 다시 빌드하고 export\<이름>에 모은다
+// Runs the project's build.bat without a window.
+//   GameCode: build.bat Editor → build\Editor\bin\<name>_game.dll (the engine mealkit.dll isn't touched if already built)
+//   Export:   build.bat Export → rebuilds only the shipping exe and gathers it in export\<name>
 bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::string& engineDirectory, f64 now) {
     if (m_process.running() || project.directory.empty()) return false;
     std::string command;
@@ -37,7 +37,7 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
     }
     m_kind = kind;
     m_scroll = true;
-    if (kind != BuildKind::GameCode) m_open = true; // 게임 코드 빌드는 실패할 때만 연다
+    if (kind != BuildKind::GameCode) m_open = true; // game code builds open only on failure
     if (!m_process.start(command, project.directory)) {
         m_log += std::string(tr("Could not start the build.")) + "\n";
         m_open = true;
@@ -50,7 +50,7 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
 
 bool BuildPanel::poll(const ProjectInfo& project, f64 now) {
     if (!m_process.running()) return false;
-    // 실패한 명령은 ninja가 /showIncludes 줄까지 그대로 보여 준다. 에러를 찾기 쉽게 그 줄은 뺀다 (영문/한국어 MSVC).
+    // For a failed command ninja shows the /showIncludes lines as is. Those lines are dropped to make errors easier to find (English/Korean MSVC).
     std::string fresh;
     const bool running = m_process.poll(fresh);
     size_t start = 0;
@@ -58,7 +58,7 @@ bool BuildPanel::poll(const ProjectInfo& project, f64 now) {
         const std::string line = fresh.substr(start, nl + 1 - start);
         start = nl + 1;
         if (line.find("Note: including file:") != std::string::npos ||
-            line.find("참고: 포함 파일:") != std::string::npos) // i18n-ignore (한국어 MSVC 출력)
+            line.find("참고: 포함 파일:") != std::string::npos) // i18n-ignore (Korean MSVC output)
             continue;
         m_log += line;
         m_scroll = true;
@@ -125,7 +125,7 @@ bool BuildPanel::drawLog(bool editing, const ProjectInfo& project, f64 now, Buil
         ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), tr("Building... %.0fs"), now - m_start);
     ImGui::Separator();
     if (ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
-        // 줄마다: "파일(줄)"이 있으면 누를 수 있게 (코드 편집기로 연다, 상대 경로는 프로젝트 폴더 기준)
+        // Per line: if there's a "file(line)", make it clickable (opens in the code editor; relative paths are relative to the project folder)
         std::vector<std::pair<size_t, size_t>> lines;
         for (size_t pos = 0; pos < m_log.size();) {
             size_t end = m_log.find('\n', pos);

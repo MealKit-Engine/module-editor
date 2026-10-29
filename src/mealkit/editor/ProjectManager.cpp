@@ -21,15 +21,15 @@
 #include <system_error>
 #include <vector>
 
-// 프로젝트 관리자 (고도 에디터의 프로젝트 관리자를 따른다):
-//   위: [만들기] [가져오기] [검색] ............ [언어]
-//   목록: 별(즐겨찾기) | 아이콘(눌러 바꾸기) | 이름(눌러 고치기 = exe 이름) / 폴더(눌러 고치기 = 폴더 옮기기) | 시작일·수정일
-// 이름 바꾸기는 tools\rename_project.ps1, 새 프로젝트는 tools\new_project.ps1을 창 없이 실행한다.
+// Project manager (follows the Godot editor's project manager):
+//   top: [Create] [Import] [Search] ............ [Language]
+//   list: star (favorite) | icon (click to change) | name (click to edit = exe name) / folder (click to edit = move folder) | created/modified dates
+// Renaming runs tools\rename_project.ps1, new projects run tools\new_project.ps1, without a window.
 namespace mealkit::editor {
 namespace {
 namespace fs = std::filesystem;
 
-constexpr int kDefaultIconResource = 2; // MealKitEditor.rc의 RCDATA (밀키트 아이콘)
+constexpr int kDefaultIconResource = 2; // RCDATA in MealKitEditor.rc (MealKit icon)
 constexpr u32 kIconPixels = 128;
 constexpr FileFilter kImageFilter{"Image", "*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.ico;*.tif;*.tiff"};
 
@@ -50,7 +50,7 @@ bool containsNoCase(const std::string& text, const char* needle) {
     return it != text.end();
 }
 
-// 프로젝트에서 가장 최근에 고친 파일 시각. 빌드 산출물·버전 관리·서드파티 폴더는 보지 않는다
+// Time of the most recently modified file in the project. Build output, version control, and third-party folders aren't checked
 u64 lastModifiedTime(const std::string& directory) {
     static const char* const kSkip[] = {"build", "export", "third_party", "node_modules"};
     u64 newest = 0;
@@ -76,11 +76,11 @@ struct Entry {
     ProjectInfo info;
     bool valid = false;
     bool favorite = false;
-    bool engineSample = false; // 엔진 저장소 자신 (이름·폴더를 바꿀 수 없다)
+    bool engineSample = false; // the engine repo itself (name/folder can't be changed)
     std::string created;
     std::string modified;
     u64 modifiedTime = 0;
-    ImTextureData* icon = nullptr; // 없으면 밀키트 아이콘
+    ImTextureData* icon = nullptr; // MealKit icon if none
 };
 
 std::string iconPath(const Entry& e) {
@@ -89,7 +89,7 @@ std::string iconPath(const Entry& e) {
     return e.directory + "\\" + icon;
 }
 
-// 폴더 옮기기. 같은 드라이브면 이름 바꾸기, 아니면 복사 후 지우기. build\는 절대 경로가 들어 있어 먼저 지운다
+// Move a folder. Rename if on the same drive, otherwise copy then delete. build\ contains absolute paths, so it's deleted first
 bool moveProjectFolder(const std::string& from, const std::string& to, std::string& error) {
     std::error_code ec;
     const fs::path src = fromUtf8(from), dst = fromUtf8(to);
@@ -97,7 +97,7 @@ bool moveProjectFolder(const std::string& from, const std::string& to, std::stri
         error = trf("%s already exists and is not empty", to.c_str());
         return false;
     }
-    fs::remove(dst, ec); // 빈 폴더면 지우고 그 자리로 옮긴다
+    fs::remove(dst, ec); // if it's an empty folder, delete it and move into its place
     fs::create_directories(dst.parent_path(), ec);
     fs::remove_all(src / "build", ec);
     if (ec) {
@@ -106,7 +106,7 @@ bool moveProjectFolder(const std::string& from, const std::string& to, std::stri
     }
     fs::rename(src, dst, ec);
     if (ec) {
-        // 다른 드라이브: 복사 후 원본 지우기
+        // Different drive: copy then delete the original
         std::error_code copyError;
         fs::copy(src, dst, fs::copy_options::recursive, copyError);
         if (copyError) {
@@ -119,7 +119,7 @@ bool moveProjectFolder(const std::string& from, const std::string& to, std::stri
     return true;
 }
 
-// 클릭하면 고치기 시작하는 글자. 마우스를 올리면 입력 칸처럼 보인다. 눌렀으면 true
+// Text that starts editing on click. Looks like an input field on hover. true if clicked
 bool clickableText(const char* id, const char* text, ImU32 color, bool enabled, const char* disabledTip) {
     const ImVec2 size = ImGui::CalcTextSize(text);
     const ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -138,7 +138,7 @@ bool clickableText(const char* id, const char* text, ImU32 color, bool enabled, 
     return pressed && enabled;
 }
 
-// 이름·경로 입력 칸 (Enter = 확정, Esc·다른 곳 클릭 = 취소). 0 = 계속, 1 = 확정, -1 = 취소
+// Name/path input field (Enter = confirm, Esc/click elsewhere = cancel). 0 = continue, 1 = confirm, -1 = cancel
 int inlineEdit(const char* id, char* buffer, size_t size, f32 width, bool& focus) {
     if (focus) {
         ImGui::SetKeyboardFocusHere();
@@ -156,7 +156,7 @@ int inlineEdit(const char* id, char* buffer, size_t size, f32 width, bool& focus
 std::string runProjectManager(Window& window, render::Renderer& renderer, const std::string& engineDirectory,
                               unsigned maxFrames, const std::string& capturePath) {
     std::string engineDir = engineDirectory;
-    std::replace(engineDir.begin(), engineDir.end(), '/', '\\'); // CMake 경로 → 윈도우 표기
+    std::replace(engineDir.begin(), engineDir.end(), '/', '\\'); // CMake path → Windows notation
     ImGuiLayer imgui;
     if (!imgui.init(window, renderer, executableDirectory() + "\\mealkit_projects.ini")) return {};
     window.setTitle(tr("MealKit Engine - Project Manager"));
@@ -169,7 +169,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
     }
 
     std::vector<Entry> entries;
-    std::string selected;    // 고른 프로젝트 폴더
+    std::string selected;    // selected project folder
     bool scrollToSelected = false;
     auto reload = [&] {
         for (Entry& e : entries) imgui.releaseTexture(e.icon);
@@ -193,7 +193,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             }
             entries.push_back(std::move(e));
         }
-        // 즐겨찾기 먼저, 그다음 최근에 고친 순
+        // Favorites first, then by most recently modified
         std::stable_sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
             if (a.favorite != b.favorite) return a.favorite;
             return a.modifiedTime > b.modifiedTime;
@@ -209,11 +209,11 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
         messageIsError = true;
     };
 
-    // 새 프로젝트 창
+    // New project window
     char newName[64] = "MyGame";
     char newLocation[512] = {};
     {
-        // 기본 위치: 가장 최근 프로젝트가 있는 폴더, 없으면 문서\MealKitProjects
+        // Default location: folder of the most recent project, or Documents\MealKitProjects if none
         std::string location;
         if (!entries.empty()) location = parentDirectory(loadRecentProjects().front());
         if (location.empty()) {
@@ -224,21 +224,21 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
     }
     bool openCreate = false;
 
-    // 창 없이 실행하는 도구 (새 프로젝트 / 이름 바꾸기). 한 번에 하나
+    // Tools run without a window (new project / rename). One at a time
     enum class Task { None, Create, Rename };
     ChildProcess process;
     Task task = Task::None;
     std::string taskLog;
-    std::string taskDirectory; // 만드는 중이거나 이름을 바꾸는 프로젝트 폴더
+    std::string taskDirectory; // project folder being created or renamed
     bool showLog = false;
 
-    // 목록에서 고치는 중인 칸
+    // Cell being edited in the list
     enum class Edit { None, Name, Path };
     Edit editing = Edit::None;
     std::string editDirectory;
     char editBuffer[512] = {};
     bool editFocus = false;
-    // 확인 창에 넘길 값
+    // Values to pass to the confirmation window
     std::string confirmDirectory, confirmValue;
     Edit confirmKind = Edit::None;
 
@@ -323,7 +323,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-        // ---- 위 막대: 만들기, 가져오기, 검색 ... 언어
+        // ---- Top bar: create, import, search ... language
         static char filter[128] = {};
         ImGui::BeginDisabled(busy);
         if (ImGui::Button((std::string(icon::kAdd) + "  " + tr("Create")).c_str())) openCreate = true;
@@ -365,7 +365,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             ImGui::EndCombo();
         }
 
-        // ---- 프로젝트 목록
+        // ---- Project list
         const f32 bottom = (message.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing()) +
                            (showLog && !taskLog.empty() ? 160.0f * dpi + style.ItemSpacing.y : 0.0f);
         ImGui::BeginChild("##list", ImVec2(0, -bottom), ImGuiChildFlags_Borders);
@@ -384,7 +384,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             const ImVec2 rowStart = ImGui::GetCursorPos();
             const bool isSelected = selected == e.directory;
 
-            // 줄 전체: 고르기, 더블클릭으로 열기, 오른쪽 클릭 메뉴
+            // Whole row: select, double-click to open, right-click menu
             ImGui::BeginDisabled(busy);
             ImGui::SetNextItemAllowOverlap();
             if (ImGui::Selectable("##row", isSelected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0, rowHeight))) {
@@ -406,7 +406,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             }
             const f32 rowRight = ImGui::GetItemRectMax().x;
 
-            // 즐겨찾기 별
+            // Favorite star
             ImGui::SetCursorPos(ImVec2(rowStart.x + style.FramePadding.x, rowStart.y + (rowHeight - ImGui::GetFrameHeight()) * 0.5f));
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
             ImGui::PushStyleColor(ImGuiCol_Text, e.favorite ? ImVec4(1.0f, 0.78f, 0.25f, 1.0f) : style.Colors[ImGuiCol_TextDisabled]);
@@ -418,7 +418,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             ImGui::PopStyleColor(2);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", e.favorite ? tr("Remove from favorites") : tr("Add to favorites"));
 
-            // 아이콘 (눌러서 바꾸기)
+            // Icon (click to change)
             ImGui::SameLine();
             ImGui::SetCursorPosY(rowStart.y + (rowHeight - iconSize) * 0.5f);
             ImTextureData* tex = e.icon ? e.icon : defaultIcon;
@@ -426,7 +426,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             if (tex) {
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-                // 정사각형이 아니면 가운데를 잘라 보여 준다
+                // If not square, show the center cropped
                 const f32 aspect = static_cast<f32>(tex->Width) / static_cast<f32>(std::max(tex->Height, 1));
                 const ImVec2 uv0 = aspect > 1.0f ? ImVec2(0.5f - 0.5f / aspect, 0.0f) : ImVec2(0.0f, 0.5f - 0.5f * aspect);
                 const ImVec2 uv1 = ImVec2(1.0f - uv0.x, 1.0f - uv0.y);
@@ -439,7 +439,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             }
             if (ImGui::IsItemHovered() && e.valid) ImGui::SetTooltip("%s", tr("Click to change the icon"));
 
-            // 이름 (위)과 폴더 (아래)
+            // Name (top) and folder (bottom)
             ImGui::SameLine(0, style.ItemSpacing.x * 2);
             const f32 textX = ImGui::GetCursorPosX();
             const f32 datesWidth = ImGui::CalcTextSize("0000-00-00 00:00").x + ImGui::CalcTextSize(tr("Modified")).x + 24 * dpi;
@@ -488,7 +488,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
                 editFocus = true;
             }
 
-            // 오른쪽: 개발 시작일, 마지막 수정일 (흐리게)
+            // Right: development start date, last modified date (dimmed)
             if (e.valid) {
                 const std::string createdLine = std::string(tr("Started")) + "  " + e.created;
                 const std::string modifiedLine = std::string(tr("Modified")) + "  " + e.modified;
@@ -506,7 +506,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             ImGui::EndDisabled();
 
             ImGui::SetCursorPos(ImVec2(rowStart.x, rowStart.y + rowHeight));
-            ImGui::Dummy(ImVec2(0, 0)); // 다음 줄 위치 (SetCursorPos만으로는 창 크기가 늘지 않는다)
+            ImGui::Dummy(ImVec2(0, 0)); // next line position (SetCursorPos alone doesn't grow the window)
             ImGui::PopID();
         }
         if (entries.empty()) ImGui::TextDisabled("%s", tr("No projects yet. Create one or import a project folder."));
@@ -533,7 +533,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             ImGui::EndChild();
         }
 
-        // ---- 확인 창: 이름 바꾸기 / 폴더 옮기기
+        // ---- Confirmation window: rename / move folder
         if (confirmKind != Edit::None && !ImGui::IsPopupOpen(trl("Confirm"))) ImGui::OpenPopup(trl("Confirm"));
         ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         if (ImGui::BeginPopupModal(trl("Confirm"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -555,7 +555,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
                 } else {
                     std::string error;
                     ProjectInfo info;
-                    // 옮기면 폴더 생성 시각이 바뀔 수 있어, 시작일을 아직 적지 않았으면 먼저 적는다
+                    // Moving can change the folder creation time, so write the start date first if it isn't recorded yet
                     if (loadProject(confirmDirectory, info) && info.settings.created.empty()) {
                         info.settings.created = formatFileTime(fileCreationTime(confirmDirectory), false);
                         game::saveProjectFile(info.filePath(), info);
@@ -583,7 +583,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             ImGui::EndPopup();
         }
 
-        // ---- 새 프로젝트 창
+        // ---- New project window
         if (openCreate) {
             ImGui::OpenPopup(trl("Create New Project"));
             openCreate = false;

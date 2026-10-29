@@ -20,7 +20,7 @@ bool sourceExtension(const std::string& path) {
     return false;
 }
 
-// pos 앞쪽으로 경로 시작을 찾는다 (공백·따옴표·'['에서 멈춘다, 드라이브 문자 "D:"는 경로 안)
+// Searches backward from pos for the start of a path (stops at spaces/quotes/'['; a drive letter "D:" is inside the path)
 size_t pathStart(const std::string& text, size_t end) {
     size_t i = end;
     while (i > 0) {
@@ -52,7 +52,7 @@ bool openInCodeEditor(const std::string& editor, const std::string& file, int li
     const std::string exe = editor.empty() ? std::string("code") : editor;
     const std::string target = "-g \"" + file + ":" + std::to_string(line) + "\"";
     const bool direct = exe.size() > 4 && exe.compare(exe.size() - 4, 4, ".exe") == 0;
-    // code는 code.cmd라 cmd로 부른다
+    // code is code.cmd, so it's called via cmd
     const bool ok = direct ? launchDetached(exe, target, "")
                            : launchDetached("cmd.exe", "/c \"\"" + exe + "\" " + target + "\"", "");
     if (!ok) MEALKIT_WARN("Could not start the code editor '%s' (Preferences > Code editor)", exe.c_str());

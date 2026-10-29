@@ -1,4 +1,4 @@
-// 에디터 명령 표와 명령 팔레트 (Ctrl+P). 메뉴·단축키·팔레트·F1 도움말이 이 표 하나를 쓴다.
+// Editor command table and command palette (Ctrl+P). Menus, shortcuts, palette, and F1 help all use this one table.
 #include "mealkit/editor/Editor.h"
 
 #include "mealkit/core/Log.h"
@@ -16,7 +16,7 @@
 namespace mealkit::editor {
 namespace {
 
-// 대소문자를 무시한 부분 문자열 (한국어는 바이트 그대로 비교)
+// Case-insensitive substring (Korean compared byte for byte)
 bool matches(const char* text, const char* needle) {
     if (!needle[0]) return true;
     const size_t n = strlen(needle);
@@ -111,10 +111,10 @@ std::string Editor::shortcutText(const Command& c) const {
     return c.chord ? ImGui::GetKeyChordName(c.chord) : std::string();
 }
 
-// 메뉴 줄: 이름·단축키·켜짐 여부를 명령 표에서 가져온다. selected가 있으면 체크 표시
+// Menu item: name, shortcut, and enabled state come from the command table. Checkmark if selected is given
 void Editor::commandMenuItem(const char* name, const bool* selected) {
     const Command* c = findCommand(name);
-    MEALKIT_ASSERT(c); // 메뉴에 쓴 이름이 명령 표에 있어야 한다
+    MEALKIT_ASSERT(c); // names used in menus must be in the command table
     if (!c) return;
     const std::string keys = shortcutText(*c);
     if (ImGui::MenuItem(tr(name), keys.empty() ? nullptr : keys.c_str(), selected ? *selected : false, c->enabled()))
@@ -122,7 +122,7 @@ void Editor::commandMenuItem(const char* name, const bool* selected) {
 }
 
 void Editor::runShortcuts() {
-    if (!m_queuedCommands.empty() && ImGui::GetFrameCount() > 2) { // --command: 씬·모델을 다 읽은 뒤
+    if (!m_queuedCommands.empty() && ImGui::GetFrameCount() > 2) { // --command: after scenes/models are fully loaded
         for (const std::string& name : m_queuedCommands) {
             const Command* c = findCommand(name.c_str());
             if (c && c->enabled()) c->run();
@@ -146,7 +146,7 @@ void Editor::runShortcuts() {
     }
 }
 
-// F1: 명령 표의 단축키 목록
+// F1: shortcut list from the command table
 void Editor::drawShortcutHelp() {
     if (!m_shortcutsOpen) return;
     ImGui::SetNextWindowSize(ImVec2(420, 520), ImGuiCond_FirstUseEver);
@@ -187,9 +187,9 @@ void Editor::openPalette(const std::string& text) {
     m_paletteInitial = text;
 }
 
-// Ctrl+P: 명령·물체·씬·도구를 이름(한국어·영어)으로 찾아 바로 실행한다
+// Ctrl+P: find commands, objects, scenes, and tools by name (Korean/English) and run them right away
 void Editor::drawCommandPalette() {
-    if (m_paletteOpen && ImGui::GetFrameCount() > 2) { // 첫 프레임에 나타나는 창들이 포커스를 가져가 팝업을 닫는다
+    if (m_paletteOpen && ImGui::GetFrameCount() > 2) { // windows appearing on the first frame take focus and close the popup
         ImGui::OpenPopup("##palette");
         m_paletteOpen = false;
         snprintf(m_paletteSearch, sizeof(m_paletteSearch), "%s", m_paletteInitial.c_str());

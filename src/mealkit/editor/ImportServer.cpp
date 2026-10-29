@@ -22,7 +22,7 @@ std::string lower(std::string s) {
     return s;
 }
 
-// 받은 파일 경로: 상대 경로, 영문자·숫자·_-./, ".." 없음
+// Received file paths: relative, letters/digits/_-./, no ".."
 bool safePath(const std::string& p) {
     if (p.empty() || p[0] == '/' || p.find("..") != std::string::npos || p.find("//") != std::string::npos) return false;
     for (const char c : p)
@@ -51,7 +51,7 @@ std::string kindName(reflect::Kind k) {
     }
 }
 
-// 뷰 모델 필드를 펼친다: 구조체는 a.b, 목록(MEALKIT_LIST)은 목록 이름과 원소 필드(목록 안 노드가 쓰는 이름)
+// Expands view model fields: structs as a.b, lists (MEALKIT_LIST) as the list name and element fields (names used by nodes inside the list)
 void addFields(const reflect::TypeInfo& type, const std::string& prefix, std::string& out, bool& first, u32 depth) {
     for (const reflect::FieldInfo& f : type.fields) {
         const std::string name = prefix + f.name;
@@ -64,7 +64,7 @@ void addFields(const reflect::TypeInfo& type, const std::string& prefix, std::st
     }
 }
 
-// .ui의 "color 이름 값" / "number 이름 값" 줄을 이름으로 바꾸거나 더한다 (손으로 쓴 다른 토큰은 둔다)
+// Replaces or adds "color name value" / "number name value" lines in .ui by name (other hand-written tokens are left)
 std::string mergeTheme(const std::string& existing, const std::string& incoming) {
     std::vector<std::string> lines;
     size_t pos = 0;
@@ -85,7 +85,7 @@ std::string mergeTheme(const std::string& existing, const std::string& incoming)
         return line.substr(0, b == std::string::npos ? line.size() : b);
     };
     pos = 0;
-    bool header = lines.empty(); // 새 파일: 첫 토큰 앞의 머리말·형식 줄을 그대로 쓴다
+    bool header = lines.empty(); // new file: write the header/format line before the first token as is
     while (pos < incoming.size()) {
         size_t end = incoming.find('\n', pos);
         if (end == std::string::npos) end = incoming.size();
@@ -108,7 +108,7 @@ std::string mergeTheme(const std::string& existing, const std::string& incoming)
     return out;
 }
 
-// Penpot이 플러그인 코드를 부르는 출처 (https://*.penpot.app, 직접 띄운 Penpot은 localhost)
+// Origin from which Penpot calls the plugin code (https://*.penpot.app, localhost for self-hosted Penpot)
 bool penpotOrigin(const std::string& origin) {
     const std::string o = lower(origin);
     if (startsWith(o, "https://")) {
@@ -147,7 +147,7 @@ std::vector<std::string> ImportServer::takeEvents() {
 Response ImportServer::handle(const live::Request& req) {
     if (req.method == "GET" && req.path == "api/project") return project();
     if (req.method == "POST" && req.path == "api/export") {
-        if (!m_server || req.origin != m_server->origin()) { // 이 서버가 준 플러그인 패널만 쓴다
+        if (!m_server || req.origin != m_server->origin()) { // only the plugin panel served by this server is used
             Response r;
             r.status = 403;
             r.body = "{\"error\":\"export must come from the plugin panel\"}";
@@ -174,11 +174,11 @@ Response ImportServer::serveFile(const std::string& name) const {
         if (name != file) continue;
         if (!readTextFile(m_project.engineDir + "/tools/penpot-plugin/dist/" + file, r.body)) break;
         r.contentType = type;
-        // 플러그인 코드·아이콘·패널 주소는 이 서비스의 토큰 경로 (Penpot이 상대 주소를 어디에 붙일지 기대지 않는다)
+        // Plugin code/icon/panel addresses are this service's token paths (doesn't rely on where Penpot attaches relative addresses)
         const std::string base = m_server ? m_server->baseUrl() + "penpot/" : std::string();
         for (size_t at = r.body.find("__MEALKIT_BASE__"); at != std::string::npos; at = r.body.find("__MEALKIT_BASE__", at + base.size()))
             r.body.replace(at, 16, base);
-        // Penpot은 아이콘을 "플러그인 출처 + / + 값"으로 읽는다: 출처 기준 경로 (앞의 /는 Penpot이 붙인다)
+        // Penpot reads the icon as "plugin origin + / + value": a path relative to the origin (Penpot adds the leading /)
         const std::string path = (m_server ? m_server->token() : std::string()) + "/penpot/";
         for (size_t at = r.body.find("__MEALKIT_PATH__"); at != std::string::npos; at = r.body.find("__MEALKIT_PATH__", at + path.size()))
             r.body.replace(at, 16, path);
@@ -193,7 +193,7 @@ Response ImportServer::project() const {
     std::vector<std::string> fonts;
     for (const char* ext : {".ttf", ".otf"})
         for (const std::string& f : listFiles(m_project.projectDir + "/assets/fonts", ext)) fonts.push_back(f.substr(0, f.size() - 4));
-    // 액션: 지금 .ui 파일에 쓰인 것 (게임 코드가 받는 이름)
+    // Actions: those currently used in .ui files (names the game code receives)
     std::vector<std::string> actions, uiFiles;
     const std::string uiDir = m_project.projectDir + "/assets/ui";
     for (const std::string& f : listFiles(uiDir, ".ui")) {
@@ -250,7 +250,7 @@ Response ImportServer::importFiles(const std::string& body) {
         if (lineEnd == std::string::npos) break;
         const std::string header = body.substr(pos, lineEnd - pos);
         pos = lineEnd + 1;
-        // "<종류> <경로> <크기> [force]"
+        // "<kind> <path> <size> [force]"
         std::vector<std::string> words;
         for (size_t a = 0; a < header.size();) {
             size_t b = header.find(' ', a);
@@ -297,7 +297,7 @@ Response ImportServer::importFiles(const std::string& body) {
             else errors.push_back("cannot write assets/" + p);
             continue;
         } else if (k == "strings") {
-            // 프로젝트 기본 언어의 문자열 표에 없는 키만 더한다 (있는 키는 표가 이긴다, 다르면 경고)
+            // Adds only keys missing from the project default language's string table (existing keys win; warns if different)
             target = root + "/assets/strings/" + m_project.language + ".txt";
             std::string text;
             readTextFile(target, text);
@@ -339,7 +339,7 @@ Response ImportServer::importFiles(const std::string& body) {
         } else if (k == "boxes" && endsWith(p, ".boxes") && p.find('/') == std::string::npos) {
             target = root + "/art/ui/boxes/" + p;
         } else if (k == "preview" && endsWith(p, ".png") && p.find('/') == std::string::npos) {
-            target = root + "/art/ui/preview/" + p; // 픽셀 비교 (보조 검사)
+            target = root + "/art/ui/preview/" + p; // pixel comparison (secondary check)
         } else {
             errors.push_back("not allowed: " + k + " " + p);
             continue;
@@ -348,7 +348,7 @@ Response ImportServer::importFiles(const std::string& body) {
         if (writeTextFile(target, data)) written.push_back(target.substr(root.size() + 1));
         else errors.push_back("cannot write " + target);
     }
-    // 이번에 쓰지 않은 예전 구운 PNG를 지운다 (화면 폴더 assets/ui/<화면>/)
+    // Delete old baked PNGs not written this time (screen folder assets/ui/<screen>/)
     for (const std::string& dir : cleanDirs)
         for (const std::string& f : listFiles(root + "/assets/" + dir, ".png")) {
             const std::string rel = "assets/" + dir + f;

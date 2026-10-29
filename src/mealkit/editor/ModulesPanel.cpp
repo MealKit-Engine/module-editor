@@ -104,7 +104,7 @@ void ModulesPanel::poll() {
     m_logFailed = !ok;
     m_status = ok ? trf("%s: done", m_label.c_str()) : trf("%s: failed - see the Modules window", m_label.c_str());
     if (ok && m_changes) m_changed = true;
-    m_needList = true; // 성공했든 아니든 지금 상태를 다시 본다
+    m_needList = true; // recheck the current state whether it succeeded or not
 }
 
 void ModulesPanel::draw(const ProjectInfo& project, const std::string& engineDirectory, bool editing) {
@@ -136,7 +136,7 @@ void ModulesPanel::draw(const ProjectInfo& project, const std::string& engineDir
     if (busy) ImGui::TextDisabled("%s...", m_label.c_str());
     else if (!editing) ImGui::TextDisabled("%s", tr("Stop playing to change modules."));
 
-    // 설치된 모듈
+    // Installed modules
     ImGui::SeparatorText(tr("In this project"));
     const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp;
     if (m_list.installed.empty()) ImGui::TextDisabled("%s", tr("No modules. Add one from the list below."));
@@ -179,7 +179,7 @@ void ModulesPanel::draw(const ProjectInfo& project, const std::string& engineDir
         ImGui::EndTable();
     }
 
-    // 레지스트리
+    // Registry
     ImGui::SeparatorText(tr("Registry (MealKit-Modules)"));
     if (!m_list.error.empty()) ImGui::TextColored(kError, "%s", m_list.error.c_str());
     const float logHeight = m_log.empty() ? 0.0f : ImGui::GetTextLineHeightWithSpacing() * 7;

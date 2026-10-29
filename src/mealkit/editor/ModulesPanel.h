@@ -6,32 +6,32 @@
 #include <string>
 #include <vector>
 
-// 에디터 [모듈] 창 (docs/MODULES.md): 프로젝트 modules/의 소스 모듈과 레지스트리(MealKit-Modules) 목록.
-// 추가·갱신·제거는 엔진의 tools\module.ps1을 창 없이 부른다(규칙은 그 스크립트 한 곳). 목록은 `module.ps1 search -Tsv` 한 번으로 받는다.
-// 모듈을 바꾸면 게임 코드를 다시 빌드해야 하므로 takeChanged()로 에디터에 알린다.
+// Editor [Modules] window (docs/MODULES.md): source modules in the project's modules/ and the registry (MealKit-Modules) list.
+// Add/update/remove call the engine's tools\module.ps1 without a window (the rules live in that one script). The list comes from one `module.ps1 search -Tsv`.
+// Changing modules requires rebuilding game code, so the editor is notified via takeChanged().
 namespace mealkit::editor {
 
 struct InstalledModule {
     std::string name, version, source;
-    int modified = 0; // 설치한 뒤 게임이 고친 파일 수
-    int pending = 0;  // 갱신이 남긴 .new 파일 수
+    int modified = 0; // number of files the game modified after install
+    int pending = 0;  // number of .new files left by an update
 };
 
 struct RegistryModule {
     std::string name;
-    std::string version;       // 이 엔진 MINOR용 가장 새 버전 (없으면 빈 칸)
-    std::string latest;        // 가장 새 버전
-    std::string latestEngine;  // 그 버전의 엔진 MAJOR.MINOR
+    std::string version;       // newest version for this engine MINOR (blank if none)
+    std::string latest;        // newest version
+    std::string latestEngine;  // engine MAJOR.MINOR of that version
     std::string title, summary, tags, author, repo;
 };
 
 struct ModuleList {
     std::vector<InstalledModule> installed;
     std::vector<RegistryModule> registry;
-    std::string error; // 레지스트리 목록을 받지 못한 이유
+    std::string error; // why the registry list couldn't be fetched
 };
 
-// `module.ps1 search -Tsv`의 출력 (탭으로 나눈 줄, 모르는 줄은 건너뛴다)
+// Output of `module.ps1 search -Tsv` (tab-separated lines, unknown lines skipped)
 ModuleList parseModuleList(const std::string& output);
 
 class ModulesPanel {
@@ -40,9 +40,9 @@ public:
 
     void open() { m_open = true; }
     bool* openFlag() { return &m_open; }
-    // editing: 편집 모드인가 (플레이 중에는 모듈을 바꾸지 않는다)
+    // editing: whether in edit mode (modules aren't changed during play)
     void draw(const ProjectInfo& project, const std::string& engineDirectory, bool editing);
-    // 모듈을 더하거나 바꾸거나 뺐다 (에디터가 게임 코드를 다시 빌드한다)
+    // A module was added, changed, or removed (the editor rebuilds game code)
     bool takeChanged() {
         const bool changed = m_changed;
         m_changed = false;
@@ -56,14 +56,14 @@ private:
     void poll();
 
     ChildProcess m_process;
-    std::string m_output;     // 지금 도는 명령의 출력
-    std::string m_label;      // 지금 도는 명령 (상태 문구)
-    bool m_listing = false;   // 지금 도는 명령이 목록 받기인가
-    bool m_changes = false;   // 지금 도는 명령이 모듈을 바꾸나
-    bool m_needList = true;   // 다음 프레임에 목록을 받는다
-    std::string m_projectDir; // 목록을 받은 프로젝트 (바뀌면 다시 받는다)
+    std::string m_output;     // output of the command running now
+    std::string m_label;      // command running now (status text)
+    bool m_listing = false;   // whether the running command is fetching the list
+    bool m_changes = false;   // whether the running command changes modules
+    bool m_needList = true;   // fetch the list next frame
+    std::string m_projectDir; // project the list was fetched for (refetched if it changes)
     ModuleList m_list;
-    std::string m_log;        // 마지막 add/update/remove 출력
+    std::string m_log;        // output of the last add/update/remove
     bool m_logFailed = false;
     char m_search[96] = {};
     std::string m_confirmRemove;

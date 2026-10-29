@@ -36,72 +36,72 @@ namespace mealkit {
 class Window;
 }
 
-// 범용 에디터(MealKitEditor)의 씬 편집 화면.
-// 씬 편집(씬 트리, 인스펙터, 기즈모, 되돌리기, 저장), 플레이 모드 전환, 프로젝트 빌드(게임 코드, 출시본)를 맡는다.
-// 게임 로직은 들어 있지 않다: 플레이를 누르면 앱이 게임 DLL의 GameInstance로 scene()을 실행한다.
+// Scene editing screen of the general-purpose editor (MealKitEditor).
+// Handles scene editing (scene tree, inspector, gizmo, undo, save), switching to play mode, and project builds (game code, shipping).
+// Contains no game logic: pressing play makes the app run scene() with the game DLL's GameInstance.
 namespace mealkit::editor {
 
 enum class Mode { Edit, Play };
-enum class LayoutPreset { Edit, Play, LookDev }; // [보기] > [레이아웃]
+enum class LayoutPreset { Edit, Play, LookDev }; // [View] > [Layout]
 
 class Editor {
 public:
     bool init(Window& window, render::Renderer& renderer, const std::string& scenePath, asset::ModelCache& models);
     void shutdown();
-    // 열린 프로젝트: [빌드] 메뉴, 창 제목.
+    // Open project: [Build] menu, window title.
     void setProject(const ProjectInfo& project);
     void setEngineDirectory(const std::string& directory) { m_engineDirectory = directory; }
-    // Penpot 가져오기 서버의 토큰 (setProject 전에, 자동 시험용. 비면 무작위)
+    // Token for the Penpot import server (before setProject, for automated tests. Random if empty)
     void setPenpotToken(const std::string& token) { m_penpotToken = token; }
     void setToolPaths(const std::vector<std::string>& folders) { m_toolPaths = folders; } // --tool-path
-    // [업그레이드]를 누른 것과 같다 (자동 테스트용)
+    // Same as pressing [Upgrade] (for automated tests)
     void requestUpgrade() {
         m_upgradeRequested = true;
         m_upgradeOffer = false;
     }
     const ProjectInfo& project() const { return m_project; }
-    // 프로젝트의 build.bat을 백그라운드로 실행한다 (이미 빌드 중이면 무시).
+    // Runs the project's build.bat in the background (ignored if already building).
     void startBuild(BuildKind kind);
     bool building() const { return m_buildPanel.running(); }
-    // 게임 코드 빌드가 성공으로 끝났으면 한 번 true (앱이 DLL을 다시 불러온다)
+    // true once if the game code build finished successfully (the app reloads the DLL)
     bool takeGameCodeBuilt();
-    bool takeGameCodeBuildFailed(); // 게임 코드 빌드가 실패했으면 한 번 true
-    // 게임 DLL 상태: 플레이 버튼 활성화와 상태 표시줄 문구
+    bool takeGameCodeBuildFailed(); // true once if the game code build failed
+    // Game DLL status: play button enablement and status bar text
     void setGameCodeStatus(bool loaded, const std::string& text);
-    // 게임 DLL이 선언한 오브젝트 종류 (DLL을 내리기 전에 nullptr로 되돌린다)
+    // Object kinds declared by the game DLL (reset to nullptr before unloading the DLL)
     void setGameTypes(const scene::TypeList* types) { m_gameTypes = types; }
-    // 게임 튜닝 타입 (DLL을 내리기 전에 nullptr). 편집 중인 값은 텍스트로 보존했다가 새 타입에 다시 넣는다.
+    // Game tuning type (nullptr before unloading the DLL). Values being edited are kept as text and put back into the new type.
     void setTuningType(const reflect::TypeInfo* type) { m_tuningPanel.setTuningType(type); }
-    // 플레이를 시작할 때: 저장 안 된 튜닝 값을 임시 파일로 써서 경로를 돌려준다 (타입이 없으면 빈 문자열 = 기본 파일)
+    // When play starts: writes unsaved tuning values to a temp file and returns the path (empty string if no type = default file)
     std::string writePlayTuning() { return m_tuningPanel.writePlayTuning(); }
-    // 튜닝이 바뀌었으면 한 번 true (혼자 플레이 중이면 앱이 게임에 바로 적용한다)
+    // true once if tuning changed (when playing solo, the app applies it to the game immediately)
     bool takeTuningChanged() { return m_tuningPanel.takeTuningChanged(); }
     const void* tuningData() const { return m_tuningPanel.tuning().data; }
-    // 화면용 튜닝 (GameModule::viewTuningType, assets/view.tuning): 고치면 플레이 중인 게임에 바로 보인다 (여러 명이어도).
+    // View tuning (GameModule::viewTuningType, assets/view.tuning): edits show immediately in the running game (even with multiple players).
     void setViewTuningType(const reflect::TypeInfo* type) { m_tuningPanel.setViewTuningType(type); }
     reflect::View viewTuning() const { return m_tuningPanel.viewTuning(); }
-    // 참가 창이 읽는 화면용 튜닝 사본 (여러 명 플레이를 시작할 때 쓰고, 값이 바뀌면 다시 쓴다)
+    // Copy of view tuning read by join windows (written when multiplayer play starts, rewritten when values change)
     std::string writePlayViewTuning() { return m_tuningPanel.writePlayViewTuning(); }
     bool takeViewTuningChanged() { return m_tuningPanel.takeViewTuningChanged(); }
     static constexpr const char* kPlayViewTuningFile = TuningPanel::kPlayViewTuningFile;
-    // 게임이 더한 프로젝트 설정 타입 (GameModule::projectSettingsType, DLL을 내리기 전에 nullptr). 값은 텍스트로 보존한다.
+    // Project settings type added by the game (GameModule::projectSettingsType, nullptr before unloading the DLL). Values are kept as text.
     void setProjectSettingsType(const reflect::TypeInfo* type) { m_projectPanel.setGameType(type); }
-    // [프로젝트 설정] 창을 연다 (자동 테스트용)
+    // Opens the [Project Settings] window (for automated tests)
     void openProjectSettings() { m_projectPanel.open(); }
-    // 게임이 등록한 정의 데이터 표 ([표] 패널, DLL을 내리기 전에 nullptr. 값은 텍스트로 보존한다)
+    // Definition data tables registered by the game ([Tables] panel, nullptr before unloading the DLL. Values are kept as text)
     void setTables(const reflect::TableList* tables) { m_tablesPanel.setTables(tables); }
-    // 플레이를 시작할 때: 고친 표를 저장한다 (게임은 매치를 시작할 때 파일에서 읽는다)
+    // When play starts: saves edited tables (the game reads them from files when a match starts)
     void saveTablesForPlay();
-    void openTables() { m_tablesOpen = true; } // 자동 테스트용
+    void openTables() { m_tablesOpen = true; } // for automated tests
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
-    // 소리 ([소리] 패널 미리듣기·목소리 목록). 에디터가 만들어 넘긴다 (nullptr = 없음)
+    // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
     void setAudio(audio::Engine* audio) { m_audio = audio; }
-    void openSounds() { m_soundsOpen = true; } // 자동 테스트용
-    // 연출 ([연출] 패널 미리보기). nullptr = 없음
+    void openSounds() { m_soundsOpen = true; } // for automated tests
+    // Feedback ([Feedback] panel preview). nullptr = none
     void setFeedback(feedback::Player* player) { m_feedback = player; }
     void setEventType(const reflect::TypeInfo* type) { m_feedbackPanel.setEventType(type); }
-    void openFeedback() { m_feedbackOpen = true; } // 자동 테스트용
-    // 게임 화면 UI 미리보기 ([UI] 패널): 게임의 뷰 모델 목록, 편집 모드에서 씬 뷰 위에 그리기
+    void openFeedback() { m_feedbackOpen = true; } // for automated tests
+    // Game screen UI preview ([UI] panel): the game's view model list, drawn over the scene view in edit mode
     void setViewModels(const std::vector<const reflect::TypeInfo*>* types) {
         m_uiPanel.setViewModels(types);
         m_import.setViewModels(types);
@@ -113,66 +113,66 @@ public:
     void renderUiPreview(render::Renderer& renderer, f64 dt) {
         if (m_uiPanelOpen && m_mode == Mode::Edit) m_uiPanel.render(renderer, m_viewport, dt);
     }
-    // [룩데브] 창의 오프스크린 그림: 본 화면 3D 다음, UI 전에 (창이 열려 있을 때만)
+    // Offscreen image for the [Lookdev] window: after the main screen 3D, before UI (only when the window is open)
     void renderLookdev(render::Renderer& renderer, f64 dt);
-    void openLookdev() { m_lookdevOpen = true; } // --lookdev (자동 캡처)
-    // 반사 프로브 굽기: 본 화면 3D 다음, UI 전에. 한 프레임에 큐브 면 하나를 오프스크린으로 그리고 endFrame에서 읽는다
+    void openLookdev() { m_lookdevOpen = true; } // --lookdev (automated capture)
+    // Reflection probe baking: after the main screen 3D, before UI. Draws one cube face offscreen per frame and reads it in endFrame
     void renderProbeBake(render::Renderer& renderer);
-    void bakeProbes(u32 onlyId = 0); // 0 = 씬의 모든 반사 프로브 (--bake-probes)
-    // 색 보정용 캡처 ([환경] 패널 단추): 씬 뷰 카메라로 LUT 없이 그린 화면을 art/grading/<씬>.png로, 중립 LUT를 그 옆에.
-    // 외부 도구(DaVinci Resolve·Photoshop 등)에서 보정해 .cube로 내보내 assets/lut/ 아래에 둔다. 본 화면 3D 다음, UI 전에
+    void bakeProbes(u32 onlyId = 0); // 0 = all reflection probes in the scene (--bake-probes)
+    // Capture for color grading ([Environment] panel button): renders the scene view camera without the LUT to art/grading/<scene>.png, with a neutral LUT next to it.
+    // Grade it in an external tool (DaVinci Resolve, Photoshop etc.), export as .cube, and put it under assets/lut/. After the main screen 3D, before UI
     void renderGradeCapture(render::Renderer& renderer);
     bool bakingProbes() const { return !m_probeQueue.empty(); }
-    // 플레이 중인 시뮬레이션 상태 ([상태] 패널). 플레이가 끝나면 빈 View.
+    // Simulation state during play ([State] panel). An empty View when play ends.
     void setStateView(reflect::View view) { m_stateView = view; }
 
-    // 매 프레임 pumpMessages 다음에 호출: UI를 만들고 편집 입력을 처리한다.
+    // Call every frame after pumpMessages: builds the UI and handles edit input.
     void update(f64 dt);
-    // 편집 모드의 3D 장면(씬 물체 + 선택 강조)과 카메라를 채운다.
+    // Fills the edit mode 3D scene (scene objects + selection highlight) and camera.
     void buildSceneView(render::FrameParams& frame, render::DrawList& drawList) const;
-    void setDebugView(render::DebugView view) { m_debugView = view; } // --view-mode (자동 캡처)
-    // 자동 실행(--frames, --render-golden): 동적 해상도를 끈다 (GPU 속도에 그림이 달라지지 않게, 게임의 자동 실행과 같다)
+    void setDebugView(render::DebugView view) { m_debugView = view; } // --view-mode (automated capture)
+    // Automated runs (--frames, --render-golden): turns off dynamic resolution (so images don't vary with GPU speed, same as the game's automated runs)
     void setAutomated(bool automated) { m_automated = automated; }
-    // 그래픽 회귀 테스트 (--render-golden): 씬을 열고, 정한 카메라(도)로 창 전체에 UI 없이 그린다
+    // Graphics regression test (--render-golden): opens the scene and renders the whole window from a fixed camera (degrees) without UI
     bool openSceneForShot(const std::string& path) { return loadScene(path); }
     void buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 width, f32 height, render::FrameParams& frame,
                    render::DrawList& drawList);
-    // 3D를 그린 뒤 endFrame 전에 호출. 렌더러 프레임이 열리지 않았으면 frameActive = false.
+    // Call after drawing 3D, before endFrame. frameActive = false if no renderer frame was opened.
     void renderUi(bool frameActive);
 
     Mode mode() const { return m_mode; }
     void setMode(Mode mode);
     bool takePlayRequest();
     bool takeStopRequest();
-    void requestPlay() { m_playRequest = true; } // 게임 DLL이 아직 없으면 불러올 때까지 기다린다 (자동 테스트용)
-    // 리플레이 보기 ([파일] > [리플레이 열기], --replay): 다음 플레이가 이 기록을 재생한다. takePlayRequest 뒤에 꺼낸다
+    void requestPlay() { m_playRequest = true; } // if the game DLL isn't there yet, waits until it loads (for automated tests)
+    // Replay viewing ([File] > [Open Replay], --replay): the next play replays this recording. Taken after takePlayRequest
     void requestReplay(const std::string& path) {
         m_replayPath = path;
         m_playRequest = true;
     }
     std::string takeReplayPath() { return std::exchange(m_replayPath, {}); }
-    // 플레이 인원: 1 = 혼자, 2~4 = 에디터가 방장이 되고 참가 창을 더 띄운다
+    // Player count: 1 = solo, 2~4 = the editor becomes host and opens more join windows
     u32 playPlayers() const { return m_playPlayers; }
     void setPlayPlayers(u32 players) { m_playPlayers = players < 1 ? 1 : players > 4 ? 4 : players; }
     bool playClientBots() const { return m_playClientBots; }
     bool shadowCheck() const { return m_shadowCheck; }
-    // 플레이 중인 시뮬레이션의 디버그 제어 (일시정지·되감기·그림자 시뮬레이션). 플레이가 끝나면 nullptr
+    // Debug controls for the running simulation (pause/rewind/shadow simulation). nullptr when play ends
     void setSimDebug(game::SimDebug* debug, bool canPause);
-    // 화면 가운데 알림 창 (확인을 누르면 닫힌다)
+    // Notification window in the center of the screen (closes on OK)
     void showMessage(const std::string& text) { m_message = text; }
     void setPlaySample(const game::FrameSample& sample) { m_playSample = sample; }
     void setPlayStatus(const std::string& text) { m_playStatus = text; }
 
     const scene::Scene& scene() const { return m_scene; }
     render::Viewport viewport() const { return m_viewport; }
-    bool gameKeyboardAllowed() const; // 플레이 중 UI가 키보드를 쓰고 있지 않은가
-    bool gameMouseAllowed() const;    // 플레이 중 마우스가 뷰포트 위에 있는가
+    bool gameKeyboardAllowed() const; // whether the UI isn't using the keyboard during play
+    bool gameMouseAllowed() const;    // whether the mouse is over the viewport during play
     bool quitRequested() const { return m_quit; }
     void saveBackupIfDirty();
 
-    void openPalette(const std::string& text); // 자동 테스트/스크린샷용 (--palette)
+    void openPalette(const std::string& text); // for automated tests/screenshots (--palette)
     void queueCommand(const std::string& name) { m_queuedCommands.push_back(name); } // --command
-    void selectByIndex(int index, bool add = false); // 자동 테스트/스크린샷용 (-2 = 씬 줄)
+    void selectByIndex(int index, bool add = false); // for automated tests/screenshots (-2 = scene row)
 
 private:
     void applyRenderStyle(const game::ProjectSettings& settings);
@@ -181,27 +181,27 @@ private:
         scene::Environment environment;
         u32 nextId = 1;
         u32 selected = 0;
-        std::string label; // [편집] > [기록] 창에 보이는 이름 ("Ramp 변경", 상태 메시지)
+        std::string label; // name shown in the [Edit] > [History] window ("Ramp change", status message)
     };
 
     void drawMenuBar();
     void drawStatusBar();
     void drawHierarchy(bool editing);
     void drawEntityNode(size_t index, const std::unordered_map<u32, std::vector<size_t>>& children);
-    void reparent(u32 entityId, u32 parentId); // 월드 위치를 지키며 부모를 바꾼다 (0 = 최상위)
+    void reparent(u32 entityId, u32 parentId); // changes the parent while keeping the world position (0 = top level)
     void drawInspector(bool editing);
-    void drawEnvironment(); // 인스펙터 안, 씬 줄을 골랐을 때
-    void updateRowProblems(f64 dt); // 튜닝·씬 물체의 없는 행 참조 → [표] 패널
-    void saveAll();         // Ctrl+S: 씬, 튜닝, 프로젝트 설정, 표
-    void takePanelStatus(); // 패널들이 남긴 상태 문구를 상태 표시줄로
+    void drawEnvironment(); // inside the inspector, when the scene row is selected
+    void updateRowProblems(f64 dt); // missing row references in tuning/scene objects → [Tables] panel
+    void saveAll();         // Ctrl+S: scene, tuning, project settings, tables
+    void takePanelStatus(); // moves status messages left by panels to the status bar
     void drawState();
     void drawPopups();
     void drawPlayControls();
     void reportSimProblems();
     void updateAutosave(f64 dt);
-    void updateHotReload(f64 dt); // 바뀐 모델·씬 파일 다시 읽기 (편집 모드)
+    void updateHotReload(f64 dt); // reload changed model/scene files (edit mode)
     void focusPanel(const char* window);
-    void focusPanelNow(); // 그 창의 Begin 직전에 부른다
+    void focusPanelNow(); // called right before that window's Begin
     void drawGizmo();
     void drawBuildLog();
     void setupDefaultLayout(u32 dockId, LayoutPreset preset);
@@ -210,24 +210,24 @@ private:
     void handlePicking();
 
     scene::Entity* selected();
-    // 다중 선택: m_selected가 주 선택(인스펙터·기즈모), m_multi는 같이 고른 나머지.
-    // m_selected를 다른 곳에서 바꾸면 m_multi는 다음 프레임에 풀린다 (m_multiOwner와 다르면)
+    // Multi-select: m_selected is the primary selection (inspector/gizmo), m_multi the others selected with it.
+    // If m_selected is changed elsewhere, m_multi is cleared next frame (when it differs from m_multiOwner)
     bool isSelected(u32 id) const;
-    std::vector<u32> selectionRoots() const; // 고른 물체 중 다른 고른 물체의 자손이 아닌 것 (주 선택이 먼저)
-    void toggleSelect(u32 id);               // Shift 클릭
+    std::vector<u32> selectionRoots() const; // selected objects that aren't descendants of other selected objects (primary first)
+    void toggleSelect(u32 id);               // Shift click
     void selectMany(const std::vector<u32>& ids, bool add);
-    void moveOthersWith(const scene::Transform& before, const scene::Transform& after); // 기즈모로 주 선택을 움직인 만큼
+    void moveOthersWith(const scene::Transform& before, const scene::Transform& after); // by as much as the gizmo moved the primary selection
     std::vector<u32> m_multi;
     u32 m_multiOwner = 0;
     bool m_boxSelecting = false;
     Vec2 m_boxStart;
     void addEntity(const std::string& type);
-    const reflect::TypeInfo* entityType(const scene::Entity& e) const; // 모르는 종류(게임 코드 없음)면 nullptr
+    const reflect::TypeInfo* entityType(const scene::Entity& e) const; // nullptr for unknown kinds (no game code)
     bool isMarker(const scene::Entity& e) const;
     bool isArea(const scene::Entity& e) const;
-    // 씬 트리 보이기·잠금: 씬 파일이 아니라 프로젝트 build\editor\<씬>.view (씬 해시·남의 화면을 바꾸지 않는다)
-    bool isHidden(const scene::Entity& e) const; // 자기나 조상이 숨김
-    bool isLocked(const scene::Entity& e) const; // 자기나 조상이 잠김 (뷰포트 클릭으로 고르지 않는다)
+    // Scene tree visibility/lock: not in the scene file but in the project's build\editor\<scene>.view (doesn't change the scene hash or others' views)
+    bool isHidden(const scene::Entity& e) const; // itself or an ancestor is hidden
+    bool isLocked(const scene::Entity& e) const; // itself or an ancestor is locked (not selectable by viewport click)
     std::string viewStatePath() const;
     void loadViewState();
     void saveViewState() const;
@@ -235,23 +235,23 @@ private:
     std::unordered_set<u32> m_hidden, m_locked;
     char m_treeSearch[96] = {};
     bool m_treeSearchFocus = false; // Ctrl+F
-    u32 m_treeRevealed = 0;         // 마지막으로 트리에서 펼쳐 보여 준 선택
-    std::vector<const reflect::TypeInfo*> allTypes() const; // 기본 종류 + 게임 종류(라벨 순)
+    u32 m_treeRevealed = 0;         // last selection expanded and shown in the tree
+    std::vector<const reflect::TypeInfo*> allTypes() const; // built-in kinds + game kinds (by label)
     void drawTypeMenuItems();
     void drawObjectFields(scene::Entity& e);
     void addModelEntity();
-    void addModelEntity(const std::string& path, const Vec3* at); // at: 놓을 바닥 점 (nullptr = 카메라 앞)
-    // [에셋] 창 (EditorAssets.cpp)
+    void addModelEntity(const std::string& path, const Vec3* at); // at: floor point to place on (nullptr = in front of the camera)
+    // [Assets] window (EditorAssets.cpp)
     void drawAssetBrowser();
     void drawAssetFolder(const std::string& root, const std::string& relative);
     void handleAssetDrop();
     void renameAsset(const std::string& from, const std::string& to);
     bool m_assetsOpen = true;
-    std::string m_assetFolder;   // assets 기준 ("models")
-    std::string m_assetSelected; // assets 기준 파일
+    std::string m_assetFolder;   // relative to assets ("models")
+    std::string m_assetSelected; // file relative to assets
     std::string m_assetRenameFrom;
     char m_assetRenameBuffer[260] = {};
-    std::string chooseModel(); // 파일 대화상자 → assets 기준 경로 (취소하면 빈 문자열)
+    std::string chooseModel(); // file dialog → path relative to assets (empty string on cancel)
     void duplicateSelected();
     void deleteSelected();
     void focusSelected();
@@ -266,33 +266,33 @@ private:
     void restore(const Snapshot& snapshot);
     void pushUndo(Snapshot snapshot);
     void drawHistory();
-    // [씬] 창 (assets/scenes의 씬 목록, 시작 씬 지정, 열기)과 [파일] > [최근 씬] (프로젝트별 build\editor\recent_scenes.txt)
+    // [Scenes] window (scene list in assets/scenes, set start scene, open) and [File] > [Recent Scenes] (per project build\editor\recent_scenes.txt)
     void drawSceneList();
-    void openSceneFile(const std::string& path); // 저장 안 된 변경은 자동 저장본으로 남기고 연다
+    void openSceneFile(const std::string& path); // unsaved changes are kept as an autosave before opening
     void rememberRecentScene(const std::string& path);
     void loadRecentScenes();
     bool m_sceneListOpen = false;
-    // 여기서 플레이 (Shift+F5, 혼자일 때만): 플레이 동안 스폰 지점을 카메라 아래(또는 고른 스폰)로 옮기고 멈추면 되돌린다
+    // Play from here (Shift+F5, solo only): during play, spawn points move under the camera (or to the selected spawn) and are restored on stop
     bool m_playFromHere = false;
-    std::string m_replayPath; // 다음 플레이로 볼 리플레이
+    std::string m_replayPath; // replay to watch on the next play
     std::vector<std::pair<u32, scene::Transform>> m_spawnBackup;
     void moveSpawnsHere();
-    std::vector<std::string> m_recentScenes; // 절대 경로, 최근 것이 앞  // [편집] > [기록]: 되돌리기 목록, 누르면 그 지점으로
+    std::vector<std::string> m_recentScenes; // absolute paths, most recent first  // [Edit] > [History]: undo list, click to go to that point
     bool m_historyOpen = false;
-    int m_undoLabelFrame = -1; // 이 프레임의 setStatus가 방금 쌓은 되돌리기의 이름이 된다
-    bool m_scaleLock = false;  // 인스펙터 크기 비율 고정
+    int m_undoLabelFrame = -1; // this frame's setStatus becomes the name of the undo just pushed
+    bool m_scaleLock = false;  // inspector scale ratio lock
     bool transformRow(const char* label, const char* id, f32 v[3], f32 speed, f32 lo, f32 hi, const char* format,
                       f32 defaultValue, bool* lockRatio = nullptr);
     void undo();
     void redo();
     void markChanged() { m_changed = true; }
-    // 상태 표시줄 + 뷰포트 오른쪽 아래 알림. 실패는 닫을 때까지 남고, 누르면 그 창(빌드 로그·로그)을 연다
+    // Status bar + notification at the viewport's bottom right. Failures stay until closed, clicking opens that window (build log/log)
     enum class NoticeOpen : u8 { None, Log, BuildLog };
-    // 명령 표 (EditorCommands.cpp): 메뉴·단축키·팔레트·F1이 같이 쓴다. name은 영어 원문(tr 키)
+    // Command table (EditorCommands.cpp): shared by menus, shortcuts, palette, and F1. name is the English source (tr key)
     struct Command {
         const char* name;
-        int chord;  // ImGuiKeyChord (0 = 단축키 없음)
-        int chord2; // 같은 일을 하는 두 번째 단축키
+        int chord;  // ImGuiKeyChord (0 = no shortcut)
+        int chord2; // second shortcut doing the same thing
         std::function<bool()> enabled;
         std::function<void()> run;
     };
@@ -311,9 +311,9 @@ private:
     std::vector<std::string> m_queuedCommands;
     void setStatus(const std::string& text, bool failed = false, NoticeOpen open = NoticeOpen::Log);
     void drawNotices();
-    void drawPlayFrame();     // 플레이 중 뷰포트 테두리
-    void drawEmptyViewport(); // 게임 DLL이 아직 없을 때 다음에 할 일
-    void captureGpuFrame(); // 보기 메뉴·F11 (rhi/GpuCapture.h)
+    void drawPlayFrame();     // viewport border during play
+    void drawEmptyViewport(); // what to do next when there's no game DLL yet
+    void captureGpuFrame(); // View menu/F11 (rhi/GpuCapture.h)
     Vec3 cameraForward() const;
     void updateTitle();
     void pollBuild();
@@ -328,10 +328,10 @@ private:
     scene::Scene m_scene;
     std::string m_scenePath;
     bool m_dirty = false;
-    u32 m_selected = 0; // 엔티티 id (0 = 없음)
+    u32 m_selected = 0; // entity id (0 = none)
 
     Mode m_mode = Mode::Edit;
-    render::DebugView m_debugView = render::DebugView::None; // [보기] > 보기 모드 (편집 화면만)
+    render::DebugView m_debugView = render::DebugView::None; // [View] > view mode (edit screen only)
     bool m_playRequest = false;
     bool m_stopRequest = false;
     bool m_quit = false;
@@ -346,18 +346,18 @@ private:
     };
     std::vector<Notice> m_notices;
     f64 m_time = 0.0;
-    game::FrameStats m_perf; // 상태 표시줄 fps (mealkit/game/FrameStats.h)
+    game::FrameStats m_perf; // status bar fps (mealkit/game/FrameStats.h)
 
     Vec3 m_cameraPos{0.0f, 24.0f, -48.0f};
     f32 m_cameraYaw = 0.0f;
     f32 m_cameraPitch = -0.42f;
     f32 m_cameraSpeed = 15.0f;
     bool m_looking = false;
-    bool m_orbiting = false;      // Alt + 왼쪽 끌기: 고른 물체(없으면 앞 10 m) 중심 궤도
+    bool m_orbiting = false;      // Alt + left drag: orbit around the selected object (or 10 m ahead if none)
     Vec3 m_orbitPivot;
-    bool m_ortho = false;         // 정사영 (툴바·축 방향 표시)
-    f32 m_orthoHalfHeight = 10.0f; // 정사영 화면 높이의 반 (m), 휠로 바꾼다
-    // 카메라 북마크 (Ctrl+1~9 저장, 1~9 이동): 씬마다 build\editor\<씬>.view
+    bool m_ortho = false;         // orthographic (toolbar/axis gizmo)
+    f32 m_orthoHalfHeight = 10.0f; // half of the orthographic view height (m), changed with the wheel
+    // Camera bookmarks (Ctrl+1~9 save, 1~9 go): per scene in build\editor\<scene>.view
     struct CameraBookmark {
         bool set = false;
         Vec3 position;
@@ -366,23 +366,23 @@ private:
     CameraBookmark m_bookmarks[9];
     void handleBookmarks();
     Mat4 projection(f32 aspect) const;
-    void mouseRay(f32 mouseX, f32 mouseY, Vec3* origin, Vec3* dir) const; // 뷰포트 좌표 → 월드 광선
+    void mouseRay(f32 mouseX, f32 mouseY, Vec3* origin, Vec3* dir) const; // viewport coordinates → world ray
     Mat4 m_view;
     Mat4 m_proj;
     render::Viewport m_viewport;
 
-    int m_gizmoOp = 0; // 0 이동, 1 회전, 2 크기
+    int m_gizmoOp = 0; // 0 move, 1 rotate, 2 scale
     bool m_gizmoLocal = false;
-    bool m_snapOn = false;   // 툴바 스냅: 켜져 있으면 Ctrl 없이 스냅 (Ctrl은 반대로)
-    bool m_showGrid = true;  // 편집 화면 바닥 그리드 (스냅 이동 단위 간격)
-    void drawViewportToolbar(); // 뷰포트 왼쪽 위 툴바 + 오른쪽 위 축 방향 표시
+    bool m_snapOn = false;   // toolbar snap: when on, snaps without Ctrl (Ctrl inverts)
+    bool m_showGrid = true;  // edit screen floor grid (spaced by the snap move unit)
+    void drawViewportToolbar(); // toolbar at the viewport's top left + axis gizmo at the top right
     void addGrid(render::DrawList& out) const;
-    // 광선이 맞는 첫 물체 (숨김·잠김·skip 제외). 없으면 0
+    // First object the ray hits (excluding hidden/locked/skip). 0 if none
     u32 raycast(Vec3 origin, Vec3 dir, f32* distance, const std::vector<u32>& skip = {}) const;
     void pickBounds(const scene::Entity& e, const scene::Transform& w, Vec3* center, Vec3* half) const;
-    void dropToFloor();             // 고른 물체를 아래 물체(없으면 y = 0) 위에 놓는다
-    void alignSelection(int axis);  // 나머지를 주 선택의 그 축 위치로
-    void distributeSelection();     // 가장 넓게 퍼진 축으로 같은 간격
+    void dropToFloor();             // places selected objects on the object below (or y = 0 if none)
+    void alignSelection(int axis);  // moves the rest to the primary selection's position on that axis
+    void distributeSelection();     // even spacing along the most spread-out axis
 
     std::vector<Snapshot> m_undo;
     std::vector<Snapshot> m_redo;
@@ -395,19 +395,19 @@ private:
         u32 entity = 0;
         u32 parent = 0;
     };
-    TreeAction m_treeAction; // 씬 트리에서 고른 구조 변경 (트리를 다 그린 뒤 처리)
+    TreeAction m_treeAction; // structure change chosen in the scene tree (handled after drawing the whole tree)
 
     char m_nameBuffer[128] = {};
     u32 m_nameBufferId = 0;
     std::string m_title;
     bool m_layoutReset = false;
     LayoutPreset m_layoutPreset = LayoutPreset::Edit;
-    bool m_sceneRow = false; // 씬 트리의 "씬" 줄을 골랐다 (인스펙터 = 환경)
+    bool m_sceneRow = false; // the "Scene" row in the scene tree is selected (inspector = environment)
 
     const scene::TypeList* m_gameTypes = nullptr;
     TuningPanel m_tuningPanel;
     reflect::View m_stateView;
-    const char* m_focusPanel = nullptr; // 앞으로 가져올 패널 (모드가 바뀔 때)
+    const char* m_focusPanel = nullptr; // panel to bring to front (when the mode changes)
     int m_focusFrames = 0;
     u32 m_playPlayers = 1;
     bool m_shadowCheck = true;
@@ -416,45 +416,45 @@ private:
     bool m_shadowReported = false;
     bool m_replayReported = false;
     bool m_playClientBots = true;
-    std::string m_message;     // 알림 창 내용
-    std::string m_recoverPath; // 복구할지 물어볼 자동 저장 파일
+    std::string m_message;     // notification window contents
+    std::string m_recoverPath; // autosave file to ask about recovering
     f64 m_autosaveTimer = 0.0;
     f64 m_hotReloadTimer = 0.0;
     game::RenderStyleState m_renderStyle;
     bool m_automated = false;
-    std::vector<u32> m_probeQueue;     // 구울 프로브 물체 id (앞에서부터)
-    u32 m_probeFace = 0;               // 지금 그리는 면 (0..5)
-    bool m_probeCapturePending = false; // 지난 프레임에 그린 면을 endFrame이 m_probeCapture로 읽었다
+    std::vector<u32> m_probeQueue;     // probe object ids to bake (from the front)
+    u32 m_probeFace = 0;               // face being drawn now (0..5)
+    bool m_probeCapturePending = false; // endFrame read the face drawn last frame into m_probeCapture
     rhi::RenderTarget m_probeTarget;
     u32 m_probeTargetSize = 0;
     Image m_probeCapture;
-    std::vector<f32> m_probeFaces; // 면 6 × 크기² × rgb 선형
-    bool m_gradeRequested = false, m_gradeCapturePending = false; // 보정용 캡처: 단추를 눌렀다 / 지난 프레임에 그렸다
+    std::vector<f32> m_probeFaces; // 6 faces × size² × linear rgb
+    bool m_gradeRequested = false, m_gradeCapturePending = false; // grading capture: button pressed / drawn last frame
     rhi::RenderTarget m_gradeTarget;
     u32 m_gradeTargetSize[2] = {};
     Image m_gradeCapture;
-    mutable std::vector<render::ReflectionProbe> m_probeList; // buildSceneView가 프레임마다 채운다
-    mutable std::vector<render::PointLight> m_lightList;      // 씬 점광원 (buildSceneView·프로브 굽기)
-    f64 m_animTime = 0.0; // 스킨 모델 미리보기 시계 (편집 모드에서 흐른다, 그래픽 회귀 테스트는 0)
-    void addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) const; // gameView: 게임에 보이는 것만, 강조 없이
+    mutable std::vector<render::ReflectionProbe> m_probeList; // filled every frame by buildSceneView
+    mutable std::vector<render::PointLight> m_lightList;      // scene point lights (buildSceneView/probe baking)
+    f64 m_animTime = 0.0; // skinned model preview clock (runs in edit mode, 0 for graphics regression tests)
+    void addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) const; // gameView: only what the game shows, no highlight
     void fillEnvironment(render::FrameParams& frame) const;
     u32 probeMaxCount() const;
-    LookdevPanel m_lookdev; // [룩데브] 창: 고른 물체의 모델을 고정 조명·받침대에서
-    bool m_lookdevOpen = false; // 프로젝트 설정의 조명 모델·툰 램프 (핫 리로드가 바뀌면 다시 넘긴다)
-    unsigned long long m_sceneTime = 0; // 열거나 저장할 때 씬 파일 시각 (밖에서 바뀌었는지)
+    LookdevPanel m_lookdev; // [Lookdev] window: the selected object's model under fixed lighting on a stand
+    bool m_lookdevOpen = false; // project settings lighting model/toon ramp (passed again when hot reload changes them)
+    unsigned long long m_sceneTime = 0; // scene file time at open/save (whether it changed outside)
     bool m_sceneChangedWarned = false;
-    bool m_autosavePending = false; // 마지막 자동 저장 뒤에 바뀐 것이 있다
+    bool m_autosavePending = false; // something changed since the last autosave
 
-    ProjectInfo m_project;              // 디스크에 저장된 프로젝트 설정
-    ProjectSettingsPanel m_projectPanel; // [프로젝트 설정] 창
-    ModulesPanel m_modulesPanel;         // [모듈] 창 (tools\module.ps1)
+    ProjectInfo m_project;              // project settings saved on disk
+    ProjectSettingsPanel m_projectPanel; // [Project Settings] window
+    ModulesPanel m_modulesPanel;         // [Modules] window (tools\module.ps1)
     std::string m_engineDirectory;
-    bool m_upgradeOffer = false;     // 프로젝트 템플릿이 엔진 버전과 다르다 (한 번 묻는다)
-    bool m_upgradeRequested = false; // 빌드가 끝나면 업그레이드를 시작한다
+    bool m_upgradeOffer = false;     // the project template differs from the engine version (asked once)
+    bool m_upgradeRequested = false; // start the upgrade when the build finishes
     BuildPanel m_buildPanel;
     LogPanel m_logPanel;
     PerfPanel m_perfPanel;
-    game::FrameSample m_playSample; // 플레이 중 PlaySession의 시뮬레이션·네트워크 숫자 ([성능] 창)
+    game::FrameSample m_playSample; // PlaySession's simulation/network numbers during play ([Performance] window)
     Preferences m_prefs;
     PreferencesPanel m_prefsPanel;
     bool m_shortcutsOpen = false;
@@ -462,7 +462,7 @@ private:
     bool m_gameCodeFailed = false;
     bool m_gameLoaded = false;
     std::string m_gameStatus;
-    ChildProcess m_layoutCheck; // tools\check_layout.ps1 (프로젝트를 열 때)
+    ChildProcess m_layoutCheck; // tools\check_layout.ps1 (when opening a project)
     TablesPanel m_tablesPanel;
     bool m_tablesOpen = false;
     audio::Engine* m_audio = nullptr;
@@ -473,9 +473,9 @@ private:
     bool m_feedbackOpen = false;
     UiPanel m_uiPanel;
     bool m_uiPanelOpen = false;
-    ImportServer m_import; // Penpot 플러그인 가져오기 (라이브 연결 서버의 penpot/ 서비스)
-    live::Server m_live;   // 라이브 연결 (도구 사이 약속, 프로젝트를 열면 시작. m_import보다 먼저 닫힌다)
-    std::vector<ToolInfo> m_tools; // [도구] 메뉴 (프로젝트를 열 때와 [다시 찾기]에서 찾는다)
+    ImportServer m_import; // Penpot plugin import (penpot/ service of the live connection server)
+    live::Server m_live;   // live connection (contract between tools, starts when a project opens. Closed before m_import)
+    std::vector<ToolInfo> m_tools; // [Tools] menu (searched when a project opens and on [Rescan])
     std::vector<std::string> m_toolPaths;
     std::string m_penpotToken;
     bool m_viewTableDirty = false;

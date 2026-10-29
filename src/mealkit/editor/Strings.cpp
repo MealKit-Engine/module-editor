@@ -15,14 +15,14 @@ namespace {
 
 struct Table {
     std::string code;
-    std::unordered_map<std::string, std::string> text;   // 원문 → 번역
-    std::unordered_map<std::string, std::string> shown;  // tr() 결과 (포인터를 오래 쓰도록 보관)
-    std::unordered_map<std::string, std::string> labels; // trl() 결과
+    std::unordered_map<std::string, std::string> text;   // source → translation
+    std::unordered_map<std::string, std::string> shown;  // tr() results (kept so pointers stay valid)
+    std::unordered_map<std::string, std::string> labels; // trl() results
 };
 
 std::unordered_map<std::string, Table> g_tables;
 Table* g_current = nullptr;
-std::unordered_set<std::string> g_missing; // 한 번만 경고
+std::unordered_set<std::string> g_missing; // warn only once
 
 std::string unescape(const std::string& s) {
     std::string out;
@@ -38,7 +38,7 @@ std::string unescape(const std::string& s) {
     return out;
 }
 
-// "원문 = 번역" 줄. 빈 줄과 '#' 줄은 건너뛴다. 원문에는 " = "를 쓰지 않는다
+// "source = translation" lines. Empty lines and '#' lines are skipped. Sources don't contain " = "
 void parseTable(const std::string& file, Table& table) {
     size_t pos = 0;
     int lineNo = 0;
@@ -68,7 +68,7 @@ Table& tableFor(const char* code) {
     return t;
 }
 
-// "##"(ImGui ID 구분) 앞부분만 번역한다
+// Only the part before "##" (ImGui ID separator) is translated
 std::string translate(Table& table, const char* text) {
     const char* id = std::strstr(text, "##");
     const std::string key = id ? std::string(text, id) : std::string(text);
@@ -116,7 +116,7 @@ const char* currentLanguage() { return current().code.c_str(); }
 void setLanguage(const char* code) {
     g_current = &tableFor(code);
     createDirectories(editorUserDirectory());
-    // language 줄만 바꾸고 다른 줄(toolPath 등, editor/Tools.h)은 그대로 둔다
+    // Changes only the language line and leaves other lines (toolPath etc., editor/Tools.h) as is
     std::string old, out;
     readTextFile(settingsPath(), old);
     size_t pos = 0;

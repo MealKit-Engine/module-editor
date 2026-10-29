@@ -9,7 +9,7 @@
 namespace mealkit::editor {
 
 void ProjectSettingsPanel::setGameType(const reflect::TypeInfo* type) {
-    if (m_game.type()) { // 지금 값을 텍스트로 보존
+    if (m_game.type()) { // keep the current values as text
         m_gameText.clear();
         reflect::toText(*m_game.type(), m_game.data(), m_gameText);
     }
@@ -59,7 +59,7 @@ bool ProjectSettingsPanel::save(ProjectInfo& project) {
         m_status = trf("Could not save project settings: %s", next.filePath().c_str());
         return false;
     }
-    if (next.settings.tickRate != project.settings.tickRate) game::applyTickRate(next.settings); // 다음 플레이부터
+    if (next.settings.tickRate != project.settings.tickRate) game::applyTickRate(next.settings); // from the next play
     project = next;
     m_dirty = false;
     m_status = trf("Project settings saved: %s", "mealkit.project");

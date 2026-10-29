@@ -3,21 +3,21 @@
 #include <string>
 #include <vector>
 
-// 로그 줄의 "파일:줄"을 찾아 코드 편집기로 연다 (빌드 로그·[로그] 창·인스펙터 "코드 열기").
+// Finds "file:line" in log lines and opens it in the code editor (build log, [Log] window, inspector "Open code").
 namespace mealkit::editor {
 
 struct FileLine {
-    std::string file; // 로그에 적힌 그대로 (절대 경로나 작업 폴더 기준)
+    std::string file; // as written in the log (absolute path or relative to the working folder)
     int line = 0;
 };
 
-// MSVC "D:\x\a.cpp(27): error", clang·일반 "src/a.cpp:27:5" 모양. 소스 확장자(.cpp .h .hpp .c .hlsl .hlsli .inl)만
+// MSVC "D:\x\a.cpp(27): error", clang/generic "src/a.cpp:27:5" shapes. Source extensions only (.cpp .h .hpp .c .hlsl .hlsli .inl)
 bool parseFileLine(const std::string& text, FileLine* out);
 
-// 환경설정의 코드 편집기로 연다. VS Code 방식 "<편집기> -g 파일:줄"(.exe가 아니면 cmd로 부른다)
+// Opens in the code editor from preferences. VS Code style "<editor> -g file:line" (called via cmd if not an .exe)
 bool openInCodeEditor(const std::string& editor, const std::string& file, int line);
 
-// folders 아래(하위 폴더 포함) .h에서 needle이 있는 첫 줄
+// First line containing needle in .h files under folders (including subfolders)
 bool findInHeaders(const std::vector<std::string>& folders, const std::string& needle, FileLine* out);
 
 } // namespace mealkit::editor

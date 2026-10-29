@@ -31,9 +31,9 @@ class Renderer;
 } // namespace render
 } // namespace mealkit
 
-// 에디터의 플레이 한 판: 락스텝 세션(혼자 또는 방장), 참가 창, 게임 인스턴스.
-// 여러 명이면 에디터가 방장이 되고, 같은 에디터 실행 파일을 참가 창 모드(--player)로 더 띄운다(Unity Multiplayer Play Mode에 해당).
-// 참가 창은 현재 씬과 튜닝(저장 안 된 값 포함)을 임시 파일로 받아 같은 게임 DLL로 접속한다.
+// One round of editor play: lockstep session (solo or host), join windows, game instance.
+// With multiple players the editor becomes host and opens more copies of the same editor executable in join window mode (--player) (like Unity Multiplayer Play Mode).
+// Join windows receive the current scene and tuning (including unsaved values) as temp files and connect with the same game DLL.
 namespace mealkit::editor {
 
 class Editor;
@@ -43,17 +43,17 @@ inline constexpr u16 kEditorPlayPort = 27215;
 inline constexpr f64 kJoinTimeoutSeconds = 30.0;
 
 struct PlayConfig {
-    u32 players = 1;        // 1 = 혼자 (네트워크 없음)
-    bool clientBots = true; // 참가 창을 봇 입력으로 움직인다
-    bool bot = false;       // 에디터 창도 봇 입력 (자동 테스트)
-    bool shadow = true;     // 그림자 시뮬레이션 (매 틱 결정론 검사)
-    u32 bodies = 0;         // 매치 데이터 (게임이 정한다. sandbox: 0 = 씬의 상자 수, 아니면 그 수로)
+    u32 players = 1;        // 1 = solo (no network)
+    bool clientBots = true; // join windows are driven by bot input
+    bool bot = false;       // bot input for the editor window too (automated tests)
+    bool shadow = true;     // shadow simulation (determinism check every tick)
+    u32 bodies = 0;         // match data (decided by the game. sandbox: 0 = number of boxes in the scene, otherwise that number)
     std::string projectDir;
-    std::string replayPath; // 비어 있지 않으면 이 리플레이를 재생한다 (혼자, 입력은 기록에서. game/InputRecord.h)
+    std::string replayPath; // if not empty, plays this replay (solo, input from the recording. game/InputRecord.h)
 };
 
-// 방장과 참가 창이 같은 값으로 만드는 콘텐츠 해시 (씬 + 모델 + 튜닝 파일 + 저장된 프로젝트 설정)
-// parts: 구성별 해시 (net::ContentPart 순서, 거부 이유), 필요 없으면 nullptr
+// Content hash computed with the same values by host and join windows (scene + models + tuning files + saved project settings)
+// parts: per-component hashes (net::ContentPart order, rejection reasons), nullptr if not needed
 u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const game::GameModule& module,
                     const std::string& tuningPath, const game::ProjectFile& project, u64* parts = nullptr);
 
@@ -71,47 +71,47 @@ public:
     bool multiplayer() const { return m_config.players > 1; }
     bool replay() const { return !m_config.replayPath.empty(); }
 
-    // 매 프레임: 네트워크, 매치 시작, 게임 진행, 튜닝 적용, 상태 표시줄
+    // Every frame: network, match start, game progress, tuning application, status bar
     void update(f64 now, f64 dt, Editor& editor, Window& window, render::Renderer& renderer, asset::ModelCache& models);
     void buildFrame(f64 now, Editor& editor, Window& window, render::Renderer& renderer, asset::ModelCache& models,
                     render::FrameParams& frame, render::DrawList& out);
-    // 3D 다음, 에디터 UI 전: 게임 화면 UI
+    // After 3D, before editor UI: game screen UI
     void renderUi(render::Renderer& renderer);
 
     game::GameInstance* game() const { return m_game; }
-    // 더 진행할 수 없으면(참가 대기 시간 초과, 세션 종료) 이유를 돌려준다
+    // If it can't proceed (join wait timeout, session ended), returns the reason
     const std::string& failure() const { return m_failure; }
-    // 게임의 화면 흐름이 매치를 나갔다 (메뉴의 [나가기] = 에디터는 플레이를 멈춘다)
+    // The game's screen flow left the match (menu [Leave] = the editor stops play)
     bool leftByGame() const { return m_left; }
 
 private:
     GameModuleHost* m_host = nullptr;
     audio::Engine* m_audio = nullptr;
     feedback::Player* m_feedback = nullptr;
-    // 화면 쪽 서비스 (mealkit/game/Frontend.h): 게임 뷰 입력(프로젝트 바인딩만), 문자열 표, 게임 UI(씬 뷰 영역),
-    // 플레이어 설정(에디터 창의 모드는 바꾸지 않는다). 렌더러를 받는 첫 update에서 init (플레이마다 다시 읽는다)
+    // View-side services (mealkit/game/Frontend.h): game view input (project bindings only), string tables, game UI (scene view area),
+    // player settings (the editor window's mode isn't changed). init on the first update that receives the renderer (reread every play)
     game::Frontend m_front;
     bool m_frontReady = false;
-    std::unique_ptr<game::MatchService> m_match; // 세션 (혼자: 네트워크 없는 로비, 여러 명: 127.0.0.1 방장)
+    std::unique_ptr<game::MatchService> m_match; // session (solo: lobby without network, multiple: 127.0.0.1 host)
     game::GameInstance* m_game = nullptr;
-    bool m_firstMatch = false;   // 첫 매치를 시작했다 (그다음은 게임의 로비 화면이 시작한다)
-    bool m_loadingShown = false; // 매치 시작 전 로딩 화면을 한 번 그렸다
+    bool m_firstMatch = false;   // the first match was started (later ones are started by the game's lobby screen)
+    bool m_loadingShown = false; // the loading screen was drawn once before match start
     bool m_left = false;
     ProcessGroup m_clients;
     PlayConfig m_config;
     game::PlayOptions m_options;
     f64 m_startTime = 0.0;
-    game::FrameStats m_perf; // 플레이 상태 줄의 틱·시뮬레이션 시간 (takeSimMsPerTick은 여기서만 읽는다)
+    game::FrameStats m_perf; // tick/simulation time for the play status line (takeSimMsPerTick is read only here)
     f64 m_viewTuningTimer = 0.0;
     std::string m_failure;
-    std::string m_userFolder;       // 혼자 플레이 기록을 남길 곳 (리플레이, 비어 있으면 남기지 않는다)
+    std::string m_userFolder;       // where solo play recordings are kept (replays; not kept if empty)
     u32 m_keepReplays = 0;
-    bool m_replayStopped = false;   // 리플레이가 기록과 갈라져 멈췄다 (버그 리포트는 끝 틱에서 멈췄다)
-    bool m_bugReport = false;       // 버그 리포트 zip을 재생한다
+    bool m_replayStopped = false;   // the replay diverged from the recording and paused (bug reports pause at the end tick)
+    bool m_bugReport = false;       // playing a bug report zip
 };
 
-// 참가 창 모드: MealKitEditor.exe --player-window --project <폴더> [--player-index n] [--view-tuning <파일>] + 게임 옵션.
-// 에디터 항목 셋을 뺀 나머지는 출시 exe와 같은 명령줄(game::parseGameArgs)로 읽어 game::runGame에 넘긴다
+// Join window mode: MealKitEditor.exe --player-window --project <folder> [--player-index n] [--view-tuning <file>] + game options.
+// Apart from the three editor options, the rest is read with the same command line as the shipping exe (game::parseGameArgs) and passed to game::runGame
 int runPlayer(int argc, char** argv);
 
 } // namespace mealkit::editor
