@@ -930,6 +930,8 @@ void Editor::drawMenuBar() {
             }
             ImGui::EndMenu();
         }
+        // Off shows the real frame cost instead of the monitor refresh interval
+        if (ImGui::MenuItem(tr("Vertical Sync"), nullptr, m_renderer->vsync())) m_renderer->setVsync(!m_renderer->vsync());
         // GPU capture (only when RenderDoc/PIX was loaded with --gpu-capture)
         if (const char* tool = rhi::gpuCaptureTool()) {
             if (ImGui::MenuItem(trf("GPU Capture (%s)", tool).c_str(), "F11")) captureGpuFrame();
