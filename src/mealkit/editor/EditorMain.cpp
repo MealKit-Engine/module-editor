@@ -71,6 +71,8 @@ struct Options {
     bool tables = false;          // start with the [Tables] window open
     bool sounds = false;          // start with the [Sound] window open
     bool bakeProbes = false;      // --bake-probes: bake all reflection probes in the scene (6 frames each, with --frames)
+    bool lookThrough = false;     // --look-through: the scene view looks through the selected virtual camera (with --select)
+    std::string cutscene;         // --cutscene <name>: plays a cutscenes.table row in the scene view
     bool lookdev = false;         // --lookdev: start with the [Lookdev] window open (selected object's model, with --select)
     bool feedback = false;        // start with the [Feedback] window open
     std::string palette;          // --palette <text>: start with the command palette open with this text
@@ -158,6 +160,8 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--tables") o.tables = true;
         else if (a == "--sounds") o.sounds = true;
         else if (a == "--lookdev") o.lookdev = true;
+        else if (a == "--look-through") o.lookThrough = true;
+        else if (a == "--cutscene" && next(v)) o.cutscene = v;
         else if (a == "--palette" && next(v)) o.palette = v;
         else if (a == "--command" && next(v)) o.commands.push_back(v);
         else if (a == "--bake-probes") o.bakeProbes = true;
@@ -177,7 +181,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --replay rec --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --lookdev --palette <text> --command <name> --bake-probes --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
+                "              --project-settings --tables --sounds --lookdev --look-through --cutscene <name> --palette <text> --command <name> --bake-probes --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
                 "  without --project: starts MealKit Manager if installed (%%LOCALAPPDATA%%\\MealKit\\manager), --builtin-manager for the old one\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
@@ -314,6 +318,8 @@ int main(int argc, char** argv) {
     if (opt.tables) editor.openTables();
     if (opt.sounds) editor.openSounds();
     if (opt.lookdev) editor.openLookdev();
+    if (opt.lookThrough) editor.lookThroughSelected(); // with --select <virtual camera id>
+    if (!opt.cutscene.empty()) editor.previewCutscene(opt.cutscene);
     if (opt.bakeProbes) editor.bakeProbes();
     if (opt.feedback) editor.openFeedback();
     if (!opt.uiPreview.empty()) editor.openUiPanel(opt.uiPreview);

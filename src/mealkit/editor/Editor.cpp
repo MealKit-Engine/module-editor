@@ -253,6 +253,7 @@ void Editor::update(f64 dt) {
     const f32 aspect = m_viewport.width / std::max(m_viewport.height, 1.0f);
     m_proj = projection(aspect);
     m_view = lookAtLH(m_cameraPos, m_cameraPos + cameraForward(), {0, 1, 0});
+    updateCameraPreview(dt, aspect); // looking through a virtual camera / cutscene: replaces m_view and m_proj
 
     const bool editing = m_mode == Mode::Edit;
     drawHierarchy(editing);
@@ -548,7 +549,7 @@ u32 Editor::probeMaxCount() const { return std::clamp<u32>(m_project.settings.pr
 void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) const {
     frame.viewport = m_viewport;
     frame.viewProj = m_view * m_proj;
-    frame.cameraPos = m_cameraPos;
+    frame.cameraPos = previewing() ? m_previewPose.position : m_cameraPos;
     fillEnvironment(frame);
     m_models->probes(m_scene, m_probeList);
     frame.probes = m_probeList.data();
@@ -916,6 +917,17 @@ void Editor::drawMenuBar() {
         commandMenuItem("Feedback", &m_feedbackOpen);
         commandMenuItem("UI", &m_uiPanelOpen);
         commandMenuItem("Look Dev", &m_lookdevOpen);
+        if (ImGui::BeginMenu(tr("Preview Cutscene"), m_mode == Mode::Edit)) {
+            if (ImGui::IsWindowAppearing()) m_previewCutscenes.load(); // assets/tables/cutscenes.table as it is now
+            for (u32 i = 0; i < m_previewCutscenes.count(); ++i) {
+                const asset::Cutscenes::Cutscene& c = m_previewCutscenes.at(i);
+                char label[160];
+                std::snprintf(label, sizeof(label), "%s (%.1f s)", c.name.c_str(), c.clip ? static_cast<double>(c.clip->duration) : 0.0);
+                if (ImGui::MenuItem(label, nullptr, c.name == m_cutscenePreview, c.clip != nullptr)) previewCutscene(c.name);
+            }
+            if (m_previewCutscenes.count() == 0) ImGui::TextDisabled("%s", tr("No rows in tables/cutscenes.table"));
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu(tr("Layout"))) {
             const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev")};
             for (int i = 0; i < 3; ++i)
@@ -1324,6 +1336,14 @@ void Editor::drawInspector(bool editing) {
                 }
                 ImGui::EndCombo();
             }
+        }
+
+        if (e->is(scene::kTypeVirtualCamera) && ImGui::CollapsingHeader(tr("Virtual camera"), ImGuiTreeNodeFlags_DefaultOpen)) {
+            // Shows the scene view through this camera (no follow target in edit mode: it stands at its placement)
+            bool through = m_lookThrough == e->id;
+            if (ImGui::Checkbox(tr("Look Through"), &through)) m_lookThrough = through ? e->id : 0;
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", tr("Esc stops"));
         }
 
         if (e->is(scene::kTypeProbe) && ImGui::CollapsingHeader(tr("Reflection probe"), ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -2858,6 +2878,72 @@ void Editor::applyRenderStyle(const game::ProjectSettings& settings) {
         const render::ResolutionSettings& r = m_renderer->resolution();
         m_renderer->setDynamicResolution(false, r.minScale, r.budgetMs, r.sharpness);
     }
+}
+
+} // namespace mealkit::editor
+
+namespace mealkit::editor {
+
+bool Editor::previewCutscene(const std::string& name) {
+    if (m_previewCutscenes.count() == 0) m_previewCutscenes.load();
+    m_previewBrain.load(scene::Scene{});
+    if (!m_previewBrain.playCutscene(m_previewCutscenes, name)) {
+        setStatus(trf("Cutscene '%s' has no playable camera clip (see the log)", name.c_str()), true);
+        return false;
+    }
+    m_lookThrough = 0;
+    m_cutscenePreview = name;
+    m_previewSeconds = 0.0f;
+    return true;
+}
+
+void Editor::updateCameraPreview(f64 dt, f32 aspect) {
+    if (m_mode != Mode::Edit || m_looking || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        m_lookThrough = 0;
+        m_cutscenePreview.clear();
+    }
+    if (m_lookThrough && !m_scene.find(m_lookThrough)) m_lookThrough = 0;
+    if (!previewing()) return;
+    camera::BrainInput in;
+    in.defaultFov = kFovY * (180.0f / 3.14159265f);
+    if (!m_cutscenePreview.empty()) {
+        in.dt = static_cast<f32>(std::min(dt, 0.1));
+        std::vector<std::string> events;
+        m_previewBrain.update(in, &events);
+        m_previewSeconds += in.dt;
+        if (m_feedback)
+            for (const std::string& row : events) m_feedback->play(row, m_previewBrain.pose().position);
+        if (!m_previewBrain.cutscenePlaying()) m_cutscenePreview.clear(); // the end: back to the editor camera
+    } else {
+        // Only this camera active, in a flattened copy (edits to its fields show at once)
+        scene::Scene flat = scene::flattened(m_scene);
+        for (scene::Entity& e : flat.entities) {
+            if (!e.is(scene::kTypeVirtualCamera)) continue;
+            std::erase_if(e.fields, [](const auto& f) { return f.first == "active"; });
+            e.fields.emplace_back("active", e.id == m_lookThrough ? "true" : "false");
+        }
+        m_previewBrain.load(flat);
+        m_previewBrain.update(in);
+    }
+    if (!previewing()) return;
+    m_previewPose = m_previewBrain.pose();
+    const Vec3 forward = m_previewPose.forward();
+    m_view = lookAtLH(m_previewPose.position, m_previewPose.position + forward, rotate(m_previewPose.rotation, Vec3{0, 1, 0}));
+    m_proj = perspectiveReversedZ(m_previewPose.fovDegrees * (3.14159265f / 180.0f), aspect, 0.1f, 2000.0f);
+    drawCameraPreviewLabel();
+}
+
+void Editor::drawCameraPreviewLabel() {
+    if (m_automated) return; // captures show only the camera's picture
+    char text[200];
+    if (!m_cutscenePreview.empty())
+        std::snprintf(text, sizeof(text), tr("Cutscene %s  %.1f s  (Esc stops)"), m_cutscenePreview.c_str(),
+                      static_cast<double>(m_previewSeconds));
+    else {
+        const scene::Entity* e = m_scene.find(m_lookThrough);
+        std::snprintf(text, sizeof(text), tr("Looking through %s  (Esc stops)"), e ? e->name.c_str() : "?");
+    }
+    ImGui::GetForegroundDrawList()->AddText(ImVec2(m_viewport.x + 12.0f, m_viewport.y + 40.0f), IM_COL32(255, 220, 90, 255), text);
 }
 
 } // namespace mealkit::editor

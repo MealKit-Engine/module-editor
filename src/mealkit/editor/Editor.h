@@ -1,6 +1,8 @@
 #pragma once
 
+#include "mealkit/asset/Cutscene.h"
 #include "mealkit/asset/ModelCache.h"
+#include "mealkit/camera/Brain.h"
 #include "mealkit/editor/BuildPanel.h"
 #include "mealkit/editor/LogPanel.h"
 #include "mealkit/editor/PerfPanel.h"
@@ -116,6 +118,9 @@ public:
     // Offscreen image for the [Lookdev] window: after the main screen 3D, before UI (only when the window is open)
     void renderLookdev(render::Renderer& renderer, f64 dt);
     void openLookdev() { m_lookdevOpen = true; } // --lookdev (automated capture)
+    // Camera previews in the scene view (edit mode, Esc stops): look through the selected virtual camera / play a cutscene row
+    void lookThroughSelected() { m_lookThrough = m_selected; } // --look-through (automated capture)
+    bool previewCutscene(const std::string& name);            // --cutscene <name>, View > Preview Cutscene
     // Reflection probe baking: after the main screen 3D, before UI. Draws one cube face offscreen per frame and reads it in endFrame
     void renderProbeBake(render::Renderer& renderer);
     void bakeProbes(u32 onlyId = 0); // 0 = all reflection probes in the scene (--bake-probes)
@@ -330,6 +335,16 @@ private:
     std::string m_scenePath;
     bool m_dirty = false;
     u32 m_selected = 0; // entity id (0 = none)
+    // Camera previews (camera/Brain.h): the scene view shows m_previewPose instead of the editor camera while one runs
+    void updateCameraPreview(f64 dt, f32 aspect);
+    void drawCameraPreviewLabel();
+    bool previewing() const { return m_lookThrough != 0 || !m_cutscenePreview.empty(); }
+    u32 m_lookThrough = 0;         // virtual camera entity id (0 = off)
+    std::string m_cutscenePreview; // cutscene row being played (empty = off)
+    camera::Brain m_previewBrain;
+    asset::Cutscenes m_previewCutscenes;
+    camera::CameraPose m_previewPose;
+    f32 m_previewSeconds = 0.0f;
 
     Mode m_mode = Mode::Edit;
     render::DebugView m_debugView = render::DebugView::None; // [View] > view mode (edit screen only)
