@@ -258,6 +258,9 @@ private:
     char m_assetRenameBuffer[260] = {};
     std::string chooseModel(); // file dialog → path relative to assets (empty string on cancel)
     void duplicateSelected();
+    // Prefabs (scene/Scene.h): save the selection to assets/prefabs/, place copies (at: floor point, nullptr = in front of the camera)
+    void saveSelectionAsPrefab();
+    void placePrefab(const std::string& relative, const Vec3* at);
     void deleteSelected();
     void focusSelected();
     void newScene();
@@ -407,7 +410,7 @@ private:
     bool m_changed = false;
 
     struct TreeAction {
-        enum Kind { None, Reparent, Duplicate, Delete } kind = None;
+        enum Kind { None, Reparent, Duplicate, SavePrefab, Delete } kind = None;
         u32 entity = 0;
         u32 parent = 0;
     };

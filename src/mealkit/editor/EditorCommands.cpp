@@ -55,6 +55,7 @@ void Editor::buildCommands() {
              selectMany(ids, false);
          }},
         {"Duplicate", ImGuiMod_Ctrl | ImGuiKey_D, 0, hasSelection, [this] { duplicateSelected(); }},
+        {"Save as Prefab...", 0, 0, hasSelection, [this] { saveSelectionAsPrefab(); }},
         {"Delete", ImGuiKey_Delete, 0, hasSelection, [this] { deleteSelected(); }},
         {"Find in Scene Tree", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] { m_treeSearchFocus = true; }},
         {"Drop to Floor", ImGuiKey_End, 0, hasSelection, [this] { dropToFloor(); }},

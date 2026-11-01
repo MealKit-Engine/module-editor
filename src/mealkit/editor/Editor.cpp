@@ -139,6 +139,7 @@ u32 packColor(const f32 c[3], u32 previous) {
     return channel(c[0]) | (channel(c[1]) << 8) | (channel(c[2]) << 16) | (previous & 0xFF000000u);
 }
 
+const FileFilter kPrefabFilters[] = {{"MealKit prefab (*.prefab)", "*.prefab"}, {"All files (*.*)", "*.*"}};
 const FileFilter kSceneFilters[] = {{"MealKit scene (*.scene)", "*.scene"}, {"All files (*.*)", "*.*"}};
 const FileFilter kReplayFilters[] = {{"MealKit replay, bug report (*.rec, *.zip)", "*.rec;*.zip"}, {"All files (*.*)", "*.*"}};
 const FileFilter kModelFilters[] = {{"glTF model (*.glb, *.gltf)", "*.glb;*.gltf"}, {"All files (*.*)", "*.*"}};
@@ -890,6 +891,7 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         commandMenuItem("Select All");
         commandMenuItem("Duplicate");
+        commandMenuItem("Save as Prefab...");
         commandMenuItem("Delete");
         ImGui::Separator();
         commandMenuItem("Drop to Floor");
@@ -1144,6 +1146,7 @@ void Editor::drawHierarchy(bool editing) {
     switch (m_treeAction.kind) {
     case TreeAction::Reparent: reparent(m_treeAction.entity, m_treeAction.parent); break;
     case TreeAction::Duplicate: duplicateSelected(); break;
+    case TreeAction::SavePrefab: saveSelectionAsPrefab(); break;
     case TreeAction::Delete: deleteSelected(); break;
     case TreeAction::None: break;
     }
@@ -1233,6 +1236,7 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     if (ImGui::BeginPopupContextItem()) {
         if (!isSelected(id)) m_selected = id;
         if (ImGui::MenuItem(tr("Duplicate"), "Ctrl+D")) m_treeAction = {TreeAction::Duplicate, id, 0};
+        if (ImGui::MenuItem(tr("Save as Prefab..."))) m_treeAction = {TreeAction::SavePrefab, id, 0};
         if (ImGui::MenuItem(tr("Delete"), "Delete")) m_treeAction = {TreeAction::Delete, id, 0};
         if (ImGui::MenuItem(tr("Move to Top Level"), nullptr, false, e.parent != 0))
             m_treeAction = {TreeAction::Reparent, id, 0};
@@ -2426,6 +2430,53 @@ void Editor::duplicateSelected() {
     selectMany(newRoots, false);
     if (roots.size() > 1) setStatus(trf("Duplicated %zu objects", roots.size()));
     else setStatus(total > 1 ? trf("Duplicated: %s (with %zu children)", name.c_str(), total - 1) : trf("Duplicated: %s", name.c_str()));
+}
+
+// Saves the selected objects and their children as a prefab file (assets/prefabs/)
+void Editor::saveSelectionAsPrefab() {
+    const Entity* e = selected();
+    if (!e) return;
+    const std::string root = asset::ModelCache::assetsRoot();
+    createDirectories(root + "\\prefabs");
+    const std::string path = saveFileDialog(m_window->nativeHandle(), root + "\\prefabs\\" + e->name + ".prefab",
+                                            root + "\\prefabs", kPrefabFilters, 2, "prefab");
+    if (path.empty()) return;
+    const std::vector<u32> roots = selectionRoots();
+    if (!scene::savePrefab(m_scene, roots, path)) {
+        setStatus(trf("Could not save %s", path.c_str()), true);
+        return;
+    }
+    const std::string relative = relativeTo(root, path);
+    if (relative.empty()) setStatus(tr("The prefab is outside the assets folder. Only prefabs under assets/prefabs/ show in [Assets]"));
+    else setStatus(trf("Prefab saved: %s", relative.c_str()));
+}
+
+// Adds copies of a prefab's objects (like duplicate: later edits to the file don't change them)
+void Editor::placePrefab(const std::string& relative, const Vec3* at) {
+    scene::Scene prefab;
+    std::string error;
+    const std::string path = asset::ModelCache::assetsRoot() + "\\" + relative;
+    if (!scene::loadPrefab(prefab, path, &error)) {
+        setStatus(trf("Could not load the prefab: %s (%s)", relative.c_str(), error.c_str()), true);
+        return;
+    }
+    if (prefab.entities.empty()) return;
+    pushUndo(capture());
+    scene::Transform place;
+    if (at) {
+        place.position = *at;
+    } else { // on the floor in front of the camera, like addEntity
+        const Vec3 forward = cameraForward();
+        place.position = m_cameraPos + forward * 12.0f;
+        if (forward.y < -0.05f) {
+            const f32 t = -m_cameraPos.y / forward.y;
+            if (t > 0.0f && t < 80.0f) place.position = m_cameraPos + forward * t;
+        }
+        place.position.y = std::max(place.position.y, 0.0f);
+    }
+    const std::vector<u32> roots = scene::placePrefab(m_scene, prefab, place);
+    selectMany(roots, false);
+    setStatus(trf("Prefab placed: %s (%zu objects)", relative.c_str(), prefab.entities.size()));
 }
 
 // Deletes the selected objects and their children

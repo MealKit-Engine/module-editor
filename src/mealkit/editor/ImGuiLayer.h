@@ -29,6 +29,7 @@ inline constexpr const char* kLight = "\xEE\xAA\x80";      // U+EA80 (point ligh
 inline constexpr const char* kCamera = "\xEE\x9C\xA2";     // U+E722 (virtual camera)
 inline constexpr const char* kProbe = "\xEE\xA4\x89";      // U+E909 (reflection probe)
 inline constexpr const char* kFlag = "\xEE\x9F\x81";       // U+E7C1 (other game kinds)
+inline constexpr const char* kPrefab = "\xEE\xA3\xB1";    // U+E8F1 (prefab file, library)
 } // namespace icon
 
 using ImGuiLayer = debug::ImGuiLayer;

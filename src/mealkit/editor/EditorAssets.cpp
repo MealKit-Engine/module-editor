@@ -32,17 +32,20 @@ bool isModel(const std::string& name) {
     return ext == ".glb" || ext == ".gltf";
 }
 
+bool isPrefab(const std::string& name) { return lowerExtension(name) == ".prefab"; }
+
 const char* assetIcon(const std::string& name) {
     const std::string ext = lowerExtension(name);
     if (ext == ".glb" || ext == ".gltf") return icon::kModel;
     if (ext == ".scene") return icon::kGlobe;
+    if (ext == ".prefab") return icon::kPrefab;
     return icon::kFlag;
 }
 
 // Text files that can reference paths (scenes, tuning, UI, tables, effects, sound events, input)
 bool referenceFile(const std::string& name) {
     const std::string ext = lowerExtension(name);
-    for (const char* e : {".scene", ".tuning", ".ui", ".table", ".fx", ".events", ".bindings", ".txt"})
+    for (const char* e : {".scene", ".prefab", ".tuning", ".ui", ".table", ".fx", ".events", ".bindings", ".txt"})
         if (ext == e) return true;
     return false;
 }
@@ -111,7 +114,7 @@ void Editor::drawAssetBrowser() {
     }
     ImGui::EndChild();
     ImGui::SameLine();
-    // Right: files (drag models into the scene view, double-click scenes to open)
+    // Right: files (drag models/prefabs into the scene view, double-click scenes to open)
     if (ImGui::BeginChild("##files")) {
         const std::string folder = m_assetFolder.empty() ? root : root + "\\" + toNative(m_assetFolder);
         ImGui::TextDisabled("assets/%s", m_assetFolder.c_str());
@@ -135,11 +138,12 @@ void Editor::drawAssetBrowser() {
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     if (lowerExtension(name) == ".scene") openSceneFile(folder + "\\" + name);
                     else if (isModel(name) && m_mode == Mode::Edit) addModelEntity(relative, nullptr);
+                    else if (isPrefab(name) && m_mode == Mode::Edit) placePrefab(relative, nullptr);
                 }
             }
-            if (isModel(name) && ImGui::BeginDragDropSource()) {
+            if ((isModel(name) || isPrefab(name)) && ImGui::BeginDragDropSource()) {
                 ImGui::SetDragDropPayload(kAssetPayload, relative.c_str(), relative.size() + 1);
-                ImGui::Text("%s  %s", icon::kModel, relative.c_str());
+                ImGui::Text("%s  %s", assetIcon(name), relative.c_str());
                 ImGui::EndDragDropSource();
             }
             if (ImGui::BeginPopupContextItem("##assetMenu")) {
@@ -176,7 +180,7 @@ void Editor::drawAssetBrowser() {
     ImGui::End();
 }
 
-// Dropping a model on the scene view adds a model object where the mouse points (on a hit object, or the y = 0 floor if none)
+// Dropping a model/prefab on the scene view adds a model object/prefab copies where the mouse points (on a hit object, or the y = 0 floor if none)
 void Editor::handleAssetDrop() {
     const ImGuiPayload* payload = ImGui::GetDragDropPayload();
     if (!payload || !payload->IsDataType(kAssetPayload) || !ImGui::IsMouseReleased(ImGuiMouseButton_Left)) return;
@@ -191,7 +195,9 @@ void Editor::handleAssetDrop() {
     if (raycast(origin, dir, &t)) at = origin + dir * t;
     else if (dir.y < -0.01f) at = origin + dir * (-origin.y / dir.y);
     else at = origin + dir * 12.0f;
-    addModelEntity(static_cast<const char*>(payload->Data), &at);
+    const std::string relative = static_cast<const char*>(payload->Data);
+    if (isPrefab(relative)) placePrefab(relative, &at);
+    else addModelEntity(relative, &at);
 }
 
 // Moves the file and fixes path references in text files under assets and in mealkit.project. The open scene is fixed in memory too
