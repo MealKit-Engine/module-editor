@@ -13,17 +13,6 @@
 namespace mealkit::editor {
 namespace {
 
-std::vector<std::string> splitTabs(const std::string& line) {
-    std::vector<std::string> parts;
-    size_t start = 0;
-    for (size_t tab = line.find('\t'); tab != std::string::npos; tab = line.find('\t', start)) {
-        parts.push_back(line.substr(start, tab - start));
-        start = tab + 1;
-    }
-    parts.push_back(line.substr(start));
-    return parts;
-}
-
 bool containsNoCase(const std::string& text, const char* needle) {
     if (!needle[0]) return true;
     const std::string n(needle);
@@ -38,37 +27,6 @@ const ImVec4 kWarn(1.0f, 0.8f, 0.3f, 1.0f);
 const ImVec4 kError(1.0f, 0.45f, 0.4f, 1.0f);
 
 } // namespace
-
-ModuleList parseModuleList(const std::string& output) {
-    ModuleList list;
-    size_t start = 0;
-    while (start < output.size()) {
-        size_t nl = output.find('\n', start);
-        if (nl == std::string::npos) nl = output.size();
-        std::string line = output.substr(start, nl - start);
-        start = nl + 1;
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        const std::vector<std::string> f = splitTabs(line);
-        if (f[0] == "installed" && f.size() >= 6) {
-            list.installed.push_back({f[1], f[2], f[5], std::atoi(f[3].c_str()), std::atoi(f[4].c_str())});
-        } else if (f[0] == "module" && f.size() >= 10) {
-            RegistryModule m;
-            m.name = f[1];
-            m.version = f[2] == "-" ? std::string() : f[2];
-            m.latest = f[3];
-            m.latestEngine = f[4];
-            m.title = f[5];
-            m.summary = f[6];
-            m.tags = f[7];
-            m.author = f[8];
-            m.repo = f[9];
-            list.registry.push_back(std::move(m));
-        } else if (f[0] == "error" && f.size() >= 2) {
-            list.error = f[1];
-        }
-    }
-    return list;
-}
 
 void ModulesPanel::run(const std::string& engineDirectory, const ProjectInfo& project, const std::string& label,
                        const std::string& arguments, bool changes) {

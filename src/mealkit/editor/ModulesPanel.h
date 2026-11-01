@@ -3,36 +3,21 @@
 #include "mealkit/editor/Project.h"
 #include "mealkit/platform/Process.h"
 
+#include <mkcontract/Modules.h>
+
 #include <string>
 #include <vector>
 
 // Editor [Modules] window (docs/MODULES.md): source modules in the project's modules/ and the registry (MealKit-Modules) list.
-// Add/update/remove call the engine's tools\module.ps1 without a window (the rules live in that one script). The list comes from one `module.ps1 search -Tsv`.
+// Add/update/remove call the engine's tools\module.ps1 without a window (the rules live in that one script). The list comes from one `module.ps1 search -Tsv`,
+// read with mkcontract::parseModuleList (the line shape is MealKit-Contract's, shared with MealKit Manager).
 // Changing modules requires rebuilding game code, so the editor is notified via takeChanged().
 namespace mealkit::editor {
 
-struct InstalledModule {
-    std::string name, version, source;
-    int modified = 0; // number of files the game modified after install
-    int pending = 0;  // number of .new files left by an update
-};
-
-struct RegistryModule {
-    std::string name;
-    std::string version;       // newest version for this engine MINOR (blank if none)
-    std::string latest;        // newest version
-    std::string latestEngine;  // engine MAJOR.MINOR of that version
-    std::string title, summary, tags, author, repo;
-};
-
-struct ModuleList {
-    std::vector<InstalledModule> installed;
-    std::vector<RegistryModule> registry;
-    std::string error; // why the registry list couldn't be fetched
-};
-
-// Output of `module.ps1 search -Tsv` (tab-separated lines, unknown lines skipped)
-ModuleList parseModuleList(const std::string& output);
+using mkcontract::InstalledModule;
+using mkcontract::ModuleList;
+using mkcontract::parseModuleList;
+using mkcontract::RegistryModule;
 
 class ModulesPanel {
 public:
