@@ -119,8 +119,11 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
             const std::string text = note == std::string::npos
                                          ? std::string()
                                          : bugInfo.substr(note + 8, bugInfo.find('\n', note + 1) - note - 8);
-            MEALKIT_INFO("Bug report %s:\n%s", m_config.replayPath.c_str(), bugInfo.c_str());
-            if (!text.empty()) editor.showMessage(trf("Bug report: %s", text.c_str()));
+            // Crash reports (crash/<time>.zip) have the same layout; the recording ends at the crash
+            const bool crash = bugInfo.rfind("# MealKit crash report", 0) == 0;
+            MEALKIT_INFO("%s %s:\n%s", crash ? "Crash report" : "Bug report", m_config.replayPath.c_str(), bugInfo.c_str());
+            if (crash) editor.showMessage(tr("Crash report: playing up to the tick where the game crashed."));
+            else if (!text.empty()) editor.showMessage(trf("Bug report: %s", text.c_str()));
         }
         MEALKIT_INFO("Editor play: replaying %s", m_config.replayPath.c_str());
     } else if (!multiplayer()) {
