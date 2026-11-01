@@ -258,6 +258,7 @@ private:
     void newScene();
     void openSceneDialog();
     void openReplayDialog();
+    void saveScenario(u32 tick);
     bool saveScene();
     bool saveSceneAs();
     bool loadScene(const std::string& path);

@@ -347,6 +347,16 @@ void Editor::drawPlayControls() {
                 tr("Drag while paused to rewind to that tick (ticks %u-%u, record %.1f MB).\nResume returns to the present."),
                 t.first, t.live, static_cast<f64>(t.memoryBytes) / (1024.0 * 1024.0));
     }
+    // Solo play writes the input recording as it goes (user folder replays/current.rec): it becomes a scenario test
+    const bool canSaveScenario = !t.viewingPast && m_stateView.type && m_stateView.data && t.live > 0 &&
+                                 fileExists(game::replayRecordingPath(game::userFolder(m_project.settings)));
+    ImGui::BeginDisabled(!canSaveScenario);
+    if (ImGui::Button(tr("Save Scenario"))) saveScenario(t.live - 1);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", tr("Saves the inputs so far and the current state values as a scenario test in tests/ "
+                                   "(solo play with replays kept, not while viewing the past).\n"
+                                   "Keep the checks that state the rule and delete the rest."));
     const game::ShadowStatus& shadow = m_simDebug->shadow();
     if (shadow.enabled) {
         if (shadow.desynced)
@@ -2453,6 +2463,56 @@ void Editor::openReplayDialog() {
     const std::string folder = game::userFolder(m_project.settings) + "/" + game::kReplayFolder;
     const std::string path = openFileDialog(m_window->nativeHandle(), "", folder, kReplayFilters, 2);
     if (!path.empty()) requestReplay(path);
+}
+
+// Scenario test from editor play (game/Scenario.h): tests/scenarioN.rec (inputs up to tick) + tests/scenarioN.scenario
+// with one == check per top-level state value at that tick.
+void Editor::saveScenario(u32 tick) {
+    const std::string dir = m_project.directory + "/tests";
+    createDirectories(dir);
+    std::string name;
+    for (u32 i = 1; name.empty(); ++i)
+        if (!fileExists(dir + "/scenario" + std::to_string(i) + ".scenario")) name = "scenario" + std::to_string(i);
+    // Copy the recording (binary; it's flushed every tick)
+    const std::string from = game::replayRecordingPath(game::userFolder(m_project.settings));
+    std::FILE* in = openFile(from, "rb");
+    std::FILE* out = in ? openFile(dir + "/" + name + ".rec", "wb") : nullptr;
+    bool copied = in && out;
+    char buffer[65536];
+    for (size_t n; copied && (n = std::fread(buffer, 1, sizeof(buffer), in)) > 0;)
+        copied = std::fwrite(buffer, 1, n, out) == n;
+    if (in) std::fclose(in);
+    if (out) std::fclose(out);
+    if (!copied) {
+        setStatus(trf("Could not save the scenario: %s", from.c_str()), true);
+        return;
+    }
+    std::string text = "# Saved in editor play at tick " + std::to_string(tick) +
+                       ". Keep the checks that state the rule and delete the rest.\n"
+                       "# Run: <game>_headless --test tests/" + name + ".scenario (--update-expected rewrites the == values)\n";
+    text += "inputs " + name + ".rec\n";
+    text += "ticks " + std::to_string(tick + 1) + "\n";
+    const std::string assets = m_project.directory + "/assets/";
+    std::string scenePath = m_scenePath;
+    std::replace(scenePath.begin(), scenePath.end(), '\\', '/');
+    std::string assetsSlash = assets;
+    std::replace(assetsSlash.begin(), assetsSlash.end(), '\\', '/');
+    if (scenePath.rfind(assetsSlash, 0) == 0) text += "scene " + scenePath.substr(assetsSlash.size()) + "\n";
+    for (const reflect::FieldInfo& f : m_stateView.type->fields) {
+        const reflect::Kind kind = f.value->kind;
+        if ((f.flags & reflect::kFieldView) || kind == reflect::Kind::Struct || kind == reflect::Kind::Array ||
+            kind == reflect::Kind::Container)
+            continue;
+        const void* data = static_cast<const u8*>(m_stateView.data) + f.offset;
+        text += "tick " + std::to_string(tick) + " " + f.name + " == " + reflect::formatScalar(*f.value, data) + "\n";
+    }
+    const std::string path = dir + "/" + name + ".scenario";
+    if (!writeTextFile(path, text)) {
+        setStatus(trf("Could not save the scenario: %s", path.c_str()), true);
+        return;
+    }
+    MEALKIT_INFO("Scenario saved: %s", path.c_str());
+    setStatus(trf("Scenario saved: tests/%s.scenario", name.c_str()));
 }
 
 bool Editor::loadScene(const std::string& path) {
