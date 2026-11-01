@@ -26,6 +26,7 @@ inline constexpr const char* kModel = "\xEE\x9E\xB8";      // U+E7B8 (model)
 inline constexpr const char* kPin = "\xEE\x9C\x87";        // U+E707 (spawn/marker)
 inline constexpr const char* kArea = "\xEE\xA0\x8A";       // U+E80A (area)
 inline constexpr const char* kLight = "\xEE\xAA\x80";      // U+EA80 (point light)
+inline constexpr const char* kCamera = "î¢";     // U+E722 (virtual camera)
 inline constexpr const char* kProbe = "\xEE\xA4\x89";      // U+E909 (reflection probe)
 inline constexpr const char* kFlag = "\xEE\x9F\x81";       // U+E7C1 (other game kinds)
 } // namespace icon

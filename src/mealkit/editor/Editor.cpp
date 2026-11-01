@@ -2174,6 +2174,7 @@ bool Editor::isLocked(const Entity& e) const {
 
 const char* Editor::entityIcon(const Entity& e) const {
     if (e.is(scene::kTypePointLight)) return icon::kLight;
+    if (e.is(scene::kTypeVirtualCamera)) return icon::kCamera;
     if (e.is(scene::kTypeProbe)) return icon::kProbe;
     if (isArea(e)) return icon::kArea;
     if (isMarker(e)) return icon::kPin;
