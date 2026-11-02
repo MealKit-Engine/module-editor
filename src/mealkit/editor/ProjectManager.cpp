@@ -211,6 +211,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
 
     // New project window
     char newName[64] = "MyGame";
+    int newTemplate = 0; // project template: 0 arena, 1 empty (tools\new_project.ps1 -Template)
     char newLocation[512] = {};
     {
         // Default location: folder of the most recent project, or Documents\MealKitProjects if none
@@ -592,7 +593,23 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
         ImGui::SetNextWindowSize(ImVec2(560 * dpi, 0), ImGuiCond_Appearing);
         if (ImGui::BeginPopupModal(trl("Create New Project"), nullptr)) {
             ImGui::BeginDisabled(busy);
-            ImGui::TextDisabled("%s", tr("Starts from a copy of the sample game (arena)."));
+            // Project templates (tools\new_project.ps1 -Template): script name, label, description
+            const char* const templates[][3] = {
+                {"arena", tr("Arena versus (sample game)"),
+                 tr("A copy of the sample game: physics party versus with AI, boxes, jump pads and cutscenes.")},
+                {"empty", tr("Empty"),
+                 tr("One character per player on a floor, with the title, lobby and results screens. Start your own game here.")},
+            };
+            ImGui::TextUnformatted(tr("Template"));
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginCombo("##template", templates[newTemplate][1])) {
+                for (int i = 0; i < 2; ++i)
+                    if (ImGui::Selectable(templates[i][1], newTemplate == i)) newTemplate = i;
+                ImGui::EndCombo();
+            }
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextDisabled("%s", templates[newTemplate][2]);
+            ImGui::PopTextWrapPos();
             ImGui::TextUnformatted(tr("Name (exe name)"));
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##name", newName, sizeof(newName));
@@ -614,7 +631,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             ImGui::BeginDisabled(!nameOk || newLocation[0] == '\0');
             if (ImGui::Button(tr("Create"), ImVec2(120 * dpi, 0))) {
                 startTask(Task::Create, "new_project.ps1",
-                          std::string("-Name ") + newName + " -Path \"" + newLocation + "\"",
+                          std::string("-Name ") + newName + " -Path \"" + newLocation + "\" -Template " + templates[newTemplate][0],
                           std::string(newLocation) + "\\" + newName);
             }
             ImGui::EndDisabled();
