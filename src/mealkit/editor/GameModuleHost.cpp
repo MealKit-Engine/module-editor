@@ -33,13 +33,13 @@ bool GameModuleHost::load(const std::string& dllPath, std::string& error) {
         return false;
     }
 
-    // Copied to hot\<name>.<process>.<number>.dll and loaded.
+    // Copied to hot/<name>.<process>.<number>.dll (.so, .dylib) and loaded.
     // Includes the process number: join windows of multiplayer play (same editor executable) each use their own copy
     const fs::path hotDir = source.parent_path() / "hot";
     fs::create_directories(hotDir, ec);
     const u32 next = m_generation + 1;
     const std::wstring mine = source.stem().wstring() + L"." + std::to_wstring(processId()) + L".";
-    const fs::path copy = hotDir / (mine + std::to_wstring(next) + L".dll");
+    const fs::path copy = hotDir / (mine + std::to_wstring(next) + fs::path(libraryExtension()).wstring());
     if (!fs::copy_file(source, copy, fs::copy_options::overwrite_existing, ec)) {
         error = "cannot copy the game DLL (still being written?): " + ec.message();
         return false;

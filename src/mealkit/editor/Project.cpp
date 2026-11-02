@@ -1,5 +1,6 @@
 #include "mealkit/editor/Project.h"
 
+#include "mealkit/platform/DynamicLibrary.h"
 #include "mealkit/platform/Paths.h"
 
 #include <mkcontract/Files.h>
@@ -11,7 +12,7 @@ namespace mealkit::editor {
 
 using mkcontract::normalizeDirectory;
 
-std::string ProjectInfo::filePath() const { return directory + "\\" + kProjectFileName; }
+std::string ProjectInfo::filePath() const { return directory + "/" + kProjectFileName; }
 
 const std::string& editorBuildName() {
     // The editor exe is in <folder>\build\<name>\bin: Editor (DX12) or VulkanEditor
@@ -24,36 +25,36 @@ const std::string& editorBuildName() {
 
 std::string ProjectInfo::buildRoot() const {
     // The engine repo's reference samples (samples\<name>) have no build.bat: the engine build compiles them all
-    if (fileExists(directory + "\\build.bat")) return directory;
+    if (fileExists(directory + "/build.bat")) return directory;
     const std::string samples = parentDirectory(directory);
     const std::string engine = parentDirectory(samples);
-    if (fileName(samples) == "samples" && fileExists(engine + "\\build.bat") && directoryExists(engine + "\\engine\\src\\mealkit"))
+    if (fileName(samples) == "samples" && fileExists(engine + "/build.bat") && directoryExists(engine + "/engine/src/mealkit"))
         return engine;
     return directory;
 }
 
-std::string ProjectInfo::editorBuildDirectory() const { return buildRoot() + "\\build\\" + editorBuildName(); }
+std::string ProjectInfo::editorBuildDirectory() const { return buildRoot() + "/build/" + editorBuildName(); }
 
 std::string ProjectInfo::gameDllPath() const {
-    return editorBuildDirectory() + "\\bin\\" + settings.name + "_game.dll";
+    return editorBuildDirectory() + "/bin/" + settings.name + "_game" + libraryExtension();
 }
 
 std::string ProjectInfo::startScenePath() const {
     std::string relative = assetFilePath(settings.scene);
     std::replace(relative.begin(), relative.end(), '/', '\\');
-    return directory + "\\" + relative;
+    return directory + "/" + relative;
 }
 
-std::string ProjectInfo::exportDirectory() const { return directory + "\\export\\" + settings.name; }
+std::string ProjectInfo::exportDirectory() const { return directory + "/export/" + settings.name; }
 
 bool isProjectDirectory(const std::string& directory) {
-    return !directory.empty() && fileExists(directory + "\\" + kProjectFileName);
+    return !directory.empty() && fileExists(directory + "/" + kProjectFileName);
 }
 
 bool loadProject(const std::string& directory, ProjectInfo& out, std::string* error) {
     out = ProjectInfo{};
     const std::string normalized = normalizeDirectory(directory);
-    if (!game::loadProjectFile(normalized + "\\" + kProjectFileName, out)) {
+    if (!game::loadProjectFile(normalized + "/" + kProjectFileName, out)) {
         if (error) *error = std::string(kProjectFileName) + " not found in " + normalized;
         return false;
     }
@@ -68,7 +69,7 @@ bool loadProject(const std::string& directory, ProjectInfo& out, std::string* er
 
 std::string editorUserDirectory() {
     const std::string user = mkcontract::userDirectory(); // the contract's folder (MEALKIT_USER_DIR in tests)
-    return user.empty() ? executableDirectory() + "\\MealKit" : user;
+    return user.empty() ? executableDirectory() + "/MealKit" : user;
 }
 
 bool sameProjectDirectory(const std::string& a, const std::string& b) { return mkcontract::sameDirectory(a, b); }
