@@ -15,7 +15,8 @@ struct ProjectInfo : game::ProjectFile {
 
     const std::string& name() const { return settings.name; }
     std::string filePath() const;        // <directory>\mealkit.project
-    std::string editorBuildDirectory() const; // build\<editorBuildName()>
+    std::string buildRoot() const;       // folder with build.bat and build\: the project, or the engine repo for its samples\<name>
+    std::string editorBuildDirectory() const; // <buildRoot()>\build\<editorBuildName()>
     std::string gameDllPath() const;     // build\<editorBuildName()>\bin\<name>_game.dll
     std::string startScenePath() const;  // assets\<scene>
     std::string exportDirectory() const; // export\<name>

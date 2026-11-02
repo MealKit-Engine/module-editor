@@ -22,7 +22,17 @@ const std::string& editorBuildName() {
     return name;
 }
 
-std::string ProjectInfo::editorBuildDirectory() const { return directory + "\\build\\" + editorBuildName(); }
+std::string ProjectInfo::buildRoot() const {
+    // The engine repo's reference samples (samples\<name>) have no build.bat: the engine build compiles them all
+    if (fileExists(directory + "\\build.bat")) return directory;
+    const std::string samples = parentDirectory(directory);
+    const std::string engine = parentDirectory(samples);
+    if (fileName(samples) == "samples" && fileExists(engine + "\\build.bat") && directoryExists(engine + "\\engine\\src\\mealkit"))
+        return engine;
+    return directory;
+}
+
+std::string ProjectInfo::editorBuildDirectory() const { return buildRoot() + "\\build\\" + editorBuildName(); }
 
 std::string ProjectInfo::gameDllPath() const {
     return editorBuildDirectory() + "\\bin\\" + settings.name + "_game.dll";

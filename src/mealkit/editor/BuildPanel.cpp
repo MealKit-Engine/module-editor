@@ -26,7 +26,7 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
         command = "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Project \"" + project.directory + "\"";
         m_log = "> upgrade_project.ps1\n";
     } else {
-        const std::string script = project.directory + "\\build.bat";
+        const std::string script = project.buildRoot() + "\\build.bat";
         if (!fileExists(script)) {
             m_status = trf("build.bat not found: %s", script.c_str());
             return false;
@@ -38,7 +38,7 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
     m_kind = kind;
     m_scroll = true;
     if (kind != BuildKind::GameCode) m_open = true; // game code builds open only on failure
-    if (!m_process.start(command, project.directory)) {
+    if (!m_process.start(command, project.buildRoot())) {
         m_log += std::string(tr("Could not start the build.")) + "\n";
         m_open = true;
         return false;
