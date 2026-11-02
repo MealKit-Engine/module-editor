@@ -8,6 +8,7 @@
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/game/InputRecord.h"
+#include "mealkit/game/Scenario.h"
 #include "mealkit/platform/FileDialog.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Process.h"
@@ -2596,14 +2597,7 @@ void Editor::saveScenario(u32 tick) {
     std::string assetsSlash = assets;
     std::replace(assetsSlash.begin(), assetsSlash.end(), '\\', '/');
     if (scenePath.rfind(assetsSlash, 0) == 0) text += "scene " + scenePath.substr(assetsSlash.size()) + "\n";
-    for (const reflect::FieldInfo& f : m_stateView.type->fields) {
-        const reflect::Kind kind = f.value->kind;
-        if ((f.flags & reflect::kFieldView) || kind == reflect::Kind::Struct || kind == reflect::Kind::Array ||
-            kind == reflect::Kind::Container)
-            continue;
-        const void* data = static_cast<const u8*>(m_stateView.data) + f.offset;
-        text += "tick " + std::to_string(tick) + " " + f.name + " == " + reflect::formatScalar(*f.value, data) + "\n";
-    }
+    text += game::scenarioChecksText(*m_stateView.type, m_stateView.data, tick);
     const std::string path = dir + "/" + name + ".scenario";
     if (!writeTextFile(path, text)) {
         setStatus(trf("Could not save the scenario: %s", path.c_str()), true);
