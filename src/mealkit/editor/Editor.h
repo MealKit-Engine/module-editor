@@ -195,6 +195,11 @@ private:
             asset::Heightmap map;
         };
         std::vector<TerrainSamples> terrains; // heightmaps of the scene's terrains (brush strokes are undone with the scene)
+        struct ScatterItems {
+            std::string path;
+            std::vector<asset::ScatterInstance> items;
+        };
+        std::vector<ScatterItems> scatters; // scatter layer instances
     };
 
     void drawMenuBar();
@@ -416,6 +421,11 @@ private:
     void setupNewTerrain(scene::Entity& e);
     void drawTerrainInspector(scene::Entity& e);
     bool handleTerrainBrush();
+    void setupNewScatter(scene::Entity& e);
+    void drawScatterInspector(scene::Entity& e);
+    bool handleScatterBrush(scene::Entity& e);
+    bool m_scatterErase = false;
+    u64 m_scatterSeed = 1;
     void captureTerrains(Snapshot& s) const;
     void restoreTerrains(const Snapshot& s);
     bool m_brushOn = false;

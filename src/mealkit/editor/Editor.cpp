@@ -581,6 +581,10 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
             }
             continue;
         }
+        if (e.is(scene::kTypeScatter)) { // instances only (the layer object itself has no shape)
+            m_models->addScatter(out, e, eye, !gameView && isSelected(e.id) ? render::kInstanceHighlight : 0u);
+            continue;
+        }
         if (e.is(scene::kTypeTerrain)) { // axis-aligned, rotation ignored (like the collision)
             if (asset::Terrain* terrain = terrainOf(e))
                 m_models->addTerrain(out, *terrain, world.position, world.scale, e.color,
@@ -1373,8 +1377,9 @@ void Editor::drawInspector(bool editing) {
         }
 
         if (e->is(scene::kTypeTerrain)) drawTerrainInspector(*e);
+        if (e->is(scene::kTypeScatter)) drawScatterInspector(*e);
 
-        if (!isMarker(*e) && !e->is(scene::kTypeTerrain) && ImGui::CollapsingHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!isMarker(*e) && !e->is(scene::kTypeTerrain) && !e->is(scene::kTypeScatter) && ImGui::CollapsingHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
             if (e->model.empty()) {
                 ImGui::TextDisabled("%s", tr("Default box"));
             } else {
@@ -1708,7 +1713,7 @@ void Editor::drawState() {
 void Editor::drawGizmo() {
     Entity* e = selected();
     if (!e || m_viewport.width < 1.0f || m_viewport.height < 1.0f) return;
-    if (m_brushOn && e->is(scene::kTypeTerrain)) return; // painting, not moving
+    if (e->is(scene::kTypeScatter) || (m_brushOn && e->is(scene::kTypeTerrain))) return; // layers have no shape to move; painting terrain
 
     ImGuizmo::SetOrthographic(m_ortho);
     ImGuizmo::SetRect(m_viewport.x, m_viewport.y, m_viewport.width, m_viewport.height);
@@ -2031,6 +2036,7 @@ u32 Editor::raycast(Vec3 origin, Vec3 dir, f32* distance, const std::vector<u32>
             }
             continue;
         }
+        if (e.is(scene::kTypeScatter)) continue; // selected from the scene tree (instances aren't pickable)
         if (const asset::Terrain* terrain = terrainOf(e)) { // the surface, not its box (objects above stay clickable)
             const f32 t = asset::raycastTerrain(terrain->map, w.position, w.scale, origin, dir, bestT);
             if (t >= 0.0f && t < bestT) {
@@ -2379,6 +2385,7 @@ void Editor::addEntity(const std::string& typeName) {
         e.color = solid ? 0xFFD2C8C8 : typeName == scene::kTypeDecoration ? 0xFFDCAA78 : 0xFF8CD2F0;
     }
     if (typeName == scene::kTypeTerrain) setupNewTerrain(e);
+    if (typeName == scene::kTypeScatter) setupNewScatter(e);
     m_selected = e.id;
     setStatus(trf("Added: %s", e.name.c_str()));
 }
@@ -2635,6 +2642,7 @@ bool Editor::loadScene(const std::string& path) {
 
 bool Editor::saveScene() {
     if (m_scenePath.empty()) return saveSceneAs();
+    if (std::string error; !m_models->saveScatters(error)) setStatus(trf("Could not save scatter layers: %s", error.c_str()), true);
     if (std::string error; !m_models->saveTerrains(error)) setStatus(trf("Could not save heightmaps: %s", error.c_str()), true);
     if (!scene::save(m_scene, m_scenePath)) {
         setStatus(trf("Could not save: %s", m_scenePath.c_str()), true);

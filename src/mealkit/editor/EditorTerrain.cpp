@@ -94,6 +94,7 @@ bool Editor::handleTerrainBrush() {
         m_brushStroke = false;
         return false;
     }
+    if (e->is(scene::kTypeScatter)) return handleScatterBrush(*e);
     asset::Terrain* terrain = terrainOf(*e);
     if (!terrain) return false;
     ImGuiIO& io = ImGui::GetIO();
@@ -153,8 +154,13 @@ bool Editor::handleTerrainBrush() {
 }
 
 void Editor::captureTerrains(Snapshot& s) const {
-    for (const Entity& e : m_scene.entities)
+    for (const Entity& e : m_scene.entities) {
         if (const asset::Terrain* t = terrainOf(e)) s.terrains.push_back({t->path, t->map});
+        if (e.is(scene::kTypeScatter)) {
+            const std::string file = scene::readObject<scene::ScatterFields>(e).file;
+            if (!file.empty()) s.scatters.push_back({file, m_models->scatter(file).scatter.items});
+        }
+    }
 }
 
 void Editor::restoreTerrains(const Snapshot& s) {
@@ -163,6 +169,125 @@ void Editor::restoreTerrains(const Snapshot& s) {
         if (t && t->map.size == map.size && t->map.samples == map.samples) continue;
         m_models->setTerrain(path, map, true);
     }
+    for (const auto& [path, items] : s.scatters) {
+        asset::ModelCache::ScatterEntry& entry = m_models->scatter(path);
+        if (entry.scatter.items.size() == items.size() &&
+            std::equal(items.begin(), items.end(), entry.scatter.items.begin(), [](const auto& a, const auto& b) {
+                return a.position.x == b.position.x && a.position.z == b.position.z && a.scale == b.scale;
+            }))
+            continue;
+        entry.scatter.items = items;
+        entry.scatter.grouped = false;
+        entry.dirty = true;
+    }
+}
+
+// ---------------------------------------------------------------- Scatter layers (asset/Scatter.h)
+
+void Editor::setupNewScatter(Entity& e) {
+    std::string stem = m_scenePath.empty() ? std::string("untitled") : fileName(m_scenePath);
+    if (const size_t dot = stem.find_last_of('.'); dot != std::string::npos) stem.resize(dot);
+    std::erase_if(e.fields, [](const auto& f) { return f.first == "file"; });
+    e.fields.emplace_back("file", scene::scatterFileFor(stem, e));
+    e.color = 0xFF5AB45A;
+    m_brushOn = true;
+}
+
+void Editor::drawScatterInspector(Entity& e) {
+    if (!ImGui::CollapsingHeader(tr("Scatter"), ImGuiTreeNodeFlags_DefaultOpen)) return;
+    const scene::ScatterFields f = scene::readObject<scene::ScatterFields>(e);
+    if (f.file.empty()) {
+        ImGui::TextDisabled("%s", tr("No instance file"));
+        return;
+    }
+    asset::ModelCache::ScatterEntry& entry = m_models->scatter(f.file);
+    ImGui::TextDisabled(tr("%zu instances%s"), entry.scatter.items.size(), entry.dirty ? tr(" · not saved") : "");
+    ImGui::Checkbox(tr("Brush"), &m_brushOn);
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Clear")) && !entry.scatter.items.empty()) {
+        pushUndo(capture());
+        entry.scatter.items.clear();
+        entry.scatter.grouped = false;
+        entry.dirty = true;
+    }
+    ImGui::BeginDisabled(!m_brushOn);
+    if (ImGui::RadioButton(tr("Paint"), !m_scatterErase)) m_scatterErase = false;
+    ImGui::SameLine();
+    if (ImGui::RadioButton(tr("Erase"), m_scatterErase)) m_scatterErase = true;
+    ImGui::SliderFloat(tr("Radius (m)"), &m_brushRadius, 0.5f, 64.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SliderFloat(tr("Strength"), &m_brushStrength, 0.01f, 1.0f, "%.2f");
+    ImGui::TextDisabled("%s", tr("Left drag paints onto terrain and floors (Shift erases) · density and sizes are fields below · Ctrl+Z undoes a stroke"));
+    ImGui::EndDisabled();
+}
+
+bool Editor::handleScatterBrush(Entity& e) {
+    const scene::ScatterFields f = scene::readObject<scene::ScatterFields>(e);
+    if (f.file.empty()) return false;
+    ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 mouse = io.MousePos;
+    const bool inViewport = mouse.x >= m_viewport.x && mouse.y >= m_viewport.y && mouse.x < m_viewport.x + m_viewport.width &&
+                            mouse.y < m_viewport.y + m_viewport.height;
+    Vec3 origin, dir;
+    mouseRay(mouse.x, mouse.y, &origin, &dir);
+    f32 distance = 0.0f;
+    if (inViewport && raycast(origin, dir, &distance, {e.id}) && distance < 1e29f) {
+        m_brushHit = true;
+        m_brushPoint = origin + dir * distance;
+    }
+    if (m_brushStroke && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) m_brushStroke = false;
+    if (!m_brushStroke && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && m_brushHit && !io.WantCaptureMouse && !io.KeyAlt) {
+        m_brushStroke = true;
+        pushUndo(capture());
+    }
+    asset::ModelCache::ScatterEntry& entry = m_models->scatter(f.file);
+    if (m_brushStroke && m_brushHit) {
+        const bool erase = m_scatterErase != io.KeyShift;
+        if (erase) {
+            if (asset::eraseScatter(entry.scatter, m_brushPoint, m_brushRadius)) entry.dirty = m_dirty = true;
+        } else {
+            asset::ScatterPaint p;
+            p.center = m_brushPoint;
+            p.radius = m_brushRadius;
+            p.density = f.density;
+            p.minScale = f.minScale;
+            p.maxScale = f.maxScale;
+            p.randomYaw = f.randomYaw;
+            // Strength 1 fills about the whole circle in half a second
+            const f32 area = 3.14159265f * m_brushRadius * m_brushRadius * std::max(f.density, 0.0f);
+            const u32 maxAdd = static_cast<u32>(std::ceil(area * m_brushStrength * std::min(io.DeltaTime, 0.1f) * 2.0f));
+            auto random01 = [this] { // editor-only randomness (not simulation)
+                m_scatterSeed = m_scatterSeed * 6364136223846793005ull + 1442695040888963407ull;
+                return static_cast<f32>(m_scatterSeed >> 40) / 16777216.0f;
+            };
+            const f32 top = m_brushPoint.y + m_brushRadius + 50.0f;
+            auto floorAt = [&](f32 x, f32 z, f32* y) {
+                f32 d = 0.0f;
+                if (!raycast({x, top, z}, {0.0f, -1.0f, 0.0f}, &d, {e.id}) || d > 1e29f) return false;
+                *y = top - d;
+                return true;
+            };
+            if (asset::paintScatter(entry.scatter, p, maxAdd, floorAt, random01)) entry.dirty = m_dirty = true;
+        }
+    }
+    if (m_brushHit) { // brush outline (flat circle at the hit height)
+        const Mat4 viewProj = m_view * m_proj;
+        ImVec2 points[48];
+        int count = 0;
+        for (int i = 0; i < 48; ++i) {
+            const f32 a = static_cast<f32>(i) * (6.2831853f / 48.0f);
+            const Vec3 p = m_brushPoint + Vec3{std::cos(a) * m_brushRadius, 0.0f, std::sin(a) * m_brushRadius};
+            const f32 cx = p.x * viewProj.m[0][0] + p.y * viewProj.m[1][0] + p.z * viewProj.m[2][0] + viewProj.m[3][0];
+            const f32 cy = p.x * viewProj.m[0][1] + p.y * viewProj.m[1][1] + p.z * viewProj.m[2][1] + viewProj.m[3][1];
+            const f32 cw = p.x * viewProj.m[0][3] + p.y * viewProj.m[1][3] + p.z * viewProj.m[2][3] + viewProj.m[3][3];
+            if (cw <= 0.0f) continue;
+            points[count++] = {m_viewport.x + (cx / cw * 0.5f + 0.5f) * m_viewport.width, m_viewport.y + (0.5f - cy / cw * 0.5f) * m_viewport.height};
+        }
+        const bool erase = m_scatterErase != io.KeyShift;
+        if (count > 2)
+            ImGui::GetForegroundDrawList()->AddPolyline(points, count, erase ? IM_COL32(255, 110, 90, 220) : IM_COL32(120, 230, 120, 220),
+                                                        ImDrawFlags_Closed, 2.0f);
+    }
+    return inViewport && (m_brushStroke || m_brushHit);
 }
 
 } // namespace mealkit::editor
