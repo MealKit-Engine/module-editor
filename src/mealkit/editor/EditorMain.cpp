@@ -263,7 +263,8 @@ int main(int argc, char** argv) {
     Window window;
     if (!window.create({"MealKit Editor", 1600, 900, editor::kEditorCaptionColor})) return 1;
     render::Renderer renderer;
-    if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer, opt.gpuCapture}))
+    if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer, opt.gpuCapture,
+                        userDataDirectory() + "/MealKit Editor/cache"}))
         MEALKIT_FATAL("Renderer initialization failed.\n%s", renderer.initError());
 
     // ---- Pick a project

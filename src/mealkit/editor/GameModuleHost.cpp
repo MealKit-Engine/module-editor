@@ -119,7 +119,8 @@ bool GameModuleHost::olderThanEngine(const std::string& dllPath, const std::stri
     const fs::path headers = fromUtf8(engineDirectory) / "engine" / "src" / "mealkit";
     for (fs::recursive_directory_iterator it(headers, ec), end; !ec && it != end; it.increment(ec)) {
         const fs::path& path = it->path();
-        if (it.depth() == 0 && path.filename() == "editor") { // editor headers aren't used by game code
+        // editor headers and the RHI backends' internal ones (rhi/dx12, rhi/vulkan) aren't used by game code
+        if ((it.depth() == 0 && path.filename() == "editor") || (it.depth() == 1 && path.parent_path().filename() == "rhi" && it->is_directory())) {
             it.disable_recursion_pending();
             continue;
         }
