@@ -182,7 +182,10 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
 }
 
 void PlaySession::stop() {
-    if (m_audio) m_audio->stopAll(); // sounds made by the game (including background music loops)
+    if (m_audio) { // sounds made by the game (including background music loops), and its music, snapshots, occlusion world (deleted below)
+        m_audio->stopAll();
+        m_audio->resetMatch();
+    }
     if (m_feedback) m_feedback->clear();
     m_clients.terminateAll();
     if (m_host && m_game) m_host->destroy(m_game); // the simulation closes the input recording file
@@ -267,6 +270,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     if (!m_game->started() && session.state() == net::SessionState::Running) {
         if (m_loadingShown) {
             m_game->start(ctx, editor.scene(), m_options);
+            if (m_audio) m_audio->setReverbZones(editor.scene());
             MEALKIT_INFO("Play mode: %u player(s), match data %u", session.playerCount(), session.matchData());
         }
         m_loadingShown = !m_loadingShown;
@@ -279,6 +283,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     // Solo play: tuning changes apply immediately. With multiple players they'd differ per peer and desync, so they aren't applied.
     if (editor.takeTuningChanged() && !multiplayer()) m_game->setTuning(editor.tuningData());
     m_game->update(ctx, dt);
+    if (m_audio) m_audio->setOcclusionWorld(m_game->started() ? m_game->physics() : nullptr);
     m_game->debugUi(ctx); // inside the editor's ImGui frame (the game DLL uses the same ImGui from mealkit.dll)
     editor.setStateView(m_game->stateView());
     editor.setSimDebug(m_game->debug(), !multiplayer());
