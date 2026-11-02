@@ -44,6 +44,9 @@ class Window;
 namespace mealkit::editor {
 
 enum class Mode { Edit, Play };
+
+// Path relative to root ('/' separated) if the file is inside the root folder, empty string if outside
+std::string relativeTo(const std::string& root, const std::string& path);
 enum class LayoutPreset { Edit, Play, LookDev }; // [View] > [Layout]
 
 class Editor {
@@ -187,6 +190,11 @@ private:
         u32 nextId = 1;
         u32 selected = 0;
         std::string label; // name shown in the [Edit] > [History] window ("Ramp change", status message)
+        struct TerrainSamples {
+            std::string path;
+            asset::Heightmap map;
+        };
+        std::vector<TerrainSamples> terrains; // heightmaps of the scene's terrains (brush strokes are undone with the scene)
     };
 
     void drawMenuBar();
@@ -402,6 +410,22 @@ private:
     void dropToFloor();             // places selected objects on the object below (or y = 0 if none)
     void alignSelection(int axis);  // moves the rest to the primary selection's position on that axis
     void distributeSelection();     // even spacing along the most spread-out axis
+
+    // Terrain editing (EditorTerrain.cpp)
+    asset::Terrain* terrainOf(const scene::Entity& e) const; // nullptr if not a terrain or its heightmap is unreadable
+    void setupNewTerrain(scene::Entity& e);
+    void drawTerrainInspector(scene::Entity& e);
+    bool handleTerrainBrush();
+    void captureTerrains(Snapshot& s) const;
+    void restoreTerrains(const Snapshot& s);
+    bool m_brushOn = false;
+    int m_brush = 0; // asset::TerrainBrush
+    f32 m_brushRadius = 6.0f;
+    f32 m_brushStrength = 0.3f;
+    bool m_brushStroke = false;
+    bool m_brushHit = false;
+    Vec3 m_brushPoint;
+    u16 m_flattenTo = 0;
 
     std::vector<Snapshot> m_undo;
     std::vector<Snapshot> m_redo;

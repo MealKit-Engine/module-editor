@@ -152,6 +152,8 @@ bool toolButton(const char* label, bool active) {
     return pressed;
 }
 
+} // namespace
+
 // Path relative to root ('/' separated) if the file is inside the root folder, empty string if outside
 std::string relativeTo(const std::string& root, const std::string& path) {
     auto lower = [](std::string s) {
@@ -165,8 +167,6 @@ std::string relativeTo(const std::string& root, const std::string& path) {
     std::replace(relative.begin(), relative.end(), '\\', '/');
     return relative;
 }
-
-} // namespace
 
 bool Editor::init(Window& window, render::Renderer& renderer, const std::string& scenePath, asset::ModelCache& models) {
     buildCommands();
@@ -579,6 +579,12 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
                 edge.flags = isSelected(e.id) ? render::kInstanceHighlight : 0u;
                 out.add(box, edge);
             }
+            continue;
+        }
+        if (e.is(scene::kTypeTerrain)) { // axis-aligned, rotation ignored (like the collision)
+            if (asset::Terrain* terrain = terrainOf(e))
+                m_models->addTerrain(out, *terrain, world.position, world.scale, e.color,
+                                     !gameView && isSelected(e.id) ? render::kInstanceHighlight : 0u, eye);
             continue;
         }
         render::InstanceData inst;
@@ -1366,7 +1372,9 @@ void Editor::drawInspector(bool editing) {
                                    probeMaxCount());
         }
 
-        if (!isMarker(*e) && ImGui::CollapsingHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (e->is(scene::kTypeTerrain)) drawTerrainInspector(*e);
+
+        if (!isMarker(*e) && !e->is(scene::kTypeTerrain) && ImGui::CollapsingHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
             if (e->model.empty()) {
                 ImGui::TextDisabled("%s", tr("Default box"));
             } else {
@@ -1700,6 +1708,7 @@ void Editor::drawState() {
 void Editor::drawGizmo() {
     Entity* e = selected();
     if (!e || m_viewport.width < 1.0f || m_viewport.height < 1.0f) return;
+    if (m_brushOn && e->is(scene::kTypeTerrain)) return; // painting, not moving
 
     ImGuizmo::SetOrthographic(m_ortho);
     ImGuizmo::SetRect(m_viewport.x, m_viewport.y, m_viewport.width, m_viewport.height);
@@ -1952,6 +1961,7 @@ void Editor::handleBookmarks() {
 // Left click = select (Shift = add/remove), drag on empty space = select objects inside the box
 void Editor::handlePicking() {
     ImGuiIO& io = ImGui::GetIO();
+    if (!m_boxSelecting && handleTerrainBrush()) return; // the terrain brush owns the left button
     if (m_boxSelecting) {
         const Vec2 a = m_boxStart, b{io.MousePos.x, io.MousePos.y};
         const ImVec2 lo(std::min(a.x, b.x), std::min(a.y, b.y)), hi(std::max(a.x, b.x), std::max(a.y, b.y));
@@ -2018,6 +2028,14 @@ u32 Editor::raycast(Vec3 origin, Vec3 dir, f32* distance, const std::vector<u32>
                     bestT = t;
                     best = e.id;
                 }
+            }
+            continue;
+        }
+        if (const asset::Terrain* terrain = terrainOf(e)) { // the surface, not its box (objects above stay clickable)
+            const f32 t = asset::raycastTerrain(terrain->map, w.position, w.scale, origin, dir, bestT);
+            if (t >= 0.0f && t < bestT) {
+                bestT = t;
+                best = e.id;
             }
             continue;
         }
@@ -2360,6 +2378,7 @@ void Editor::addEntity(const std::string& typeName) {
         e.position = {pos.x, std::max(pos.y, 0.0f) + 1.0f, pos.z};
         e.color = solid ? 0xFFD2C8C8 : typeName == scene::kTypeDecoration ? 0xFFDCAA78 : 0xFF8CD2F0;
     }
+    if (typeName == scene::kTypeTerrain) setupNewTerrain(e);
     m_selected = e.id;
     setStatus(trf("Added: %s", e.name.c_str()));
 }
@@ -2616,6 +2635,7 @@ bool Editor::loadScene(const std::string& path) {
 
 bool Editor::saveScene() {
     if (m_scenePath.empty()) return saveSceneAs();
+    if (std::string error; !m_models->saveTerrains(error)) setStatus(trf("Could not save heightmaps: %s", error.c_str()), true);
     if (!scene::save(m_scene, m_scenePath)) {
         setStatus(trf("Could not save: %s", m_scenePath.c_str()), true);
         return false;
@@ -2636,7 +2656,11 @@ bool Editor::saveSceneAs() {
     return saveScene();
 }
 
-Editor::Snapshot Editor::capture() const { return {m_scene.entities, m_scene.environment, m_scene.nextId, m_selected}; }
+Editor::Snapshot Editor::capture() const {
+    Snapshot s{m_scene.entities, m_scene.environment, m_scene.nextId, m_selected};
+    captureTerrains(s);
+    return s;
+}
 
 void Editor::restore(const Snapshot& s) {
     m_scene.entities = s.entities;
@@ -2645,6 +2669,7 @@ void Editor::restore(const Snapshot& s) {
     m_selected = m_scene.find(s.selected) ? s.selected : 0;
     m_nameBufferId = 0;
     m_dirty = true;
+    restoreTerrains(s);
 }
 
 void Editor::pushUndo(Snapshot snapshot) {
