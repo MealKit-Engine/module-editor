@@ -130,4 +130,21 @@ bool GameModuleHost::olderThanEngine(const std::string& dllPath, const std::stri
     return engine != 0 && game < engine;
 }
 
+bool GameModuleHost::olderThanSources(const std::string& dllPath, const std::string& projectDirectory) {
+    const u64 game = fileWriteTime(dllPath);
+    if (game == 0) return false;
+    const fs::path root = fromUtf8(projectDirectory);
+    if (fileWriteTime(toUtf8(root / "CMakeLists.txt")) > game) return true;
+    std::error_code ec;
+    for (const char* folder : {"source", "sim", "view", "app", "modules"}) { // projects use source/, engine samples sim/ view/ app/
+        for (fs::recursive_directory_iterator it(root / folder, ec), end; !ec && it != end; it.increment(ec)) {
+            const fs::path ext = it->path().extension();
+            if (ext != ".h" && ext != ".cpp" && ext != ".inl" && it->path().filename() != "CMakeLists.txt") continue;
+            if (fileWriteTime(toUtf8(it->path())) > game) return true;
+        }
+        ec.clear();
+    }
+    return false;
+}
+
 } // namespace mealkit::editor

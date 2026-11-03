@@ -247,7 +247,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
             return;
         }
         char text[160];
-        snprintf(text, sizeof(text), tr("Waiting for player windows (%u/%u) | Esc to stop"), session.lobbyPlayerCount(),
+        snprintf(text, sizeof(text), tr("Waiting for player windows (%u/%u) | F5 to stop"), session.lobbyPlayerCount(),
                  m_config.players);
         editor.setPlayStatus(text);
         return;
@@ -295,7 +295,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         const std::string players = multiplayer() ? " " + trf("%u players", m_config.players) : std::string();
         const std::string sync =
             !multiplayer() ? std::string() : std::string(" | ") + (session.desynced() ? tr("Desync!") : tr("In sync"));
-        snprintf(text, sizeof(text), tr("Playing%s | tick %u | sim %.2f ms/tick | moving bodies %u%s | Esc to stop"),
+        snprintf(text, sizeof(text), tr("Playing%s | tick %u | sim %.2f ms/tick | moving bodies %u%s | F5 to stop"),
                  players.c_str(), perf.tick, perf.simMsPerTick, m_game->activeBodies(), sync.c_str());
         editor.setPlayStatus(text);
     }

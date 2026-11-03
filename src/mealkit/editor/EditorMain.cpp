@@ -361,7 +361,8 @@ int main(int argc, char** argv) {
                                                         : mealkit::editor::trf("Could not load the game code: %s", loadError.c_str()));
         }
     };
-    if (opt.buildGame || !fileExists(dllPath) || editor::GameModuleHost::olderThanEngine(dllPath, engineDirectory())) {
+    if (opt.buildGame || !fileExists(dllPath) || editor::GameModuleHost::olderThanEngine(dllPath, engineDirectory()) ||
+        editor::GameModuleHost::olderThanSources(dllPath, project.directory)) {
         editor.setGameCodeStatus(false, mealkit::editor::tr("Building game code - you can play when it finishes"));
         editor.startBuild(editor::BuildKind::GameCode);
     } else {

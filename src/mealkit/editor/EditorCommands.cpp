@@ -170,7 +170,7 @@ void Editor::drawShortcutHelp() {
                                   {"Orbit the camera", "Alt + left drag"},     {"Go to camera bookmark", "1 - 9"},
                                   {"Save camera bookmark", "Ctrl + 1 - 9"},
                                   {"Camera speed", "Wheel while flying"},     {"Snap while dragging a gizmo", "Ctrl"},
-                                  {"Deselect", "Esc"},                         {"Stop playing", "Esc / F5"}};
+                                  {"Deselect", "Esc"},                         {"Stop playing", "F5"}};
         for (auto& row : fixed) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();

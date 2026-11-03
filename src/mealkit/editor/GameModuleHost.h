@@ -36,6 +36,9 @@ public:
     // Whether the original DLL is older than the engine → game code must be rebuilt.
     // Engine time = the newest of the engine import lib (changes only when exports change) and engine headers in engineDirectory (outside editor/)
     static bool olderThanEngine(const std::string& dllPath, const std::string& engineDirectory);
+    // Whether the original DLL is older than the project's game code (source/, sim/, view/, app/, modules/ .h/.cpp/.inl and CMakeLists.txt):
+    // the code was edited outside the editor (VS Code, git pull) while the editor was closed → rebuild when the project opens
+    static bool olderThanSources(const std::string& dllPath, const std::string& projectDirectory);
 
 private:
     void* m_dll = nullptr; // loadLibrary()

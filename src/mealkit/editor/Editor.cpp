@@ -304,7 +304,7 @@ void Editor::update(f64 dt) {
         drawViewportToolbar();
         handleAssetDrop();
         handlePicking();
-    } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
+    } else if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { // F5 (Shift+F5 too) stops; Esc belongs to the game (pause menus)
         m_stopRequest = true;
     } else if (m_simDebug && m_canPause && m_simDebug->timeline().recording) {
         if (ImGui::IsKeyPressed(ImGuiKey_F6, false)) m_simDebug->setPaused(!m_simDebug->timeline().paused);
@@ -1013,7 +1013,7 @@ void Editor::drawMenuBar() {
     }
 
 
-    const std::string playLabel = editing ? std::string("  ▶ ") + tr("Play (F5)") + "  " : std::string("  ■ ") + tr("Stop (Esc)") + "  ";
+    const std::string playLabel = editing ? std::string("  ▶ ") + tr("Play (F5)") + "  " : std::string("  ■ ") + tr("Stop (F5)") + "  ";
     const f32 width = ImGui::CalcTextSize(playLabel.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX() + 8.0f, (ImGui::GetWindowWidth() - width) * 0.5f));
     const ImVec4 color = editing ? ImVec4(0.18f, 0.48f, 0.26f, 1.0f) : ImVec4(0.62f, 0.20f, 0.18f, 1.0f);
