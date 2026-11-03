@@ -115,6 +115,9 @@ public:
         m_uiPanelOpen = true;
         if (!file.empty()) m_uiPanel.select(file);
     }
+    bool selectUiNode(const std::string& name) { return m_uiPanel.selectNode(name); } // --ui-select (after --ui)
+    // [UI] panel in edit mode: undo/save/delete and scene view clicks go to the screen being edited
+    bool uiEditing() const { return m_uiPanelOpen && m_mode == Mode::Edit && m_uiPanel.editing(); }
     void renderUiPreview(render::Renderer& renderer, f64 dt) {
         if (m_uiPanelOpen && m_mode == Mode::Edit) m_uiPanel.render(renderer, m_viewport, dt);
     }

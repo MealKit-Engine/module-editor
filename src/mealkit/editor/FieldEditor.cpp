@@ -32,19 +32,6 @@ ImGuiDataType dataType(const ValueInfo& v) {
     }
 }
 
-// Input field that edits a std::string directly (grows the string if the buffer is too small)
-bool inputString(const char* label, std::string& text) {
-    auto resize = [](ImGuiInputTextCallbackData* data) {
-        if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
-            std::string& s = *static_cast<std::string*>(data->UserData);
-            s.resize(static_cast<size_t>(data->BufTextLen));
-            data->Buf = s.data();
-        }
-        return 0;
-    };
-    return ImGui::InputText(label, text.data(), text.capacity() + 1, ImGuiInputTextFlags_CallbackResize, resize, &text);
-}
-
 void nameTooltip(const char* name) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", name);
 }
@@ -265,6 +252,19 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
 }
 
 } // namespace
+
+// Input field that edits a std::string directly (grows the string if the buffer is too small)
+bool inputString(const char* label, std::string& text) {
+    auto resize = [](ImGuiInputTextCallbackData* data) {
+        if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+            std::string& s = *static_cast<std::string*>(data->UserData);
+            s.resize(static_cast<size_t>(data->BufTextLen));
+            data->Buf = s.data();
+        }
+        return 0;
+    };
+    return ImGui::InputText(label, text.data(), text.capacity() + 1, ImGuiInputTextFlags_CallbackResize, resize, &text);
+}
 
 bool drawValueWidget(const char* label, const char* name, const ValueInfo& value, void* data,
                      const FieldContext* context) {

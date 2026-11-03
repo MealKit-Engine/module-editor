@@ -78,6 +78,7 @@ struct Options {
     std::string palette;          // --palette <text>: start with the command palette open with this text
     std::vector<std::string> commands; // --command "<English name>": run a command from the command table right after start (can be given multiple times)
     std::string uiPreview;        // open the [UI] window and preview this screen (file name in assets/ui)
+    std::string uiSelect;         // with --ui: edit mode on, select this node (automated capture)
     std::string language; // --lang: this language for this run only (docs screenshots)
     std::string penpotToken; // --penpot-token: live connection server token (Penpot import automated tests, random if empty)
     std::vector<std::string> toolPaths; // --tool-path: extra folders for the [Tools] menu to search (build folder of a tool in development)
@@ -167,6 +168,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--bake-probes") o.bakeProbes = true;
         else if (a == "--feedback") o.feedback = true;
         else if (a == "--ui" && next(v)) o.uiPreview = v;
+        else if (a == "--ui-select" && next(v)) o.uiSelect = v;
         else if (a == "--scene" && next(v)) o.scenePath = v;
         else if (a == "--lang" && next(v)) o.language = v;
         else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
@@ -324,6 +326,7 @@ int main(int argc, char** argv) {
     if (opt.bakeProbes) editor.bakeProbes();
     if (opt.feedback) editor.openFeedback();
     if (!opt.uiPreview.empty()) editor.openUiPanel(opt.uiPreview);
+    if (!opt.uiSelect.empty() && !editor.selectUiNode(opt.uiSelect)) MEALKIT_ERROR("--ui-select: no node '%s'", opt.uiSelect.c_str());
     if (opt.play) editor.requestPlay();
     if (!opt.replayPath.empty()) editor.requestReplay(opt.replayPath);
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);

@@ -27,6 +27,9 @@ bool drawFields(const reflect::TypeInfo& type, void* data, const FieldContext* c
 bool drawValueWidget(const char* label, const char* name, const reflect::ValueInfo& value, void* data,
                      const FieldContext* context = nullptr);
 
+// Input field that edits a std::string directly (grows the string if the buffer is too small)
+bool inputString(const char* label, std::string& text);
+
 // Read-only table (name | value). Structs/arrays/Pools can be expanded. Large Pools draw only visible rows.
 void drawFieldsReadOnly(const reflect::TypeInfo& type, const void* data);
 

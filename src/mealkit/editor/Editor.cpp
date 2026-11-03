@@ -1998,6 +1998,11 @@ void Editor::handlePicking() {
             return;
         }
     } else {
+        // [UI] panel editing: clicks select boxes of the screen (Ctrl: the one beneath) instead of scene objects
+        if (uiEditing()) {
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.WantCaptureMouse) m_uiPanel.click(io.MousePos.x, io.MousePos.y, io.KeyCtrl);
+            return;
+        }
         if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || io.WantCaptureMouse || io.KeyAlt || ImGuizmo::IsOver() ||
             ImGuizmo::IsUsing() || ImGuizmo::IsViewManipulateHovered() || ImGuizmo::IsUsingViewManipulate())
             return;
@@ -2867,6 +2872,7 @@ void Editor::drawBuildLog() {
 }
 
 void Editor::saveAll() {
+    if (m_uiPanel.dirty()) m_uiPanel.save();
     saveScene();
     m_tuningPanel.saveDirty();
     if (m_projectPanel.dirty()) m_projectPanel.save(m_project);
