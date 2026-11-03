@@ -1637,6 +1637,7 @@ void Editor::drawEnvironment() {
     scene::PostFields& post = env.post;
     c |= ImGui::Checkbox(tr("Tone mapping (AgX)"), &post.toneMapping);
     ImGui::BeginDisabled(!post.toneMapping);
+    c |= ImGui::Checkbox(tr("Punchy look (contrast, saturation)"), &post.punchy);
     c |= ImGui::DragFloat(tr("Exposure (EV)"), &post.exposure, 0.02f, -6.0f, 6.0f, "%.2f");
     if (ImGui::BeginCombo(tr("Color LUT"), post.lut.empty() ? tr("None") : post.lut.c_str())) {
         if (ImGui::Selectable(tr("None"), post.lut.empty())) post.lut.clear(), c = true;
