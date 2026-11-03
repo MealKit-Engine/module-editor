@@ -1998,9 +1998,10 @@ void Editor::handlePicking() {
             return;
         }
     } else {
-        // [UI] panel editing: clicks select boxes of the screen (Ctrl: the one beneath) instead of scene objects
+        // [UI] panel editing: the mouse selects, moves and resizes boxes of the screen instead of scene objects
         if (uiEditing()) {
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.WantCaptureMouse) m_uiPanel.click(io.MousePos.x, io.MousePos.y, io.KeyCtrl);
+            m_uiPanel.pointer(io.MousePos.x, io.MousePos.y, ImGui::IsMouseClicked(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                              io.KeyCtrl, io.WantCaptureMouse);
             return;
         }
         if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || io.WantCaptureMouse || io.KeyAlt || ImGuizmo::IsOver() ||

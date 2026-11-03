@@ -79,6 +79,7 @@ struct Options {
     std::vector<std::string> commands; // --command "<English name>": run a command from the command table right after start (can be given multiple times)
     std::string uiPreview;        // open the [UI] window and preview this screen (file name in assets/ui)
     std::string uiSelect;         // with --ui: edit mode on, select this node (automated capture)
+    std::string uiDrag;           // with --ui-select: "dx,dy" logical units to drag it after the first frame (logs the result)
     std::string language; // --lang: this language for this run only (docs screenshots)
     std::string penpotToken; // --penpot-token: live connection server token (Penpot import automated tests, random if empty)
     std::vector<std::string> toolPaths; // --tool-path: extra folders for the [Tools] menu to search (build folder of a tool in development)
@@ -169,6 +170,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--feedback") o.feedback = true;
         else if (a == "--ui" && next(v)) o.uiPreview = v;
         else if (a == "--ui-select" && next(v)) o.uiSelect = v;
+        else if (a == "--ui-drag" && next(v)) o.uiDrag = v;
         else if (a == "--scene" && next(v)) o.scenePath = v;
         else if (a == "--lang" && next(v)) o.language = v;
         else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
@@ -327,6 +329,13 @@ int main(int argc, char** argv) {
     if (opt.feedback) editor.openFeedback();
     if (!opt.uiPreview.empty()) editor.openUiPanel(opt.uiPreview);
     if (!opt.uiSelect.empty() && !editor.selectUiNode(opt.uiSelect)) MEALKIT_ERROR("--ui-select: no node '%s'", opt.uiSelect.c_str());
+    if (!opt.uiDrag.empty()) {
+        char* end = nullptr;
+        const f32 dx = std::strtof(opt.uiDrag.c_str(), &end);
+        const f32 dy = *end == ',' ? std::strtof(end + 1, &end) : 0.0f;
+        if (!*end && opt.uiDrag.find(',') != std::string::npos) editor.dragUiNode(opt.uiSelect, dx, dy);
+        else MEALKIT_ERROR("--ui-drag: expected dx,dy");
+    }
     if (opt.play) editor.requestPlay();
     if (!opt.replayPath.empty()) editor.requestReplay(opt.replayPath);
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);
