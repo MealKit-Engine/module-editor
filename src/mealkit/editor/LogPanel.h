@@ -19,7 +19,9 @@ public:
     LogPanel& operator=(const LogPanel&) = delete;
 
     void setCodeEditor(const std::string& editor) { m_codeEditor = editor; }
-    void drawContent(); // the Log page of the [Debug] window
+    // The Log page of the [Debug] window, in two parts: the problems list goes between them
+    void drawFilters();
+    void drawLines();
 
 private:
     struct Entry {

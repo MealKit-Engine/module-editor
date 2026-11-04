@@ -60,7 +60,10 @@ void Editor::buildCommands() {
         {"Save as Prefab...", 0, 0, hasSelection, [this] { saveSelectionAsPrefab(); }},
         {"Delete", ImGuiKey_Delete, 0, [this, hasSelection] { return uiEditing() || hasSelection(); },
          [this] { uiEditing() ? (void)m_uiPanel.deleteSelected() : deleteSelected(); }},
-        {"Find in Scene Tree", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] { m_treeSearchFocus = true; }},
+        {"Find in Scene Tree", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] {
+             m_hierarchyOpen = true;
+             m_treeSearchFocus = true;
+         }},
         {"Drop to Floor", ImGuiKey_End, 0, hasSelection, [this] { dropToFloor(); }},
         {"Align X", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(0); }},
         {"Align Y", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(1); }},
@@ -87,7 +90,10 @@ void Editor::buildCommands() {
         {"Command Palette", ImGuiMod_Ctrl | ImGuiKey_P, 0, always, [this] { m_paletteOpen = true; }},
         {"Data", 0, 0, always, [this] { m_dataOpen = !m_dataOpen; }},
         {"Debug", 0, 0, always, [this] { m_debugOpen = !m_debugOpen; }},
-        {"Problems", 0, 0, always, [this] { toggleDebugPage(DebugPage::Problems); }},
+        {"Problems", 0, 0, always, [this] {
+             openDebugPage(DebugPage::Log);
+             m_problemsShown = true;
+         }},
         {"State", 0, 0, always, [this] { toggleDebugPage(DebugPage::State); }},
         {"Tests", 0, 0, always, [this] { toggleDebugPage(DebugPage::Tests); }},
         {"Balance", 0, 0, always, [this] { toggleDebugPage(DebugPage::Balance); }},
@@ -129,6 +135,9 @@ void Editor::buildCommands() {
          [this] { openInExplorer(m_project.directory); }},
         {"Build Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Build); }},
         {"Assets", 0, 0, always, [this] { m_assetsOpen = !m_assetsOpen; }},
+        {"Scene Tree", 0, 0, always, [this] { m_hierarchyOpen = !m_hierarchyOpen; }},
+        {"Scene", 0, 0, editing, [this] { m_sceneOpen = !m_sceneOpen; }},
+        {"Inspector", 0, 0, always, [this] { m_inspectorOpen = !m_inspectorOpen; }},
         {"Performance", 0, 0, always, [this] { toggleDebugPage(DebugPage::Performance); }},
         {"Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Log); }},
     };

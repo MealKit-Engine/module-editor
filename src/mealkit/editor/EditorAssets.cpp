@@ -1,6 +1,7 @@
 // [Assets] window: assets/ folder tree and files, drag models into the scene view, rename/move (references fixed too), broken reference list.
 // Assets are referenced by paths relative to assets ("models/tree.glb") (docs/CODING_MODEL.md "Asset references and loading").
 #include "mealkit/editor/Editor.h"
+#include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/EditorColors.h"
 
 #include "mealkit/asset/ModelCache.h"
@@ -129,7 +130,7 @@ void Editor::drawAssetBrowser() {
         --m_assetsFront;
         ImGui::SetNextWindowFocus();
     }
-    if (!ImGui::Begin(trl("Assets###Assets"), &m_assetsOpen)) {
+    if (!ImGui::Begin(iconTitle(icon::kFolder, "Assets###Assets").c_str(), &m_assetsOpen)) {
         ImGui::End();
         return;
     }
@@ -142,7 +143,7 @@ void Editor::drawAssetBrowser() {
         m_assetFiles.clear();
     }
     // Left: folders
-    if (ImGui::BeginChild("##folders", ImVec2(ImGui::GetFontSize() * 13.0f, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders)) {
+    if (beginListPane("##folders", ImGui::GetFontSize() * 13.0f)) {
         if (ImGui::Selectable((std::string(icon::kFolder) + "  assets").c_str(), m_assetFolder.empty())) m_assetFolder.clear();
         drawAssetFolder(root, {});
     }
@@ -170,7 +171,6 @@ void Editor::drawAssetBrowser() {
             for (const std::string& m : m_assetMissing) ImGui::TextWrapped("%s", trf("Missing in this scene: %s", m.c_str()).c_str());
             ImGui::PopStyleColor();
         }
-        ImGui::Separator();
         auto listed = m_assetFiles.find(folder);
         if (listed == m_assetFiles.end()) listed = m_assetFiles.emplace(folder, listFiles(folder)).first;
         const std::vector<std::string> files = listed->second; // copy: double-clicking a scene can change the lists

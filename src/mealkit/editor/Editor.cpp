@@ -147,14 +147,6 @@ const FileFilter kSceneFilters[] = {{"MealKit scene (*.scene)", "*.scene"}, {"Al
 const FileFilter kReplayFilters[] = {{"MealKit replay, bug report (*.rec, *.zip)", "*.rec;*.zip"}, {"All files (*.*)", "*.*"}};
 const FileFilter kModelFilters[] = {{"glTF model (*.glb, *.gltf)", "*.glb;*.gltf"}, {"All files (*.*)", "*.*"}};
 
-bool toolButton(const char* label, bool active) {
-    if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
-    else ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    const bool pressed = ImGui::Button(label);
-    ImGui::PopStyleColor();
-    return pressed;
-}
-
 } // namespace
 
 // Path relative to root ('/' separated) if the file is inside the root folder, empty string if outside
@@ -175,6 +167,7 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     buildCommands();
     m_prefs = loadPreferences();
     m_cameraSpeed = m_prefs.cameraSpeed;
+    colorPickerSize() = m_prefs.colorPickerSize;
     m_window = &window;
     m_renderer = &renderer;
     m_models = &models;
@@ -243,6 +236,10 @@ void Editor::update(f64 dt) {
         style.CellPadding.y *= scale;
         m_compactApplied = m_prefs.compact;
     }
+    if (colorPickerSize() != m_prefs.colorPickerSize && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) { // after the drag ends
+        m_prefs.colorPickerSize = colorPickerSize();
+        savePreferences(m_prefs);
+    }
     m_buildPanel.setCodeEditor(m_prefs.externalEditor);
     m_logPanel.setCodeEditor(m_prefs.externalEditor);
     if (m_selected != m_multiOwner) {
@@ -268,12 +265,15 @@ void Editor::update(f64 dt) {
         ImGui::Begin("##DockHost", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus |
                                                 ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoSavedSettings);
         ImGui::PopStyleVar(2);
+        // The gaps between docked panels are painted in WindowBg: make them the dark gutter so panels read as separate without lines
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
         ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f));
+        ImGui::PopStyleColor();
         ImGui::End();
     }
     drawSceneWindow(dockId);
 
-    updateCamera(dt);
+    if (m_sceneOpen) updateCamera(dt);
     const f32 aspect = m_viewport.width / std::max(m_viewport.height, 1.0f);
     m_proj = projection(aspect);
     m_view = lookAtLH(m_cameraPos, m_cameraPos + cameraForward(), {0, 1, 0});
@@ -421,6 +421,14 @@ void Editor::focusPanel(const char* window) {
 // Docked windows are opaque, so it only works docked: let go while floating, it returns to the center.
 void Editor::drawSceneWindow(unsigned int dockId) {
     ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(dockId);
+    if (!m_sceneOpen) {
+        // Closed: its dock space stays, and the 3D picture still on the back buffer is covered
+        m_sceneVisible = m_sceneHovered = false;
+        const ImVec2 min = central ? central->Pos : ImVec2(m_viewport.x, m_viewport.y);
+        const ImVec2 max = central ? ImVec2(central->Pos.x + central->Size.x, central->Pos.y + central->Size.y) : ImVec2(m_viewport.x + m_viewport.width, m_viewport.y + m_viewport.height);
+        ImGui::GetBackgroundDrawList()->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_MenuBarBg));
+        return;
+    }
     if (central) {
         const ImGuiWindow* existing = ImGui::FindWindowByName(kSceneWindow);
         if (!existing || (!existing->DockIsActive && !ImGui::IsMouseDown(ImGuiMouseButton_Left))) ImGui::SetNextWindowDockID(central->ID, ImGuiCond_Always);
@@ -430,7 +438,7 @@ void Editor::drawSceneWindow(unsigned int dockId) {
         ImGui::SetNextWindowFocus();
     }
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    m_sceneVisible = ImGui::Begin(trl(kSceneWindow), nullptr, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
+    m_sceneVisible = ImGui::Begin(iconTitle(icon::kCube, kSceneWindow).c_str(), m_mode == Mode::Edit ? &m_sceneOpen : nullptr, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
     ImGui::PopStyleVar();
     m_sceneHovered = m_sceneVisible && ImGui::IsWindowHovered();
     if (m_sceneVisible) { // behind another tab it keeps its last size, so a playing game doesn't resize
@@ -444,7 +452,10 @@ void Editor::drawSceneWindow(unsigned int dockId) {
 // The mouse is on a window other than the scene view
 bool Editor::sceneMouseBlocked() const { return ImGui::GetIO().WantCaptureMouse && !m_sceneHovered; }
 
-void Editor::focusInspector() { focusPanel(kInspectorWindow); }
+void Editor::focusInspector() {
+    m_inspectorOpen = true;
+    focusPanel(kInspectorWindow);
+}
 
 void Editor::focusPanelNow() {
     ImGui::SetNextWindowFocus();
@@ -827,7 +838,10 @@ void Editor::setMode(Mode mode) {
     m_looking = false;
     m_window->setCursorCaptured(false);
     if (mode == Mode::Edit) m_playStatus.clear();
-    if (mode == Mode::Play) m_sceneFrontFrames = 3; // the game must be seen
+    if (mode == Mode::Play) {
+        m_sceneOpen = true; // the game must be seen
+        m_sceneFrontFrames = 3;
+    }
     if (mode == Mode::Play) openDebugPage(DebugPage::State); // the [State] page during play
     else focusPanel(kInspectorWindow);
 }
@@ -896,6 +910,7 @@ void Editor::selectByIndex(int index, bool add) {
 // Predefined layouts: scene tree on the left, one column on the right (inspector + [State]/[Tuning] tabs), bottom row (build log, tables).
 // Play shrinks the bottom row and brings [State] to front; lookdev puts a large [Lookdev] window at the top right.
 void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
+    m_hierarchyOpen = m_sceneOpen = m_inspectorOpen = true;
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::DockBuilderRemoveNode(dockId);
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
@@ -941,9 +956,6 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("Scene"), editing)) {
         commandMenuItem("New Scene");
         commandMenuItem("Open...");
-        commandMenuItem("Save");
-        commandMenuItem("Save As...");
-        ImGui::Separator();
         if (ImGui::BeginMenu(tr("Recent Scenes"), !m_recentScenes.empty())) {
             std::string chosen;
             for (const std::string& path : m_recentScenes)
@@ -952,6 +964,11 @@ void Editor::drawMenuBar() {
             if (!chosen.empty() && chosen != m_scenePath) openSceneFile(chosen);
         }
         commandMenuItem("Scenes", &m_sceneListOpen);
+        ImGui::Separator();
+        commandMenuItem("Save");
+        commandMenuItem("Save As...");
+        commandMenuItem("Save as Prefab..."); // writes a file from the selection, it doesn't edit the scene
+        ImGui::Separator();
         commandMenuItem("Open Replay...");
         ImGui::EndMenu();
     }
@@ -962,7 +979,6 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         commandMenuItem("Select All");
         commandMenuItem("Duplicate");
-        commandMenuItem("Save as Prefab...");
         commandMenuItem("Delete");
         ImGui::Separator();
         commandMenuItem("Drop to Floor");
@@ -976,9 +992,12 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Window"))) {
-        commandMenuItem("Assets", &m_assetsOpen);
-        commandMenuItem("Debug", &m_debugOpen); // log, problems, build log, performance and state are its pages
+        commandMenuItem("Scene Tree", &m_hierarchyOpen);
+        commandMenuItem("Scene", &m_sceneOpen);
+        commandMenuItem("Inspector", &m_inspectorOpen);
         ImGui::Separator();
+        commandMenuItem("Assets", &m_assetsOpen);
+        commandMenuItem("Debug", &m_debugOpen); // log with problems, build log, performance and state are its pages
         commandMenuItem("Data", &m_dataOpen); // tuning, tables, feedback and sounds are its pages (their commands stay in the palette)
         commandMenuItem("Previews", &m_previewOpen); // UI, look dev and cutscenes are its pages
         ImGui::Separator();
@@ -1037,27 +1056,29 @@ void Editor::drawMenuBar() {
     }
 
 
-    const std::string playLabel = editing ? std::string("  ▶ ") + tr("Play (F5)") + "  " : std::string("  ■ ") + tr("Stop (F5)") + "  ";
-    const f32 width = ImGui::CalcTextSize(playLabel.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    const f32 width = ImGui::GetFrameHeight() * 2.2f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX() + 8.0f, (ImGui::GetWindowWidth() - width) * 0.5f));
     const ImVec4 color = editing ? ImVec4(0.18f, 0.48f, 0.26f, 1.0f) : ImVec4(0.62f, 0.20f, 0.18f, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Button, color);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x * 1.25f, color.y * 1.25f, color.z * 1.25f, 1.0f));
     ImGui::BeginDisabled(editing && !m_gameLoaded); // can't play without the game DLL
-    if (ImGui::Button(playLabel.c_str())) {
+    if (ImGui::Button("##playStop", ImVec2(width, 0.0f))) {
         if (editing) m_playRequest = true;
         else m_stopRequest = true;
     }
+    drawGlyph(ImGui::GetWindowDrawList(), editing ? icon::kPlay : icon::kStop, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetFontSize() * 0.82f, ImGui::GetColorU32(ImGuiCol_Text));
     ImGui::EndDisabled();
     ImGui::PopStyleColor(2);
-    if (editing && !m_gameLoaded && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("%s", m_gameStatus.c_str());
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("%s", editing && !m_gameLoaded ? m_gameStatus.c_str() : editing ? tr("Play (F5)") : tr("Stop (F5)"));
 
-    // Scene switcher: open another scene without leaving the play button
+    // The bar's controls sit directly on it until hovered
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    // Scene switcher: open another scene without leaving the play button. The one place the scene's name and unsaved mark show while editing
     if (editing && !m_project.directory.empty()) {
         const std::string current = m_scenePath.empty() ? std::string(tr("Untitled")) : fileName(m_scenePath);
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
-        if (ImGui::BeginCombo("##sceneSwitch", current.c_str())) {
+        if (beginCombo("##sceneSwitch", (current + (m_dirty ? " *" : "")).c_str())) {
             const std::string folder = m_project.directory + "\\assets\\scenes";
             for (const std::string& f : listFiles(folder, ".scene"))
                 if (ImGui::Selectable(f.c_str(), f == current) && f != current) openSceneFile(folder + "\\" + f);
@@ -1069,8 +1090,9 @@ void Editor::drawMenuBar() {
     if (editing) {
         const char* counts[] = {tr("Solo"), tr("2 players"), tr("3 players"), tr("4 players")};
         const int players = static_cast<int>(m_playPlayers) - 1;
-        ImGui::SetNextItemWidth(ImGui::CalcTextSize(counts[1]).x + ImGui::GetFrameHeight() * 2.0f);
-        if (ImGui::BeginCombo("##playOptions", counts[players], ImGuiComboFlags_HeightLargest)) {
+        const std::string countLabel = std::string(icon::kPeople) + "  " + counts[players];
+        ImGui::SetNextItemWidth(ImGui::CalcTextSize(counts[1]).x + ImGui::GetFrameHeight() * 2.6f);
+        if (beginCombo("##playOptions", countLabel.c_str(), ImGuiComboFlags_HeightLargest)) {
             for (int i = 0; i < 4; ++i)
                 if (ImGui::Selectable(counts[i], i == players)) m_playPlayers = static_cast<u32>(i + 1);
             ImGui::Separator();
@@ -1087,7 +1109,9 @@ void Editor::drawMenuBar() {
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
             ImGui::SetTooltip("%s", tr("With several players the editor hosts and opens more player windows (current scene and tuning, same PC)"));
+        ImGui::PopStyleColor();
     } else {
+        ImGui::PopStyleColor();
         drawPlayControls();
     }
     ImGui::EndMainMenuBar();
@@ -1099,23 +1123,28 @@ void Editor::drawStatusBar() {
     if (ImGui::BeginViewportSideBar("##StatusBar", ImGui::GetMainViewport(), ImGuiDir_Down, ImGui::GetFrameHeight(),
                                     flags)) {
         if (ImGui::BeginMenuBar()) {
-            const std::string name = m_scenePath.empty() ? tr("Untitled") : fileName(m_scenePath);
-            ImGui::Text("%s%s", name.c_str(), m_dirty ? " *" : "");
-            ImGui::TextDisabled("|");
-            ImGui::Text(tr("%zu objects"), m_scene.entities.size());
-            ImGui::TextDisabled("|");
+            // Space between groups instead of divider characters
+            const auto gap = [] { ImGui::Dummy(ImVec2(ImGui::GetFontSize() * 0.75f, 0.0f)); };
+            // While editing the scene's name is in the switcher on the menu bar
+            if (m_mode != Mode::Edit || m_project.directory.empty()) {
+                const std::string name = m_scenePath.empty() ? tr("Untitled") : fileName(m_scenePath);
+                ImGui::TextDisabled("%s%s", name.c_str(), m_dirty ? " *" : "");
+                gap();
+            }
+            ImGui::TextDisabled(tr("%zu objects"), m_scene.entities.size());
+            gap();
             if (m_buildPanel.drawStatus(m_time)) {
-                ImGui::TextDisabled("|");
+                gap();
             } else if (!m_gameStatus.empty()) {
                 if (m_gameLoaded) ImGui::TextDisabled("%s", m_gameStatus.c_str());
                 else ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.45f, 1.0f), "%s", m_gameStatus.c_str());
-                ImGui::TextDisabled("|");
+                gap();
             }
+            drawUnsavedStatus();
             if (m_mode == Mode::Play) ImGui::TextUnformatted(m_playStatus.c_str());
-            else // messages show as notices over the viewport (drawNotices)
+            else if (m_sceneHovered) // only when it applies; messages show as notices over the viewport (drawNotices)
                 ImGui::TextDisabled(
                     "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));
-            drawUnsavedStatus();
             const char* fps = "0000 fps";
             ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - 16.0f);
             // Red when over budget; clicking opens the [Performance] window
@@ -1130,13 +1159,14 @@ void Editor::drawStatusBar() {
 }
 
 void Editor::drawHierarchy(bool editing) {
-    if (!ImGui::Begin(trl(kHierarchyWindow))) {
+    if (!m_hierarchyOpen) return;
+    if (!ImGui::Begin(iconTitle(icon::kTree, kHierarchyWindow).c_str(), &m_hierarchyOpen)) {
         ImGui::End();
         return;
     }
     ImGui::BeginDisabled(!editing);
     // One row whatever the panel width: the same list as the [Add] menu, then search
-    if (ImGui::Button(tr("+ Add"))) ImGui::OpenPopup("##add");
+    if (iconButton(icon::kAdd, tr("Add Object"))) ImGui::OpenPopup("##add");
     if (ImGui::BeginPopup("##add")) {
         drawAddMenuItems();
         ImGui::EndPopup();
@@ -1150,7 +1180,6 @@ void Editor::drawHierarchy(bool editing) {
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##treeSearch", (std::string(icon::kSearch) + "  " + tr("Find (Ctrl+F)")).c_str(), m_treeSearch,
                              sizeof(m_treeSearch));
-    ImGui::Separator();
 
     if (ImGui::BeginChild("##entities")) {
         // parent → child list (entities order)
@@ -1162,9 +1191,8 @@ void Editor::drawHierarchy(bool editing) {
             else roots.push_back(i);
         }
         m_treeAction = {};
-        // Fixed top row "Scene": selecting it makes the inspector show the scene environment (docs/DECISIONS.md 2026-10-28)
-        const std::string sceneName = m_scenePath.empty() ? tr("Untitled") : fileName(m_scenePath);
-        const std::string sceneLabel = trf("Scene: %s", sceneName.c_str());
+        // Fixed top row: selecting it makes the inspector show the scene environment (docs/DECISIONS.md 2026-10-28)
+        const std::string sceneLabel = std::string(icon::kGlobe) + "  " + tr("Scene Environment");
         if (ImGui::Selectable(sceneLabel.c_str(), m_sceneRow && m_selected == 0, ImGuiSelectableFlags_SpanAvailWidth)) {
             m_selected = 0;
             m_sceneRow = true;
@@ -1333,9 +1361,6 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     f32 rgb[3];
     unpackColor(e.color, rgb);
     const std::string label = e.name.empty() ? tr("(no name)") : e.name;
-    // Kind after the name, dimmer so names scan as a column
-    const reflect::TypeInfo* kind = e.is(scene::kTypeSolid) ? nullptr : entityType(e);
-    const char* kindText = e.is(scene::kTypeSolid) ? nullptr : (kind ? trData(kind->label) : e.type.c_str());
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth |
                                ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap;
     if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -1361,21 +1386,13 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
         ImGui::GetWindowDrawList()->AddText(ImVec2(badgeEnd, rowMin.y), color, "!");
         badgeEnd += ImGui::GetFontSize() * 0.6f;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", badge->second.text.c_str());
+    } else if (!e.is(scene::kTypeSolid) && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+        // The row's icon shows the kind; its name is one hover away
+        const reflect::TypeInfo* kind = entityType(e);
+        ImGui::SetTooltip("%s", kind ? trData(kind->label) : e.type.c_str());
     }
     if (m_differsFromDefault.count(id)) {
         ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(badgeEnd + 3.0f, (rowMin.y + rowMax.y) * 0.5f), 2.5f, ImGui::GetColorU32(color::kChanged));
-        badgeEnd += ImGui::GetFontSize() * 0.7f;
-    }
-    if (kindText) {
-        const f32 x = badgeEnd + ImGui::GetFontSize() * 0.1f;
-        // Makes room for the row's visibility/lock toggles only while they show
-        const bool togglesShown = ImGui::IsItemHovered() || m_hidden.count(id) != 0 || m_locked.count(id) != 0;
-        const f32 right = rowMax.x - (togglesShown ? ImGui::GetFrameHeight() * 2.0f : ImGui::GetStyle().ItemInnerSpacing.x);
-        if (x < right) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), ImVec2(x, rowMin.y), ImVec2(right, rowMax.y), right, kindText, nullptr, nullptr);
-            ImGui::PopStyleColor();
-        }
     }
     if (hiddenRow) ImGui::PopStyleVar();
     // Click to select, double-click to move to, drag to reparent
@@ -1465,8 +1482,9 @@ void Editor::reparent(u32 entityId, u32 parentId) {
 }
 
 void Editor::drawInspector(bool editing) {
+    if (!m_inspectorOpen) return;
     if (m_focusPanel == kInspectorWindow) focusPanelNow();
-    if (!ImGui::Begin(trl(kInspectorWindow))) {
+    if (!ImGui::Begin(iconTitle(icon::kInspector, kInspectorWindow).c_str(), &m_inspectorOpen)) {
         ImGui::End();
         return;
     }
@@ -1497,7 +1515,7 @@ void Editor::drawInspector(bool editing) {
         }
         const reflect::TypeInfo* type = entityType(*e);
         const std::string typeLabel = type ? trData(type->label) : trf("%s (not in game code)", e->type.c_str());
-        if (ImGui::BeginCombo(propertyRow(tr("Type")).c_str(), typeLabel.c_str())) {
+        if (beginCombo(propertyRow(tr("Type")).c_str(), typeLabel.c_str())) {
             for (const reflect::TypeInfo* t : allTypes()) {
                 if (ImGui::Selectable(trData(t->label), t == type) && t != type) {
                     e->type = t->name;
@@ -1517,6 +1535,91 @@ void Editor::drawInspector(bool editing) {
                 else setStatus(trf("Could not find MEALKIT_OBJECT(%s) in the project code", type->name), true);
             }
         }
+        // Same order for every kind: where it is and how it looks first, then what is special about it
+        f32 matrix[16], t[3], r[3], s[3];
+        compose(scene::localTransform(*e), matrix);
+        ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
+        bool changed = false;
+        if (sectionHeader(e->parent ? tr("Transform (relative to parent)###transform") : tr("Transform###transform"),
+                          ImGuiTreeNodeFlags_DefaultOpen)) {
+            changed |= transformRow(tr("Position"), "##pos", t, 0.05f, 0.0f, 0.0f, "%.2f", 0.0f);
+            changed |= transformRow(tr("Rotation (deg)"), "##rot", r, 0.5f, 0.0f, 0.0f, "%.1f", 0.0f);
+            if (!isMarker(*e)) changed |= transformRow(tr("Scale"), "##scale", s, 0.02f, 0.01f, 10000.0f, "%.2f", 1.0f, &m_scaleLock);
+        }
+        if (changed) {
+            for (f32& v : s) v = std::max(v, 0.01f);
+            ImGuizmo::RecomposeMatrixFromComponents(t, r, s, matrix);
+            scene::Transform local;
+            decompose(matrix, local);
+            // The other selected objects move, turn and scale by the same change
+            const Vec3 moved = local.position - e->position;
+            const Quat turned = local.rotation * Quat{-e->rotation.x, -e->rotation.y, -e->rotation.z, e->rotation.w};
+            const Vec3 scaled{local.scale.x / std::max(e->scale.x, 0.0001f), local.scale.y / std::max(e->scale.y, 0.0001f), local.scale.z / std::max(e->scale.z, 0.0001f)};
+            for (u32 id : m_multi) {
+                Entity* other = m_scene.find(id);
+                if (!other || other == e) continue;
+                other->position = other->position + moved;
+                other->rotation = normalize(turned * other->rotation);
+                other->scale = {other->scale.x * scaled.x, other->scale.y * scaled.y, other->scale.z * scaled.z};
+            }
+            e->position = local.position;
+            e->rotation = local.rotation;
+            e->scale = local.scale;
+            markChanged();
+        }
+
+        if (sectionHeader(tr("Look"), ImGuiTreeNodeFlags_DefaultOpen)) {
+            f32 rgb[3];
+            unpackColor(e->color, rgb);
+            if (colorEdit(propertyRow(tr("Color")).c_str(), rgb)) {
+                e->color = packColor(rgb, e->color);
+                markChanged();
+            }
+            bool checker = (e->flags & render::kInstanceChecker) != 0;
+            if (ImGui::Checkbox(propertyRow(tr("Checker pattern")).c_str(), &checker)) {
+                e->flags = checker ? (e->flags | render::kInstanceChecker) : (e->flags & ~render::kInstanceChecker);
+                markChanged();
+            }
+        }
+
+        if (!isMarker(*e) && !e->is(scene::kTypeTerrain) && !e->is(scene::kTypeScatter) && sectionHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (e->model.empty()) {
+                ImGui::TextDisabled("%s", tr("Default box"));
+            } else {
+                ImGui::TextUnformatted(e->model.c_str());
+                if (const asset::Model* model = m_models->get(e->model)) {
+                    ImGui::TextDisabled(tr("%u triangles · %u LODs"), model->triangles[0], model->lodCount);
+                    // Asset budget: usage vs. the kind's (folder's) limit, red when over (mealkit.project budget*)
+                    const asset::ModelBudget& b = m_models->budget(model->kind);
+                    const ImVec4 red(1.0f, 0.45f, 0.4f, 1.0f);
+                    const auto usage = [&](u32 used, u32 limit, const char* what) {
+                        const ImVec4 color = used > limit ? red : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+                        ImGui::TextColored(color, "%s %u / %u", what, used, limit);
+                    };
+                    const char* kind = model->kind == asset::ModelKind::Character     ? tr("characters")
+                                       : model->kind == asset::ModelKind::Environment ? tr("environment")
+                                                                                      : tr("props");
+                    ImGui::TextDisabled("%s", trf("Budget: %s", kind).c_str());
+                    usage(model->triangles[0], b.triangles, tr("Triangles"));
+                    usage(model->materials, b.materials, tr("Materials"));
+                } else ImGui::TextColored(color::kDanger, "%s", tr("Could not load (see the log)"));
+            }
+            if (ImGui::Button(tr("Choose Model..."))) {
+                const std::string path = chooseModel();
+                if (!path.empty()) {
+                    e->model = path;
+                    markChanged();
+                }
+            }
+            if (!e->model.empty()) {
+                ImGui::SameLine();
+                if (ImGui::Button(tr("Back to Box"))) {
+                    e->model.clear();
+                    markChanged();
+                }
+            }
+        }
+
         drawObjectFields(*e);
 
         if (const asset::Model* model = e->model.empty() ? nullptr : m_models->get(e->model);
@@ -1525,7 +1628,7 @@ void Editor::drawInspector(bool editing) {
             ImGui::TextDisabled(tr("%u joints, %u clips"), model->bones, static_cast<u32>(model->clips.size()));
             const std::string current = scene::animField(*e);
             const std::string currentClip = current.substr(0, current.find(' '));
-            if (ImGui::BeginCombo(propertyRow(tr("Clip")).c_str(), currentClip.empty() ? tr("(rest pose)") : currentClip.c_str())) {
+            if (beginCombo(propertyRow(tr("Clip")).c_str(), currentClip.empty() ? tr("(rest pose)") : currentClip.c_str())) {
                 const auto set = [&](const std::string& value) {
                     std::erase_if(e->fields, [](const auto& f) { return f.first == scene::kAnimField; });
                     if (!value.empty()) e->fields.emplace_back(scene::kAnimField, value);
@@ -1568,98 +1671,16 @@ void Editor::drawInspector(bool editing) {
         if (e->is(scene::kTypeTerrain)) drawTerrainInspector(*e);
         if (e->is(scene::kTypeScatter)) drawScatterInspector(*e);
 
-        if (!isMarker(*e) && !e->is(scene::kTypeTerrain) && !e->is(scene::kTypeScatter) && sectionHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (e->model.empty()) {
-                ImGui::TextDisabled("%s", tr("Default box"));
-            } else {
-                ImGui::TextUnformatted(e->model.c_str());
-                if (const asset::Model* model = m_models->get(e->model)) {
-                    ImGui::TextDisabled(tr("%u triangles · %u LODs"), model->triangles[0], model->lodCount);
-                    // Asset budget: usage vs. the kind's (folder's) limit, red when over (mealkit.project budget*)
-                    const asset::ModelBudget& b = m_models->budget(model->kind);
-                    const ImVec4 red(1.0f, 0.45f, 0.4f, 1.0f);
-                    const auto usage = [&](u32 used, u32 limit, const char* what) {
-                        const ImVec4 color = used > limit ? red : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
-                        ImGui::TextColored(color, "%s %u / %u", what, used, limit);
-                    };
-                    const char* kind = model->kind == asset::ModelKind::Character     ? tr("characters")
-                                       : model->kind == asset::ModelKind::Environment ? tr("environment")
-                                                                                      : tr("props");
-                    ImGui::TextDisabled("%s", trf("Budget: %s", kind).c_str());
-                    usage(model->triangles[0], b.triangles, tr("Triangles"));
-                    usage(model->materials, b.materials, tr("Materials"));
-                } else ImGui::TextColored(color::kDanger, "%s", tr("Could not load (see the log)"));
-            }
-            if (ImGui::Button(tr("Choose Model..."))) {
-                const std::string path = chooseModel();
-                if (!path.empty()) {
-                    e->model = path;
-                    markChanged();
-                }
-            }
-            if (!e->model.empty()) {
-                ImGui::SameLine();
-                if (ImGui::Button(tr("Back to Box"))) {
-                    e->model.clear();
-                    markChanged();
-                }
-            }
-        }
-
-        f32 matrix[16], t[3], r[3], s[3];
-        compose(scene::localTransform(*e), matrix);
-        ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
-        bool changed = false;
-        if (sectionHeader(e->parent ? tr("Transform (relative to parent)###transform") : tr("Transform###transform"),
-                          ImGuiTreeNodeFlags_DefaultOpen)) {
-            changed |= transformRow(tr("Position"), "##pos", t, 0.05f, 0.0f, 0.0f, "%.2f", 0.0f);
-            changed |= transformRow(tr("Rotation (deg)"), "##rot", r, 0.5f, 0.0f, 0.0f, "%.1f", 0.0f);
-            if (!isMarker(*e)) changed |= transformRow(tr("Scale"), "##scale", s, 0.02f, 0.01f, 10000.0f, "%.2f", 1.0f, &m_scaleLock);
-        }
-        if (changed) {
-            for (f32& v : s) v = std::max(v, 0.01f);
-            ImGuizmo::RecomposeMatrixFromComponents(t, r, s, matrix);
-            scene::Transform local;
-            decompose(matrix, local);
-            // The other selected objects move, turn and scale by the same change
-            const Vec3 moved = local.position - e->position;
-            const Quat turned = local.rotation * Quat{-e->rotation.x, -e->rotation.y, -e->rotation.z, e->rotation.w};
-            const Vec3 scaled{local.scale.x / std::max(e->scale.x, 0.0001f), local.scale.y / std::max(e->scale.y, 0.0001f), local.scale.z / std::max(e->scale.z, 0.0001f)};
-            for (u32 id : m_multi) {
-                Entity* other = m_scene.find(id);
-                if (!other || other == e) continue;
-                other->position = other->position + moved;
-                other->rotation = normalize(turned * other->rotation);
-                other->scale = {other->scale.x * scaled.x, other->scale.y * scaled.y, other->scale.z * scaled.z};
-            }
-            e->position = local.position;
-            e->rotation = local.rotation;
-            e->scale = local.scale;
-            markChanged();
-        }
-
-        if (sectionHeader(tr("Look"), ImGuiTreeNodeFlags_DefaultOpen)) {
-            f32 rgb[3];
-            unpackColor(e->color, rgb);
-            if (ImGui::ColorEdit3(propertyRow(tr("Color")).c_str(), rgb)) {
-                e->color = packColor(rgb, e->color);
-                markChanged();
-            }
-            bool checker = (e->flags & render::kInstanceChecker) != 0;
-            if (ImGui::Checkbox(propertyRow(tr("Checker pattern")).c_str(), &checker)) {
-                e->flags = checker ? (e->flags | render::kInstanceChecker) : (e->flags & ~render::kInstanceChecker);
-                markChanged();
-            }
-        }
-        ImGui::TextDisabled("ID %u", e->id);
-
-        ImGui::Spacing();
-        if (ImGui::Button(tr("Duplicate (Ctrl+D)"))) duplicateSelected();
+        ImGui::Dummy(ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y));
+        const u32 shownId = e->id;
+        if (iconButton(icon::kCopy, tr("Duplicate (Ctrl+D)"))) duplicateSelected();
+        ImGui::SameLine(0.0f, 2.0f);
+        if (iconButton(icon::kPrefab, tr("Save as Prefab..."))) saveSelectionAsPrefab();
+        ImGui::SameLine(0.0f, 2.0f);
+        if (iconButton(icon::kTrash, tr("Delete (Del)"))) deleteSelected(); // e isn't used after this
         ImGui::SameLine();
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.62f, 0.20f, 0.18f, 1.0f)); // the one destructive button here
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.72f, 0.24f, 0.21f, 1.0f));
-        if (ImGui::Button(tr("Delete (Del)"))) deleteSelected(); // e isn't used after this
-        ImGui::PopStyleColor(2);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("ID %u", shownId);
     }
     ImGui::EndDisabled();
     ImGui::End();
@@ -1670,24 +1691,34 @@ bool Editor::transformRow(const char* label, const char* id, f32 v[3], f32 speed
                           f32 defaultValue, bool* lockRatio) {
     ImGui::PushID(id);
     const f32 before[3] = {v[0], v[1], v[2]};
-    const std::string hidden = propertyRow(label);
+    propertyRow(label);
     if (lockRatio) {
-        if (ImGui::Button(*lockRatio ? icon::kLock : icon::kUnlock, ImVec2(ImGui::GetFrameHeight(), 0.0f))) *lockRatio = !*lockRatio;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Keep the ratio between X, Y and Z"));
-        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        // In the margin left of the fields, past the changed dot, so X, Y and Z line up with the rows above
+        const ImVec2 fields = ImGui::GetCursorScreenPos();
+        ImGui::SetCursorScreenPos(ImVec2(fields.x - ImGui::GetFrameHeight() - 9.0f, fields.y));
+        if (iconButton(*lockRatio ? icon::kLock : icon::kUnlock, tr("Keep the ratio between X, Y and Z"), *lockRatio)) *lockRatio = !*lockRatio;
+        ImGui::SameLine();
+        ImGui::SetCursorScreenPos(fields);
         ImGui::SetNextItemWidth(-FLT_MIN);
     }
-    bool changed = ImGui::DragFloat3(hidden.c_str(), v, speed, lo, hi, format);
+    // One field per axis with its letter inside, in the gizmo's axis colors
+    bool changed = false;
     {
-        // A thin bar on each component in the gizmo's axis colors
-        const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
-        const f32 gap = ImGui::GetStyle().ItemInnerSpacing.x;
-        const f32 step = (max.x - min.x + gap) / 3.0f;
-        const ImVec4 axes[3] = {ImVec4(0.85f, 0.30f, 0.30f, 1.0f), ImVec4(0.35f, 0.72f, 0.35f, 1.0f), ImVec4(0.35f, 0.50f, 0.90f, 1.0f)};
+        const ImVec4 axes[3] = {ImVec4(0.95f, 0.45f, 0.45f, 1.0f), ImVec4(0.50f, 0.82f, 0.50f, 1.0f), ImVec4(0.55f, 0.70f, 1.0f, 1.0f)};
+        const char* const letters[3] = {"X", "Y", "Z"};
+        const char* const fields[3] = {"##x", "##y", "##z"};
+        const f32 letterSize = ImGui::GetFontSize() * 0.8f;
+        const std::string spaced = std::string("   ") + format; // pushes the centered number away from the letter
+        ImGui::BeginGroup();
+        ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
         for (int i = 0; i < 3; ++i) {
-            const f32 x = min.x + step * static_cast<f32>(i);
-            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, min.y), ImVec2(x + 2.0f, max.y), ImGui::GetColorU32(axes[i]));
+            if (i > 0) ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+            changed |= ImGui::DragFloat(fields[i], &v[i], speed, lo, hi, spaced.c_str());
+            ImGui::PopItemWidth();
+            const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+            ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), letterSize, ImVec2(min.x + 6.0f, min.y + (max.y - min.y - letterSize) * 0.5f - 1.0f), ImGui::GetColorU32(axes[i]), letters[i]);
         }
+        ImGui::EndGroup();
     }
     if (changed && lockRatio && *lockRatio) { // the rest follow the ratio of the changed axis
         for (int i = 0; i < 3; ++i)
@@ -1838,13 +1869,13 @@ void Editor::drawEnvironment() {
     const ImGuiColorEditFlags hdr = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR;
     bool c = false;
     c |= ImGui::DragFloat3(propertyRow(tr("Sun direction")).c_str(), &env.sunDirection.x, 0.01f, -1.0f, 1.0f, "%.2f");
-    c |= ImGui::ColorEdit3(propertyRow(tr("Sun light")).c_str(), &env.sunColor.x, hdr);
-    c |= ImGui::ColorEdit3(propertyRow(tr("Sky ambient")).c_str(), &env.skyColor.x, hdr);
-    c |= ImGui::ColorEdit3(propertyRow(tr("Ground bounce")).c_str(), &env.groundColor.x, hdr);
-    c |= ImGui::ColorEdit3(propertyRow(tr("Fog / background")).c_str(), &env.fogColor.x, hdr);
+    c |= colorEdit(propertyRow(tr("Sun light")).c_str(), &env.sunColor.x, false, hdr);
+    c |= colorEdit(propertyRow(tr("Sky ambient")).c_str(), &env.skyColor.x, false, hdr);
+    c |= colorEdit(propertyRow(tr("Ground bounce")).c_str(), &env.groundColor.x, false, hdr);
+    c |= colorEdit(propertyRow(tr("Fog / background")).c_str(), &env.fogColor.x, false, hdr);
     c |= ImGui::DragFloat(propertyRow(tr("Fog density")).c_str(), &env.fogDensity, 0.0002f, 0.0f, 0.1f, "%.4f");
     // Sky HDRI: one .hdr under assets/textures/ (none = the color gradient above). First selection pauses briefly to bake
-    if (ImGui::BeginCombo(propertyRow(tr("Sky HDRI")).c_str(), env.hdri.empty() ? tr("None (sky colors)") : env.hdri.c_str())) {
+    if (beginCombo(propertyRow(tr("Sky HDRI")).c_str(), env.hdri.empty() ? tr("None (sky colors)") : env.hdri.c_str())) {
         if (ImGui::Selectable(tr("None (sky colors)"), env.hdri.empty())) env.hdri.clear(), c = true;
         for (const std::string& h : asset::listHdris(asset::ModelCache::assetsRoot()))
             if (ImGui::Selectable(h.c_str(), env.hdri == h)) env.hdri = h, c = true;
@@ -1862,7 +1893,7 @@ void Editor::drawEnvironment() {
     ImGui::BeginDisabled(!post.toneMapping);
     c |= ImGui::Checkbox(propertyRow(tr("Punchy look (contrast, saturation)")).c_str(), &post.punchy);
     c |= ImGui::DragFloat(propertyRow(tr("Exposure (EV)")).c_str(), &post.exposure, 0.02f, -6.0f, 6.0f, "%.2f");
-    if (ImGui::BeginCombo(propertyRow(tr("Color LUT")).c_str(), post.lut.empty() ? tr("None") : post.lut.c_str())) {
+    if (beginCombo(propertyRow(tr("Color LUT")).c_str(), post.lut.empty() ? tr("None") : post.lut.c_str())) {
         if (ImGui::Selectable(tr("None"), post.lut.empty())) post.lut.clear(), c = true;
         for (const std::string& l : asset::listLuts(asset::ModelCache::assetsRoot()))
             if (ImGui::Selectable(l.c_str(), post.lut == l)) post.lut = l, c = true;
@@ -1874,7 +1905,7 @@ void Editor::drawEnvironment() {
                                    "Resolve or Photoshop, export a 32-point .cube into assets/lut/ and pick it above."));
     c |= ImGui::DragFloat(propertyRow(tr("Bloom intensity")).c_str(), &post.bloomIntensity, 0.01f, 0.0f, 2.0f, "%.2f");
     c |= ImGui::DragFloat(propertyRow(tr("Bloom threshold")).c_str(), &post.bloomThreshold, 0.02f, 0.0f, 16.0f, "%.2f");
-    c |= ImGui::ColorEdit3(propertyRow(tr("Bloom tint")).c_str(), &post.bloomTint.x, hdr);
+    c |= colorEdit(propertyRow(tr("Bloom tint")).c_str(), &post.bloomTint.x, false, hdr);
     c |= ImGui::SliderFloat(propertyRow(tr("Vignette")).c_str(), &post.vignette, 0.0f, 1.0f, "%.2f");
     c |= ImGui::SliderFloat(propertyRow(tr("Vignette start")).c_str(), &post.vignetteSmoothness, 0.0f, 1.0f, "%.2f");
     c |= ImGui::SliderFloat(propertyRow(tr("Film grain")).c_str(), &post.grain, 0.0f, 1.0f, "%.2f");
@@ -1940,8 +1971,9 @@ void Editor::drawViewportToolbar() {
                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
     const f32 cubeSize = std::floor(ImGui::GetFrameHeight() * 3.0f); // axis gizmo in the top right corner
     ImGui::SetNextWindowPos(ImVec2(m_viewport.x + 8.0f, m_viewport.y + 8.0f));
-    ImGui::SetNextWindowBgAlpha(0.75f);
+    ImGui::SetNextWindowBgAlpha(0.82f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     if (ImGui::Begin("##ViewportToolbar", nullptr, flags)) {
         auto tip = [](const char* text) {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", text);
@@ -1950,13 +1982,11 @@ void Editor::drawViewportToolbar() {
         // so the toolbar never covers the panels. Group widths come from the previous frame.
         static f32 groupWidths[3] = {};
         const f32 rowLimit = m_viewport.width - cubeSize - 32.0f;
-        const f32 gap = ImGui::GetStyle().ItemSpacing.x * 2.0f + 1.0f;
+        const f32 gap = ImGui::GetFontSize();
         f32 rowUsed = 0.0f;
         const auto beginGroup = [&](int g) {
             if (g > 0 && rowUsed + gap + groupWidths[g] <= rowLimit) {
-                ImGui::SameLine();
-                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-                ImGui::SameLine();
+                ImGui::SameLine(0.0f, gap);
                 rowUsed += gap;
             } else {
                 rowUsed = 0.0f;
@@ -1970,43 +2000,48 @@ void Editor::drawViewportToolbar() {
         };
 
         beginGroup(0);
-        if (toolButton(tr("Move W"), m_gizmoOp == 0)) m_gizmoOp = 0;
+        if (iconButton(icon::kMove, tr("Move W"), m_gizmoOp == 0)) m_gizmoOp = 0;
         ImGui::SameLine(0, 2);
-        if (toolButton(tr("Rotate E"), m_gizmoOp == 1)) m_gizmoOp = 1;
+        if (iconButton(icon::kRotate, tr("Rotate E"), m_gizmoOp == 1)) m_gizmoOp = 1;
         ImGui::SameLine(0, 2);
-        if (toolButton(tr("Scale R"), m_gizmoOp == 2)) m_gizmoOp = 2;
-        ImGui::SameLine();
-        if (toolButton(m_gizmoLocal ? tr("Local Axes") : tr("World Axes"), false)) m_gizmoLocal = !m_gizmoLocal;
+        if (iconButton(icon::kScale, tr("Scale R"), m_gizmoOp == 2)) m_gizmoOp = 2;
+        ImGui::SameLine(0, 2);
+        if (iconButton(m_gizmoLocal ? icon::kCube : icon::kGlobe, m_gizmoLocal ? tr("Local Axes") : tr("World Axes"))) m_gizmoLocal = !m_gizmoLocal;
         endGroup(0);
 
         beginGroup(1);
-        if (toolButton(tr("Snap"), m_snapOn)) m_snapOn = !m_snapOn;
-        tip(tr("Snap without holding Ctrl (Ctrl turns it off for a moment)"));
+        if (magnetButton(tr("Snap without holding Ctrl (Ctrl turns it off for a moment)"), m_snapOn)) m_snapOn = !m_snapOn;
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##snapPopup");
         ImGui::SameLine(0, 0);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-        if (ImGui::ArrowButton("##snapSettings", ImGuiDir_Down)) ImGui::OpenPopup("##snapPopup");
-        ImGui::PopStyleColor();
+        {
+            // Narrow chevron beside Snap for its settings
+            const f32 h = ImGui::GetFrameHeight(), w = std::floor(h * 0.55f);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+            if (ImGui::Button("##snapSettings", ImVec2(w, h))) ImGui::OpenPopup("##snapPopup");
+            ImGui::PopStyleColor(2);
+            tip(tr("Snap"));
+            drawGlyph(ImGui::GetWindowDrawList(), icon::kChevronDown, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), std::floor(ImGui::GetFontSize() * 0.55f), ImGui::GetColorU32(ImGuiCol_TextDisabled));
+        }
         if (ImGui::BeginPopup("##snapPopup")) {
             if (drawSnapSettings(m_prefs)) savePreferences(m_prefs);
             ImGui::EndPopup();
         }
         ImGui::SameLine(0, 2);
-        if (toolButton(tr("Grid"), m_showGrid)) m_showGrid = !m_showGrid;
+        if (iconButton(icon::kArea, tr("Grid"), m_showGrid)) m_showGrid = !m_showGrid;
         endGroup(1);
 
         beginGroup(2);
         ImGui::BeginDisabled(!selected());
-        if (toolButton(tr("Focus Selected"), false)) focusSelected();
+        if (iconButton(icon::kFocus, tr("Focus Selected (F)"))) focusSelected();
         ImGui::EndDisabled();
-        tip("F");
-        ImGui::SameLine();
-        if (toolButton(m_ortho ? tr("Orthographic") : tr("Perspective"), false)) m_ortho = !m_ortho;
-        tip(tr("Switch between perspective and orthographic (wheel zooms in orthographic)"));
-        ImGui::SameLine();
+        ImGui::SameLine(0, 2);
+        if (iconButton(m_ortho ? icon::kOrtho : icon::kPerspective, tr("Switch between perspective and orthographic (wheel zooms in orthographic)"))) m_ortho = !m_ortho;
+        ImGui::SameLine(0, 2);
         const char* views[] = {tr("Lit"), tr("Wireframe"), tr("Normals"), tr("LOD Level"), tr("Overdraw"),
                                tr("Over Budget"), tr("Material Features")};
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
-        if (ImGui::BeginCombo("##viewMode", views[static_cast<int>(m_debugView)])) {
+        if (beginCombo("##viewMode", views[static_cast<int>(m_debugView)])) {
             for (u32 i = 0; i < static_cast<u32>(render::DebugView::Count); ++i) {
                 const auto view = static_cast<render::DebugView>(i);
                 ImGui::BeginDisabled(!m_renderer->supportsDebugView(view));
@@ -2017,20 +2052,20 @@ void Editor::drawViewportToolbar() {
         }
         tip(tr("View Mode"));
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-        ImGui::SliderFloat("##camSpeed", &m_cameraSpeed, 1.0f, 400.0f, "%.0f m/s", ImGuiSliderFlags_Logarithmic);
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 4.5f);
+        ImGui::DragFloat("##camSpeed", &m_cameraSpeed, 0.01f, 1.0f, 400.0f, "%.0f m/s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
         tip(tr("Camera speed"));
         endGroup(2);
     }
     ImGui::End();
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
 
     // Axis gizmo: when ImGuizmo rotates the view matrix, convert back to camera angles/position
     const f32 size = cubeSize;
     Mat4 view = m_view;
     const f32 pivot = 10.0f; // orbits around the point this far ahead
     ImGuizmo::ViewManipulate(&view.m[0][0], pivot, ImVec2(m_viewport.x + m_viewport.width - size - 8.0f, m_viewport.y + 8.0f),
-                             ImVec2(size, size), IM_COL32(30, 30, 34, 120));
+                             ImVec2(size, size), IM_COL32(0, 0, 0, 0));
     if (ImGuizmo::IsUsingViewManipulate() || std::memcmp(&view, &m_view, sizeof(view)) != 0) {
         // Row vector view matrix: column 2 is forward, camera position = -t * R^T
         const Vec3 forward = normalize(Vec3{view.m[0][2], view.m[1][2], view.m[2][2]});
@@ -2902,8 +2937,7 @@ bool Editor::loadScene(const std::string& path) {
     m_redo.clear();
     m_selected = 0;
     m_nameBufferId = 0;
-    setStatus(trf("Opened: %s", fileName(path).c_str()));
-    return true;
+    return true; // the tree and the scene switcher show it; no notice
 }
 
 bool Editor::saveScene() {

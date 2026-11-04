@@ -1,4 +1,5 @@
 #include "mealkit/editor/ProjectManager.h"
+#include "mealkit/editor/FieldEditor.h"
 
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/ImGuiLayer.h"
@@ -356,7 +357,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
                                  sizeof(filter));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(langWidth);
-        if (ImGui::BeginCombo("##language", langLabel.c_str())) {
+        if (beginCombo("##language", langLabel.c_str())) {
             for (const Language& lang : kLanguages) {
                 if (ImGui::Selectable(lang.name, std::strcmp(lang.code, currentLanguage()) == 0)) {
                     setLanguage(lang.code);
@@ -602,7 +603,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             };
             ImGui::TextUnformatted(tr("Template"));
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::BeginCombo("##template", templates[newTemplate][1])) {
+            if (beginCombo("##template", templates[newTemplate][1])) {
                 for (int i = 0; i < 2; ++i)
                     if (ImGui::Selectable(templates[i][1], newTemplate == i)) newTemplate = i;
                 ImGui::EndCombo();

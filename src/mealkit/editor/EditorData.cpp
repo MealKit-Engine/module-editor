@@ -3,6 +3,7 @@
 
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Window.h"
@@ -73,14 +74,14 @@ void Editor::drawDataHub(f64 dt, bool editing) {
         --m_dataFrontFrames;
         ImGui::SetNextWindowFocus();
     }
-    if (!ImGui::Begin(trl(kDataWindow), &m_dataOpen)) {
+    if (!ImGui::Begin(iconTitle(icon::kData, kDataWindow).c_str(), &m_dataOpen)) {
         ImGui::End();
         return;
     }
     m_dataFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     // ---- Left: every data document, with unsaved marks
-    if (ImGui::BeginChild("##dataList", ImVec2(ImGui::GetFontSize() * 15.0f, 0.0f), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders)) {
+    if (beginListPane("##dataList", ImGui::GetFontSize() * 15.0f)) {
         auto entry = [this](const std::string& label, DataPage page, int index, bool dirty) {
             const std::string text = label + (dirty ? " *" : "") + "##" + std::to_string(static_cast<int>(page)) + "_" + std::to_string(index);
             if (ImGui::Selectable(text.c_str(), m_dataPage == page && m_dataIndex == index)) openDataPage(page, index);
@@ -252,31 +253,29 @@ void Editor::drawDebugHub() {
         ImGui::SetNextWindowFocus();
     }
     // The problem count is in the tab, so problems show while another tab is in front
-    const std::string title = (m_problems.empty() ? std::string(tr("Debug")) : trf("Debug (%zu)", m_problems.size())) + "###Debug";
+    const std::string title = std::string(icon::kDebug) + "  " + (m_problems.empty() ? std::string(tr("Debug")) : trf("Debug (%zu)", m_problems.size())) + "###Debug";
     if (!ImGui::Begin(title.c_str(), &m_debugOpen)) {
         ImGui::End();
         return;
     }
-    if (ImGui::BeginChild("##debugList", ImVec2(ImGui::GetFontSize() * 9.0f, 0.0f), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders)) {
-        const auto entry = [this](const std::string& label, DebugPage page) {
-            if (ImGui::Selectable((label + "##" + std::to_string(static_cast<int>(page))).c_str(), m_debugPage == page)) openDebugPage(page);
+    if (beginListPane("##debugList", ImGui::GetFontSize() * 9.0f)) {
+        const auto entry = [this](const char* glyph, const std::string& label, DebugPage page) {
+            if (ImGui::Selectable((std::string(glyph) + "  " + label + "##" + std::to_string(static_cast<int>(page))).c_str(), m_debugPage == page)) openDebugPage(page);
         };
-        entry(tr("Log"), DebugPage::Log);
-        entry(m_problems.empty() ? std::string(tr("Problems")) : trf("Problems (%zu)", m_problems.size()), DebugPage::Problems);
-        entry(m_buildPanel.running() ? std::string(tr("Build Log")) + " ..." : std::string(tr("Build Log")), DebugPage::Build);
-        entry(tr("Performance"), DebugPage::Performance);
-        if (m_audio) entry(tr("Sounds"), DebugPage::Sound);
-        entry(tr("State"), DebugPage::State);
+        entry(icon::kLog, tr("Log"), DebugPage::Log);
+        entry(icon::kBuild, m_buildPanel.running() ? std::string(tr("Build Log")) + " ..." : std::string(tr("Build Log")), DebugPage::Build);
+        entry(icon::kPerformance, tr("Performance"), DebugPage::Performance);
+        if (m_audio) entry(icon::kSound, tr("Sounds"), DebugPage::Sound);
+        entry(icon::kState, tr("State"), DebugPage::State);
         const u32 failedTests = m_testsPanel.failedCount();
-        entry(failedTests ? trf("Tests (%u failed)", failedTests) : std::string(tr("Tests")), DebugPage::Tests);
-        entry(tr("Balance"), DebugPage::Balance);
+        entry(icon::kTests, failedTests ? trf("Tests (%u failed)", failedTests) : std::string(tr("Tests")), DebugPage::Tests);
+        entry(icon::kBalance, tr("Balance"), DebugPage::Balance);
     }
     ImGui::EndChild();
     ImGui::SameLine();
     if (ImGui::BeginChild("##debugPage")) {
         switch (m_debugPage) {
-        case DebugPage::Log: m_logPanel.drawContent(); break;
-        case DebugPage::Problems: drawProblems(); break;
+        case DebugPage::Log: drawLogPage(); break;
         case DebugPage::Build: {
             BuildKind request = BuildKind::GameCode;
             if (m_buildPanel.drawContent(m_mode == Mode::Edit, m_project, m_time, &request)) startBuild(request);
@@ -327,11 +326,11 @@ void Editor::drawSettingsHub() {
         --m_settingsFrontFrames;
         ImGui::SetNextWindowFocus();
     }
-    if (!ImGui::Begin(trl("Settings###Settings"), &m_settingsOpen)) {
+    if (!ImGui::Begin(iconTitle(icon::kSettings, "Settings###Settings").c_str(), &m_settingsOpen)) {
         ImGui::End();
         return;
     }
-    if (ImGui::BeginChild("##settingsList", ImVec2(ImGui::GetFontSize() * 10.0f, 0.0f), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders)) {
+    if (beginListPane("##settingsList", ImGui::GetFontSize() * 10.0f)) {
         const auto entry = [this](const std::string& label, SettingsPage page) {
             if (ImGui::Selectable((label + "##" + std::to_string(static_cast<int>(page))).c_str(), m_settingsPage == page)) m_settingsPage = page;
         };
@@ -392,7 +391,7 @@ void Editor::drawPreviewHub() {
         --m_previewFrontFrames;
         ImGui::SetNextWindowFocus();
     }
-    if (!ImGui::Begin(trl("Previews###Previews"), &m_previewOpen)) {
+    if (!ImGui::Begin(iconTitle(icon::kPreview, "Previews###Previews").c_str(), &m_previewOpen)) {
         ImGui::End();
         return;
     }
@@ -638,27 +637,55 @@ bool Editor::updateFieldHandles() {
     return true;
 }
 
+// Log page: what is wrong right now (kept current, gone once fixed) above what has happened (history). The flag in the filter row shows or hides the list
+void Editor::drawLogPage() {
+    bool anyError = false;
+    for (const Problem& p : m_problems) anyError |= p.error;
+    ImVec4 color = m_problems.empty() ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : anyError ? color::kDanger : color::kWarning;
+    if (!m_problemsShown) color.w *= 0.5f;
+    ImGui::PushStyleColor(ImGuiCol_Text, color);
+    ImGui::PushStyleColor(ImGuiCol_Button, m_problemsShown ? ImGui::GetStyleColorVec4(ImGuiCol_FrameBg) : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    char label[64];
+    std::snprintf(label, sizeof(label), "%s  %zu###problems", icon::kFlag, m_problems.size());
+    if (ImGui::Button(label)) m_problemsShown = !m_problemsShown;
+    ImGui::PopStyleColor(2);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", tr("Problems"));
+    ImGui::SameLine();
+    m_logPanel.drawFilters();
+    if (m_problemsShown && !m_problems.empty()) drawProblems();
+    m_logPanel.drawLines();
+}
+
 void Editor::drawProblems() {
-    if (m_problems.empty()) ImGui::TextDisabled("%s", tr("No problems found."));
-    for (size_t i = 0; i < m_problems.size(); ++i) {
-        const Problem& p = m_problems[i];
-        ImGui::PushID(static_cast<int>(i));
-        ImGui::PushStyleColor(ImGuiCol_Text, p.error ? color::kDanger : color::kWarning);
-        const bool clicked = ImGui::Selectable(p.text.c_str());
-        ImGui::PopStyleColor();
-        if (clicked) { // copied first: opening a page must not depend on the list staying the same
-            const u32 entity = p.entity;
-            const DataPage page = p.page;
-            const int doc = p.doc;
-            if (entity != 0) {
-                m_selected = entity;
-                focusInspector();
-            } else if (doc >= 0) {
-                openDataPage(page, doc);
+    const f32 row = ImGui::GetTextLineHeightWithSpacing();
+    const f32 padding = ImGui::GetFontSize() * 0.3f;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(1.0f, 1.0f, 1.0f, 0.03f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding));
+    const bool open = ImGui::BeginChild("##problems", ImVec2(0.0f, row * std::min<f32>(static_cast<f32>(m_problems.size()), 5.0f) + padding * 2.0f), ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_ResizeY);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    if (open) {
+        for (size_t i = 0; i < m_problems.size(); ++i) {
+            const Problem& p = m_problems[i];
+            ImGui::PushID(static_cast<int>(i));
+            ImGui::PushStyleColor(ImGuiCol_Text, p.error ? color::kDanger : color::kWarning);
+            const bool clicked = ImGui::Selectable((std::string(p.error ? icon::kError : icon::kWarning) + "  " + p.text).c_str());
+            ImGui::PopStyleColor();
+            if (clicked) { // copied first: opening a page must not depend on the list staying the same
+                const u32 entity = p.entity;
+                const DataPage page = p.page;
+                const int doc = p.doc;
+                if (entity != 0) {
+                    m_selected = entity;
+                    focusInspector();
+                } else if (doc >= 0) {
+                    openDataPage(page, doc);
+                }
             }
+            ImGui::PopID();
         }
-        ImGui::PopID();
     }
+    ImGui::EndChild();
 }
 
 } // namespace mealkit::editor

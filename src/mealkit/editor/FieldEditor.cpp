@@ -3,6 +3,7 @@
 
 #include "mealkit/core/Hash.h"
 
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 
@@ -25,6 +26,8 @@ using reflect::FieldInfo;
 using reflect::Kind;
 using reflect::TypeInfo;
 using reflect::ValueInfo;
+
+constexpr f32 kIconScale = 0.82f; // of the font size: the icon fonts fill their whole em box
 
 const u8* at(const void* data, u32 offset) { return static_cast<const u8*>(data) + offset; }
 u8* at(void* data, u32 offset) { return static_cast<u8*>(data) + offset; }
@@ -225,7 +228,7 @@ bool drawPicker(const char* label, std::string& value, const std::string& pick) 
     const bool found = value.empty() || std::find(names.begin(), names.end(), value) != names.end();
     if (!found) ImGui::PushStyleColor(ImGuiCol_Text, color::kDanger);
     const std::string preview = value.empty() ? std::string(tr("(none)")) : value + (found ? "" : " (?)");
-    const bool open = ImGui::BeginCombo(label, preview.c_str());
+    const bool open = beginCombo(label, preview.c_str());
     if (!found) ImGui::PopStyleColor();
     if (ImGui::BeginDragDropTarget()) { // a file dragged from [Assets], when it is in this field's folder
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MK_ASSET")) {
@@ -292,7 +295,7 @@ bool drawRowRef(const char* label, const ValueInfo& v, void* data, const FieldCo
     if (!found) ImGui::PushStyleColor(ImGuiCol_Text, color::kDanger);
     const std::string preview = ref.id->empty() ? std::string(tr("(none)")) : *ref.id + (found ? "" : " (?)");
     bool changed = false;
-    if (ImGui::BeginCombo(label, preview.c_str())) {
+    if (beginCombo(label, preview.c_str())) {
         if (!found) ImGui::PopStyleColor();
         if (ImGui::Selectable(tr("(none)"), ref.id->empty())) {
             ref.id->clear();
@@ -330,7 +333,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
             u64 value = 0;
             std::memcpy(&value, data, v.size);
             const std::string preview = reflect::formatScalar(v, data);
-            if (ImGui::BeginCombo(label, preview.c_str())) {
+            if (beginCombo(label, preview.c_str())) {
                 for (size_t i = 0; i < v.enumNames.size(); ++i)
                     if (ImGui::Selectable(v.enumNames[i].c_str(), value == i)) {
                         const u64 next = i;
@@ -396,7 +399,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
         Color& c = *static_cast<Color*>(data);
         f32 rgba[4] = {static_cast<f32>(c.value & 0xFF) / 255.0f, static_cast<f32>((c.value >> 8) & 0xFF) / 255.0f,
                        static_cast<f32>((c.value >> 16) & 0xFF) / 255.0f, static_cast<f32>(c.value >> 24) / 255.0f};
-        if (ImGui::ColorEdit4(label, rgba, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf)) {
+        if (colorEdit(label, rgba, true)) {
             auto byte = [](f32 v) { return static_cast<u8>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); };
             const Color next = Color::rgb(byte(rgba[0]), byte(rgba[1]), byte(rgba[2]), byte(rgba[3]));
             changed = next != c;
@@ -699,13 +702,202 @@ std::string propertyRow(const char* label, const char* tooltip) {
 }
 
 bool sectionHeader(const char* label, int treeNodeFlags) {
-    ImGui::PushStyleColor(ImGuiCol_Header, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
-    const bool open = ImGui::CollapsingHeader(label, treeNodeFlags);
-    ImGui::PopStyleColor(3);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImGui::Dummy(ImVec2(0.0f, style.ItemSpacing.y));
+    const ImGuiID id = ImGui::GetID(label);
+    bool open = ImGui::TreeNodeUpdateNextOpen(id, treeNodeFlags);
+    const f32 font = ImGui::GetFontSize();
+    const f32 height = font + style.FramePadding.y * 2.0f;
+    if (ImGui::InvisibleButton(label, ImVec2(std::max(ImGui::GetContentRegionAvail().x, 1.0f), height))) {
+        open = !open;
+        ImGui::TreeNodeSetOpen(id, open);
+    }
+    const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    if (ImGui::IsItemHovered()) draw->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_HeaderHovered), style.FrameRounding);
+    const f32 glyph = std::floor(font * 0.62f);
+    drawGlyph(draw, open ? icon::kChevronDown : icon::kChevronRight, ImVec2(min.x + style.ItemInnerSpacing.x * 0.5f, min.y),
+              ImVec2(min.x + style.ItemInnerSpacing.x * 0.5f + glyph, max.y), glyph, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+    draw->AddText(ImVec2(min.x + style.ItemInnerSpacing.x * 0.5f + glyph + style.ItemInnerSpacing.x, min.y + style.FramePadding.y),
+                  ImGui::GetColorU32(ImGuiCol_Text, 0.72f), label, ImGui::FindRenderedTextEnd(label));
     return open;
 }
+
+bool beginCombo(const char* label, const char* preview, int comboFlags) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    // Taken before BeginCombo: when open, it switches to the popup window
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const f32 width = ImGui::CalcItemWidth(), height = ImGui::GetFrameHeight();
+    const ImVec4 frame = ImGui::GetStyleColorVec4(ImGuiCol_FrameBg);
+    const bool open = ImGui::BeginCombo(label, preview, comboFlags | ImGuiComboFlags_NoArrowButton);
+    const f32 glyph = std::floor(ImGui::GetFontSize() * 0.62f);
+    const f32 glyphX = pos.x + width - style.FramePadding.x - glyph;
+    if (frame.w > 0.0f) { // long previews end before the chevron
+        const ImVec2 cover(glyphX - style.ItemInnerSpacing.x, pos.y), end(pos.x + width, pos.y + height);
+        draw->AddRectFilled(cover, end, ImGui::GetColorU32(ImGui::IsMouseHoveringRect(ImVec2(pos.x, pos.y), end) ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg),
+                            style.FrameRounding, ImDrawFlags_RoundCornersRight);
+    }
+    drawGlyph(draw, icon::kChevronDown, ImVec2(glyphX, pos.y), ImVec2(glyphX + glyph, pos.y + height), glyph, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+    return open;
+}
+
+namespace {
+
+// The button behind an icon: its rect is left as the last item. Clear until hovered, or filled with the accent when active
+bool iconButtonFrame(const char* tooltip, bool active) {
+    ImGui::PushID(tooltip);
+    if (active) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    }
+    const f32 side = ImGui::GetFrameHeight();
+    const bool pressed = ImGui::Button("##icon", ImVec2(side, side));
+    ImGui::PopStyleColor(2);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tooltip);
+    ImGui::PopID();
+    return pressed;
+}
+
+} // namespace
+
+void drawGlyph(ImDrawList* draw, const char* glyph, ImVec2 min, ImVec2 max, f32 size, unsigned int color) {
+    ImFont* font = ImGui::GetFont();
+    unsigned int codepoint = 0;
+    ImTextCharFromUtf8(&codepoint, glyph, nullptr);
+    const ImFontGlyph* g = font->GetFontBaked(size)->FindGlyph(static_cast<ImWchar>(codepoint));
+    const ImVec2 at(std::round((min.x + max.x - g->X0 - g->X1) * 0.5f), std::round((min.y + max.y - g->Y0 - g->Y1) * 0.5f));
+    draw->AddText(font, size, at, color, glyph);
+}
+
+bool iconButton(const char* glyph, const char* tooltip, bool active) {
+    const bool pressed = iconButtonFrame(tooltip, active);
+    drawGlyph(ImGui::GetWindowDrawList(), glyph, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetFontSize() * kIconScale, ImGui::GetColorU32(ImGuiCol_Text));
+    return pressed;
+}
+
+// The icon fonts have no magnet: a horseshoe outline open at the top, with its tips marked off
+bool magnetButton(const char* tooltip, bool active) {
+    const bool pressed = iconButtonFrame(tooltip, active);
+    const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+    const f32 size = std::floor((max.y - min.y) * 0.52f);
+    const f32 outer = size * 0.5f, inner = size * 0.2f, tip = size * 0.22f;
+    const ImVec2 center((min.x + max.x) * 0.5f, std::floor((min.y + max.y) * 0.5f + size * 0.02f));
+    const f32 top = center.y - size * 0.5f, thickness = std::max(1.0f, size * 0.085f);
+    const ImU32 color = ImGui::GetColorU32(ImGuiCol_Text);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->PathLineTo(ImVec2(center.x - outer, top));
+    draw->PathArcTo(center, outer, IM_PI, 0.0f, 16); // through the bottom: y points down
+    draw->PathLineTo(ImVec2(center.x + outer, top));
+    draw->PathLineTo(ImVec2(center.x + inner, top));
+    draw->PathArcTo(center, inner, 0.0f, IM_PI, 10);
+    draw->PathLineTo(ImVec2(center.x - inner, top));
+    draw->PathStroke(color, ImDrawFlags_Closed, thickness);
+    draw->AddLine(ImVec2(center.x - outer, top + tip), ImVec2(center.x - inner, top + tip), color, thickness);
+    draw->AddLine(ImVec2(center.x + inner, top + tip), ImVec2(center.x + outer, top + tip), color, thickness);
+    return pressed;
+}
+
+f32& colorPickerSize() {
+    static f32 size = 10.0f;
+    return size;
+}
+
+// A swatch filling the row. It opens a small picker with RGB, HSV and hex rows, which moves by dragging its empty parts and resizes by its corner
+bool colorEdit(const char* label, f32* color, bool alpha, int flags) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const f32 font = ImGui::GetFontSize(), side = ImGui::GetFrameHeight();
+    const int base = flags | (alpha ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
+    const auto edit = [&](const char* id, int extra) {
+        return alpha ? ImGui::ColorEdit4(id, color, base | extra) : ImGui::ColorEdit3(id, color, base | extra);
+    };
+    const f32 width = ImGui::CalcItemWidth();
+    ImGui::PushID(label);
+    bool changed = false;
+    const ImVec4 shown(color[0], color[1], color[2], alpha ? color[3] : 1.0f);
+    if (ImGui::ColorButton("##swatch", shown, (flags & ImGuiColorEditFlags_HDR) | (alpha ? ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha), ImVec2(width, side)))
+        ImGui::OpenPopup("##colorPopup");
+    if (const char* end = ImGui::FindRenderedTextEnd(label); end != label) { // a label not given through propertyRow
+        ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+        ImGui::TextUnformatted(label, end);
+    }
+    if (ImGui::BeginPopup("##colorPopup")) {
+        const f32 total = std::floor(colorPickerSize() * font);
+        ImGui::SetNextItemWidth(total);
+        const int picker = base | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview;
+        changed |= alpha ? ImGui::ColorPicker4("##picker", color, picker) : ImGui::ColorPicker3("##picker", color, picker);
+        struct Row {
+            const char* name;
+            int display;
+        };
+        const f32 nameWidth = font * 2.4f;
+        for (const Row& row : {Row{"RGB", ImGuiColorEditFlags_DisplayRGB}, Row{"HSV", ImGuiColorEditFlags_DisplayHSV}, Row{"Hex", ImGuiColorEditFlags_DisplayHex}}) {
+            if (row.display == ImGuiColorEditFlags_DisplayHex && (flags & ImGuiColorEditFlags_HDR)) continue; // can't hold values over 1
+            ImGui::PushID(row.name);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", row.name);
+            ImGui::SameLine(nameWidth + style.WindowPadding.x);
+            ImGui::SetNextItemWidth(total - nameWidth);
+            changed |= edit("##value", row.display | ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoOptions | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoSmallPreview);
+            ImGui::PopID();
+        }
+        // Resize corner: outside the layout, so it can't feed back into the popup's auto size
+        // Growing near a screen edge pushes the window inward instead of out; it never grows past the screen height
+        const ImGuiViewport* screen = ImGui::GetMainViewport();
+        ImVec2 windowPos = ImGui::GetWindowPos();
+        const ImVec2 windowSize = ImGui::GetWindowSize();
+        const ImVec2 clamped(std::max(std::min(windowPos.x, screen->WorkPos.x + screen->WorkSize.x - windowSize.x), screen->WorkPos.x),
+                             std::max(std::min(windowPos.y, screen->WorkPos.y + screen->WorkSize.y - windowSize.y), screen->WorkPos.y));
+        if (clamped.x != windowPos.x || clamped.y != windowPos.y) {
+            ImGui::SetWindowPos(clamped);
+            windowPos = clamped;
+        }
+        const f32 largest = std::clamp((std::min(screen->WorkSize.x, screen->WorkSize.y - (windowSize.y - total)) - style.WindowPadding.x * 2.0f) / font, 9.0f, 24.0f);
+        const ImVec2 corner(windowPos.x + windowSize.x, windowPos.y + windowSize.y);
+        const f32 grip = std::floor(font * 0.9f);
+        const ImRect gripRect(ImVec2(corner.x - grip, corner.y - grip), corner);
+        // Followed by hand, from the press until the release. It holds the hovered and active ids so the press doesn't start moving the window
+        static bool held = false;
+        const ImGuiID gripId = ImGui::GetID("##resize");
+        ImGui::KeepAliveID(gripId);
+        const bool hovered = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(gripRect.Min, gripRect.Max, false);
+        if (hovered) ImGui::SetHoveredID(gripId);
+        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            held = true;
+            ImGui::SetActiveID(gripId, ImGui::GetCurrentContext()->CurrentWindow); // not GetCurrentWindow(): inline, it reads DLL data
+        }
+        if (held && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            held = false;
+            ImGui::ClearActiveID();
+        }
+        ImGui::PushClipRect(gripRect.Min, gripRect.Max, false); // the window's own clip rect stops short of its corner
+        if (hovered || held) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNWSE);
+        if (held) {
+            const ImVec2 delta = ImGui::GetIO().MouseDelta;
+            colorPickerSize() = std::clamp(colorPickerSize() + (delta.x + delta.y) * 0.5f / font, 9.0f, largest);
+        }
+        const ImU32 gripColor = ImGui::GetColorU32(held || hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        for (f32 inset : {3.0f, 7.0f})
+            draw->AddLine(ImVec2(corner.x - inset - 1.0f, corner.y - 3.0f), ImVec2(corner.x - 3.0f, corner.y - inset - 1.0f), gripColor);
+        ImGui::PopClipRect();
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+bool beginListPane(const char* id, f32 width) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ImGui::GetFontSize() * 0.4f, 0.0f));
+    const bool open = ImGui::BeginChild(id, ImVec2(width, 0.0f), ImGuiChildFlags_ResizeX | ImGuiChildFlags_AlwaysUseWindowPadding);
+    ImGui::PopStyleVar();
+    return open;
+}
+
+std::string iconTitle(const char* glyph, const char* label) { return std::string(glyph) + "  " + trl(label); }
 
 void drawFieldsReadOnly(const TypeInfo& type, const void* data) {
     const ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg;

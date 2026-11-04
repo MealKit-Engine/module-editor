@@ -123,7 +123,7 @@ void BalancePanel::drawContent(const ProjectInfo& project) {
     ImGui::BeginDisabled(running());
     ImGui::DragInt(propertyRow(tr("Matches")).c_str(), &m_matches, 1.0f, 1, 500);
     ImGui::DragFloat(propertyRow(tr("Match length (s)")).c_str(), &m_seconds, 5.0f, 5.0f, 3600.0f, "%.0f");
-    if (ImGui::BeginCombo(propertyRow(tr("Compare with tuning")).c_str(), m_compare.empty() ? tr("(none)") : m_compare.c_str())) {
+    if (beginCombo(propertyRow(tr("Compare with tuning")).c_str(), m_compare.empty() ? tr("(none)") : m_compare.c_str())) {
         if (ImGui::Selectable(tr("(none)"), m_compare.empty())) m_compare.clear();
         for (const std::string& f : listFiles(project.directory + "/assets", ".tuning"))
             if (f != "view.tuning" && ImGui::Selectable(f.c_str(), f == m_compare)) m_compare = f;

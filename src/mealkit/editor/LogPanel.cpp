@@ -1,6 +1,8 @@
 #include "mealkit/editor/LogPanel.h"
 
 #include "mealkit/editor/CodeLink.h"
+#include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
 
 #include <imgui.h>
@@ -51,26 +53,35 @@ void LogPanel::sink(log::Level level, double seconds, const char* message) {
     p->m_added = true;
 }
 
-void LogPanel::drawContent() {
+void LogPanel::drawFilters() {
     std::lock_guard<std::mutex> guard(m_lock);
-    if (ImGui::Button(tr("Clear"))) {
+    // Level filters: icon and count, filled when shown
+    const char* names[3] = {tr("Info"), tr("Warnings"), tr("Errors")};
+    const char* glyphs[3] = {icon::kInfo, icon::kWarning, icon::kError};
+    for (int i = 0; i < 3; ++i) {
+        if (i > 0) ImGui::SameLine(0.0f, 2.0f);
+        ImVec4 text = kColors[i];
+        if (!m_show[i]) text.w = 0.45f;
+        ImGui::PushStyleColor(ImGuiCol_Text, text);
+        ImGui::PushStyleColor(ImGuiCol_Button, m_show[i] ? ImGui::GetStyleColorVec4(ImGuiCol_FrameBg) : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        char label[96];
+        snprintf(label, sizeof(label), "%s  %u###level%d", glyphs[i], m_counts[i], i);
+        if (ImGui::Button(label)) m_show[i] = !m_show[i];
+        ImGui::PopStyleColor(2);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", names[i]);
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x));
+    ImGui::InputTextWithHint("##search", (std::string(icon::kSearch) + "  " + tr("Search")).c_str(), m_search, sizeof(m_search));
+    ImGui::SameLine();
+    if (iconButton(icon::kTrash, tr("Clear"))) {
         m_entries.clear();
         for (u32& c : m_counts) c = 0;
     }
-    const char* names[3] = {tr("Info"), tr("Warnings"), tr("Errors")};
-    for (int i = 0; i < 3; ++i) {
-        ImGui::SameLine();
-        ImGui::PushStyleColor(ImGuiCol_Text, kColors[i]);
-        char label[96];
-        snprintf(label, sizeof(label), "%s (%u)###level%d", names[i], m_counts[i], i);
-        ImGui::Checkbox(label, &m_show[i]);
-        ImGui::PopStyleColor();
-    }
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##search", tr("Search"), m_search, sizeof(m_search));
-    ImGui::Separator();
+}
 
+void LogPanel::drawLines() {
+    std::lock_guard<std::mutex> guard(m_lock);
     std::vector<u32> rows;
     rows.reserve(m_entries.size());
     for (u32 i = 0; i < m_entries.size(); ++i) {

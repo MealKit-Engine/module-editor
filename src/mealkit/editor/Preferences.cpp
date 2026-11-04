@@ -16,7 +16,7 @@ namespace {
 std::string settingsPath() { return editorUserDirectory() + "\\editor_settings.txt"; }
 
 const char* const kKeys[] = {"cameraSpeed", "uiScale",  "autosaveSeconds", "externalEditor",
-                             "projectLayout", "snapMove", "snapRotate", "snapScale", "compact"};
+                             "projectLayout", "snapMove", "snapRotate", "snapScale", "compact", "colorPickerSize"};
 
 bool ownKey(const std::string& key) {
     for (const char* k : kKeys)
@@ -49,6 +49,7 @@ Preferences loadPreferences() {
         else if (key == "snapMove") p.snapMove = std::clamp(static_cast<f32>(atof(value.c_str())), 0.01f, 100.0f);
         else if (key == "snapRotate") p.snapRotate = std::clamp(static_cast<f32>(atof(value.c_str())), 0.1f, 180.0f);
         else if (key == "snapScale") p.snapScale = std::clamp(static_cast<f32>(atof(value.c_str())), 0.001f, 10.0f);
+        else if (key == "colorPickerSize") p.colorPickerSize = std::clamp(static_cast<f32>(atof(value.c_str())), 9.0f, 24.0f);
     }
     return p;
 }
@@ -67,9 +68,9 @@ bool savePreferences(const Preferences& p) {
     char buf[512];
     snprintf(buf, sizeof(buf),
              "cameraSpeed %g\nuiScale %g\nautosaveSeconds %u\nexternalEditor %s\nprojectLayout %d\nsnapMove %g\n"
-             "snapRotate %g\nsnapScale %g\ncompact %d\n",
+             "snapRotate %g\nsnapScale %g\ncompact %d\ncolorPickerSize %g\n",
              p.cameraSpeed, p.uiScale, p.autosaveSeconds, p.externalEditor.c_str(), p.projectLayout ? 1 : 0, p.snapMove,
-             p.snapRotate, p.snapScale, p.compact ? 1 : 0);
+             p.snapRotate, p.snapScale, p.compact ? 1 : 0, p.colorPickerSize);
     createDirectories(editorUserDirectory());
     return writeTextFile(settingsPath(), out + buf);
 }

@@ -18,6 +18,7 @@ struct Preferences {
     f32 snapMove = 0.5f;              // gizmo snap: move (m, also the floor grid spacing)
     f32 snapRotate = 15.0f;           // rotate (degrees)
     f32 snapScale = 0.1f;             // scale
+    f32 colorPickerSize = 10.0f;      // color picker width in font heights
 };
 
 Preferences loadPreferences();

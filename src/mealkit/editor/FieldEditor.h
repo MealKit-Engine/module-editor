@@ -1,5 +1,7 @@
 #pragma once
 
+#include <imgui.h>
+
 #include "mealkit/core/Reflect.h"
 #include "mealkit/data/Tables.h"
 
@@ -72,7 +74,28 @@ void drawFieldsReadOnly(const reflect::TypeInfo& type, const void* data);
 //   ImGui::DragFloat(propertyRow(tr("Speed")).c_str(), &speed);
 std::string propertyRow(const char* label, const char* tooltip = nullptr);
 
-// Inspector section: a neutral bar, so the accent color stays for selection and active states
+// Inspector section: space above, a small chevron and dimmed text instead of a bar. Opens and closes like ImGui::CollapsingHeader
 bool sectionHeader(const char* label, int treeNodeFlags = 0);
+
+// ImGui::BeginCombo with a small dim chevron instead of the large arrow button. Every editor combo goes through this
+bool beginCombo(const char* label, const char* preview, int comboFlags = 0);
+
+// Square button showing only an icon glyph, centered by the glyph's own bounds; the tooltip names it. Clear until hovered, or filled with the accent when active
+bool iconButton(const char* glyph, const char* tooltip, bool active = false);
+// The same button with a drawn magnet (no such glyph in the icon fonts)
+bool magnetButton(const char* tooltip, bool active = false);
+// Draws one icon glyph centered in a rect. A button's label won't do: it starts at the frame padding when the glyph is wider than the room inside
+void drawGlyph(ImDrawList* draw, const char* glyph, ImVec2 min, ImVec2 max, f32 size, unsigned int color);
+
+// Color row: input fields and a swatch opening a compact picker (RGB, HSV, hex; resizable). flags: extra ImGuiColorEditFlags. Every editor color goes through this
+bool colorEdit(const char* label, f32* color, bool alpha = false, int flags = 0);
+// Picker width in font heights, shared by all pickers (the editor keeps it in its preferences)
+f32& colorPickerSize();
+
+// Left page/folder list of a window: resizable, no border, the selection bar has room around its text. Close with ImGui::EndChild()
+bool beginListPane(const char* id, f32 width);
+
+// "<icon>  <translated title>###<id>" for a window title, from a trl() style label
+std::string iconTitle(const char* glyph, const char* label);
 
 } // namespace mealkit::editor

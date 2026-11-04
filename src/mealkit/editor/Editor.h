@@ -110,7 +110,7 @@ public:
     void setCompact() { m_prefs.compact = true; } // --compact, not saved
     // --input "move 500 300; down; wait 2; up; key ctrl+z; type abc; command Save; print": test input, one step per frame
     void setTestInput(const std::string& script);
-    void openProblems() { openDebugPage(DebugPage::Problems); m_debugFrontFrames = 30; }
+    void openProblems() { openDebugPage(DebugPage::Log); m_problemsShown = true; m_debugFrontFrames = 30; }
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
     void setAudio(audio::Engine* audio) { m_audio = audio; }
@@ -239,6 +239,9 @@ private:
     void focusInspector();
     void drawSceneWindow(unsigned int dockId); // scene view tab: sets m_viewport
     bool sceneMouseBlocked() const;
+    bool m_hierarchyOpen = true;
+    bool m_sceneOpen = true; // closed only while editing: play opens it
+    bool m_inspectorOpen = true;
     bool m_sceneVisible = true;
     bool m_sceneHovered = false;
     int m_sceneFrontFrames = 0;
@@ -604,9 +607,11 @@ private:
     int m_testWait = 0;
     float m_testX = 0.0f, m_testY = 0.0f;
     void drawProblems();
+    void drawLogPage();
     std::vector<Problem> m_problems;
+    bool m_problemsShown = true; // the list above the log lines
     f64 m_problemTimer = 1.0; // check on the first frame
-    enum class DebugPage { Log, Problems, Build, Performance, Sound, State, Tests, Balance };
+    enum class DebugPage { Log, Build, Performance, Sound, State, Tests, Balance };
     // [Settings] and [Previews] windows (EditorData.cpp)
     enum class SettingsPage { Project, Preferences, Modules, Tools, Shortcuts };
     enum class PreviewPage { Ui, LookDev, Cutscene };
