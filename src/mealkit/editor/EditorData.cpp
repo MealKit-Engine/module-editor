@@ -6,6 +6,7 @@
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Window.h"
+#include "mealkit/rhi/GpuCapture.h"
 #include "mealkit/platform/Process.h"
 
 #include <ImGuizmo.h>
@@ -278,7 +279,18 @@ void Editor::drawDebugHub() {
             if (m_buildPanel.drawContent(m_mode == Mode::Edit, m_project, m_time, &request)) startBuild(request);
             break;
         }
-        case DebugPage::Performance: m_perfPanel.drawContent(); break;
+        case DebugPage::Performance: {
+            // Off shows the real frame cost instead of the monitor refresh interval
+            bool vsync = m_renderer->vsync();
+            if (ImGui::Checkbox(tr("Vertical Sync"), &vsync)) m_renderer->setVsync(vsync);
+            // Only when RenderDoc/PIX was loaded with --gpu-capture
+            if (const char* tool = rhi::gpuCaptureTool()) {
+                ImGui::SameLine();
+                if (ImGui::Button(trf("GPU Capture (%s)", tool).c_str())) captureGpuFrame();
+            }
+            m_perfPanel.drawContent();
+            break;
+        }
         case DebugPage::Sound:
             if (m_audio) m_soundPanel.drawMonitor(*m_audio);
             break;

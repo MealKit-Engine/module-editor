@@ -240,6 +240,11 @@ void Editor::drawCommandPalette() {
     for (const ToolInfo& t : m_tools)
         if (t.problem == ToolInfo::Problem::None) add(t.name, tr("Tools"), [this, &t] { launchTool(t, m_project.directory); }, fuzzyScore(t.name, q));
     if (q[0]) { // long lists only once something is typed
+        if (m_mode == Mode::Edit)
+            for (const reflect::TypeInfo* t : allTypes()) {
+                const std::string name = trData(t->label), kind = t->name;
+                add(name, tr("Add"), [this, kind] { addEntity(kind); }, std::max(fuzzyScore(name, q), fuzzyScore(kind, q)));
+            }
         for (const std::string& file : m_paletteAssets)
             add(file, tr("Asset"), [this, file] { revealAsset(file); }, fuzzyScore(file, q));
         for (int d = 0; d < m_tablesPanel.docCount(); ++d) {

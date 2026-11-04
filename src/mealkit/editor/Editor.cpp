@@ -925,14 +925,22 @@ void Editor::drawMenuBar() {
     if (!editing) ImGui::PopStyleColor();
     if (!open) return;
 
-    if (ImGui::BeginMenu(tr("File"), editing)) {
+    // Enabled during play too: each item decides for itself
+    if (ImGui::BeginMenu(tr("Project"))) {
+        commandMenuItem("Settings..."); // project settings, preferences, modules, tools and shortcuts are its pages
+        ImGui::Separator();
+        commandMenuItem("Open Project Folder");
+        commandMenuItem("Open Release Folder");
+        ImGui::Separator();
+        if (ImGui::MenuItem(tr("Exit"))) m_quit = true;
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu(tr("Scene"), editing)) {
         commandMenuItem("New Scene");
         commandMenuItem("Open...");
         commandMenuItem("Save");
         commandMenuItem("Save As...");
         ImGui::Separator();
-        commandMenuItem("Scenes", &m_sceneListOpen);
-        commandMenuItem("Open Replay...");
         if (ImGui::BeginMenu(tr("Recent Scenes"), !m_recentScenes.empty())) {
             std::string chosen;
             for (const std::string& path : m_recentScenes)
@@ -940,10 +948,8 @@ void Editor::drawMenuBar() {
             ImGui::EndMenu();
             if (!chosen.empty() && chosen != m_scenePath) openSceneFile(chosen);
         }
-        ImGui::Separator();
-        commandMenuItem("Settings..."); // project settings, preferences, modules, tools and shortcuts are its pages
-        ImGui::Separator();
-        if (ImGui::MenuItem(tr("Exit"))) m_quit = true;
+        commandMenuItem("Scenes", &m_sceneListOpen);
+        commandMenuItem("Open Replay...");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Edit"), editing)) {
@@ -966,15 +972,7 @@ void Editor::drawMenuBar() {
         }
         ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu(tr("Add"), editing)) {
-        drawAddMenuItems();
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu(tr("View"))) {
-        commandMenuItem("Focus Selected");
-        commandMenuItem("Command Palette");
-        ImGui::Separator();
-        // Every panel in one place
+    if (ImGui::BeginMenu(tr("Window"))) {
         commandMenuItem("Assets", &m_assetsOpen);
         commandMenuItem("Debug", &m_debugOpen); // log, problems, build log, performance and state are its pages
         ImGui::Separator();
@@ -1010,39 +1008,16 @@ void Editor::drawMenuBar() {
             ImGui::EndMenu();
         }
         ImGui::Separator();
-        // View modes: what's expensive, by color (edit screen, not in shipping builds)
-        if (ImGui::BeginMenu(tr("View Mode"))) {
-            const char* names[] = {tr("Lit"), tr("Wireframe"), tr("Normals"), tr("LOD Level"), tr("Overdraw"),
-                                   tr("Over Budget"), tr("Material Features")};
-            static_assert(std::size(names) == static_cast<size_t>(render::DebugView::Count));
-            for (u32 i = 0; i < static_cast<u32>(render::DebugView::Count); ++i) {
-                const auto view = static_cast<render::DebugView>(i);
-                if (ImGui::MenuItem(names[i], nullptr, m_debugView == view, m_renderer->supportsDebugView(view)))
-                    m_debugView = view;
-            }
-            ImGui::EndMenu();
-        }
-        // Off shows the real frame cost instead of the monitor refresh interval
-        if (ImGui::MenuItem(tr("Vertical Sync"), nullptr, m_renderer->vsync())) m_renderer->setVsync(!m_renderer->vsync());
-        // GPU capture (only when RenderDoc/PIX was loaded with --gpu-capture)
-        if (const char* tool = rhi::gpuCaptureTool()) {
-            if (ImGui::MenuItem(trf("GPU Capture (%s)", tool).c_str(), "F11")) captureGpuFrame();
-        }
+        commandMenuItem("Command Palette");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Build"), !m_project.directory.empty())) {
         commandMenuItem("Build Game Code (Hot Reload)");
         commandMenuItem("Release Build");
-        ImGui::Separator();
-        commandMenuItem("Play From Here");
-        ImGui::Separator();
-        commandMenuItem("Open Release Folder");
-        commandMenuItem("Open Project Folder");
         ImGui::EndMenu();
     }
     // Tool suite (editor/Tools.h): opens MealKit tools from separate repos with this project
-    if (ImGui::BeginMenu(tr("Tools"), !m_project.directory.empty())) {
-        if (m_tools.empty()) ImGui::MenuItem(tr("No tools installed"), nullptr, false, false);
+    if (!m_tools.empty() && !m_project.directory.empty() && ImGui::BeginMenu(tr("Tools"))) { // installing and rescanning are in [Settings]
         for (const ToolInfo& t : m_tools) {
             const std::string label = t.version.empty() ? t.name : t.name + "  " + t.version;
             if (ImGui::MenuItem(label.c_str(), nullptr, false, t.problem == ToolInfo::Problem::None))
@@ -1055,8 +1030,6 @@ void Editor::drawMenuBar() {
                 else ImGui::SetTooltip("%s", t.folder.c_str());
             }
         }
-        ImGui::Separator();
-        if (ImGui::MenuItem(tr("Manage Tools..."))) openSettingsPage(SettingsPage::Tools);
         ImGui::EndMenu();
     }
 
@@ -1101,6 +1074,8 @@ void Editor::drawMenuBar() {
             ImGui::BeginDisabled(m_playPlayers == 1);
             ImGui::Checkbox(tr("Bots in player windows"), &m_playClientBots);
             ImGui::EndDisabled();
+            commandMenuItem("Play From Here");
+            ImGui::Separator();
             ImGui::Checkbox(tr("Shadow check"), &m_shadowCheck);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
                 ImGui::SetTooltip("%s", tr("Runs a second simulation with the same inputs during play and compares every tick.\n"
@@ -2017,6 +1992,11 @@ void Editor::drawViewportToolbar() {
         endGroup(1);
 
         beginGroup(2);
+        ImGui::BeginDisabled(!selected());
+        if (toolButton(tr("Focus Selected"), false)) focusSelected();
+        ImGui::EndDisabled();
+        tip("F");
+        ImGui::SameLine();
         if (toolButton(m_ortho ? tr("Orthographic") : tr("Perspective"), false)) m_ortho = !m_ortho;
         tip(tr("Switch between perspective and orthographic (wheel zooms in orthographic)"));
         ImGui::SameLine();
