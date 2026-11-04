@@ -28,6 +28,7 @@
 #include "mealkit/scene/Scene.h"
 
 #include <functional>
+#include <map>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -97,7 +98,7 @@ public:
     void setTables(const reflect::TableList* tables) { m_tablesPanel.setTables(tables); }
     // When play starts: saves edited tables (the game reads them from files when a match starts)
     void saveTablesForPlay();
-    void openTables() { m_tablesOpen = true; } // for automated tests
+    void openTables() { m_tablesOpen = true; m_tablesFrontFrames = 30; } // for automated tests: also brought to the front
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
     void setAudio(audio::Engine* audio) { m_audio = audio; }
@@ -269,9 +270,14 @@ private:
     void drawAssetFolder(const std::string& root, const std::string& relative);
     void handleAssetDrop();
     void renameAsset(const std::string& from, const std::string& to);
+    int m_tablesFrontFrames = 0;
     bool m_assetsOpen = true;
     std::string m_assetFolder;   // relative to assets ("models")
     std::string m_assetSelected; // file relative to assets
+    // Folder listings and missing model references, read again once a second rather than every frame
+    std::map<std::string, std::vector<std::string>> m_assetDirs, m_assetFiles; // by native folder path
+    std::vector<std::string> m_assetMissing;
+    double m_assetScanTime = -1000.0;
     std::string m_assetRenameFrom;
     char m_assetRenameBuffer[260] = {};
     std::string chooseModel(); // file dialog → path relative to assets (empty string on cancel)

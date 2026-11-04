@@ -261,6 +261,10 @@ void Editor::update(f64 dt) {
     drawHierarchy(editing);
     drawInspector(editing);
     m_tuningPanel.draw(kInspectorWindow, m_mode == Mode::Play, m_playPlayers > 1, m_tablesPanel.index());
+    if (m_tablesOpen && m_tablesFrontFrames > 0) {
+        --m_tablesFrontFrames;
+        ImGui::SetNextWindowFocus();
+    }
     if (m_tablesOpen) m_tablesPanel.draw(m_window->nativeHandle(), editing, &m_tablesOpen);
     if (m_soundsOpen && m_audio) m_soundPanel.draw(*m_audio, &m_soundsOpen);
     if (m_feedbackOpen) m_feedbackPanel.draw(m_feedback, m_cameraPos + cameraForward() * 10.0f, dt, &m_feedbackOpen);

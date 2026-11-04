@@ -85,11 +85,16 @@ size_t replacePath(std::string& text, const std::string& from, const std::string
 
 void Editor::drawAssetFolder(const std::string& root, const std::string& relative) {
     const std::string folder = relative.empty() ? root : root + "\\" + toNative(relative);
-    for (const std::string& d : listDirectories(folder)) {
+    auto directories = [this](const std::string& path) -> const std::vector<std::string>& {
+        auto it = m_assetDirs.find(path);
+        return it != m_assetDirs.end() ? it->second : m_assetDirs.emplace(path, listDirectories(path)).first->second;
+    };
+    const std::vector<std::string> folders = directories(folder); // copy: the map grows while walking children
+    for (const std::string& d : folders) {
         if (d[0] == '.') continue;
         const std::string child = relative.empty() ? d : relative + "/" + d;
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-        if (listDirectories(root + "\\" + toNative(child)).empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+        if (directories(root + "\\" + toNative(child)).empty()) flags |= ImGuiTreeNodeFlags_Leaf;
         if (m_assetFolder == child) flags |= ImGuiTreeNodeFlags_Selected;
         const bool open = ImGui::TreeNodeEx(child.c_str(), flags, "%s  %s", icon::kFolder, d.c_str());
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) m_assetFolder = child;
@@ -107,6 +112,13 @@ void Editor::drawAssetBrowser() {
         return;
     }
     const std::string root = asset::ModelCache::assetsRoot();
+    const double now = ImGui::GetTime();
+    const bool rescan = now - m_assetScanTime >= 1.0;
+    if (rescan) {
+        m_assetScanTime = now;
+        m_assetDirs.clear();
+        m_assetFiles.clear();
+    }
     // Left: folders
     if (ImGui::BeginChild("##folders", ImVec2(ImGui::GetFontSize() * 13.0f, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders)) {
         if (ImGui::Selectable((std::string(icon::kFolder) + "  assets").c_str(), m_assetFolder.empty())) m_assetFolder.clear();
@@ -119,16 +131,22 @@ void Editor::drawAssetBrowser() {
         const std::string folder = m_assetFolder.empty() ? root : root + "\\" + toNative(m_assetFolder);
         ImGui::TextDisabled("assets/%s", m_assetFolder.c_str());
         // Broken model references in the current scene (paths gone after renaming in Explorer)
-        std::set<std::string> missing;
-        for (const scene::Entity& e : m_scene.entities)
-            if (!e.model.empty() && !fileExists(root + "\\" + toNative(e.model)) && !fileExists(e.model)) missing.insert(e.model);
-        if (!missing.empty()) {
+        if (rescan) {
+            std::set<std::string> missing;
+            for (const scene::Entity& e : m_scene.entities)
+                if (!e.model.empty() && !fileExists(root + "\\" + toNative(e.model)) && !fileExists(e.model)) missing.insert(e.model);
+            m_assetMissing.assign(missing.begin(), missing.end());
+        }
+        if (!m_assetMissing.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.45f, 1.0f));
-            for (const std::string& m : missing) ImGui::TextWrapped("%s", trf("Missing in this scene: %s", m.c_str()).c_str());
+            for (const std::string& m : m_assetMissing) ImGui::TextWrapped("%s", trf("Missing in this scene: %s", m.c_str()).c_str());
             ImGui::PopStyleColor();
         }
         ImGui::Separator();
-        for (const std::string& name : listFiles(folder)) {
+        auto listed = m_assetFiles.find(folder);
+        if (listed == m_assetFiles.end()) listed = m_assetFiles.emplace(folder, listFiles(folder)).first;
+        const std::vector<std::string> files = listed->second; // copy: double-clicking a scene can change the lists
+        for (const std::string& name : files) {
             if (name.size() > 9 && name.compare(name.size() - 9, 9, ".autosave") == 0) continue;
             const std::string relative = m_assetFolder.empty() ? name : m_assetFolder + "/" + name;
             ImGui::PushID(relative.c_str());
@@ -167,6 +185,7 @@ void Editor::drawAssetBrowser() {
         const bool enter = ImGui::InputText("##to", m_assetRenameBuffer, sizeof(m_assetRenameBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
         if (ImGui::Button(tr("OK")) || enter) {
             renameAsset(m_assetRenameFrom, m_assetRenameBuffer);
+            m_assetScanTime = -1000.0; // show the move right away
             m_assetRenameFrom.clear();
             ImGui::CloseCurrentPopup();
         }
