@@ -806,7 +806,7 @@ f32& colorPickerSize() {
     return size;
 }
 
-// A swatch filling the row. It opens a small picker with RGB, HSV and hex rows, which moves by dragging its empty parts and resizes by its corner
+// A square swatch. It opens a small picker with RGB, HSV and hex rows, which moves by the handle on top and resizes by its corner
 bool colorEdit(const char* label, f32* color, bool alpha, int flags) {
     const ImGuiStyle& style = ImGui::GetStyle();
     const f32 font = ImGui::GetFontSize(), side = ImGui::GetFrameHeight();
@@ -814,18 +814,32 @@ bool colorEdit(const char* label, f32* color, bool alpha, int flags) {
     const auto edit = [&](const char* id, int extra) {
         return alpha ? ImGui::ColorEdit4(id, color, base | extra) : ImGui::ColorEdit3(id, color, base | extra);
     };
-    const f32 width = ImGui::CalcItemWidth();
     ImGui::PushID(label);
     bool changed = false;
     const ImVec4 shown(color[0], color[1], color[2], alpha ? color[3] : 1.0f);
-    if (ImGui::ColorButton("##swatch", shown, (flags & ImGuiColorEditFlags_HDR) | (alpha ? ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha), ImVec2(width, side)))
-        ImGui::OpenPopup("##colorPopup");
+    // A faint border, so even a dark color doesn't read as an empty checkbox
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.2f));
+    const bool swatchPressed = ImGui::ColorButton("##swatch", shown, (flags & ImGuiColorEditFlags_HDR) | (alpha ? ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha), ImVec2(side, side));
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+    if (swatchPressed) ImGui::OpenPopup("##colorPopup");
     if (const char* end = ImGui::FindRenderedTextEnd(label); end != label) { // a label not given through propertyRow
         ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
         ImGui::TextUnformatted(label, end);
     }
     if (ImGui::BeginPopup("##colorPopup")) {
         const f32 total = std::floor(colorPickerSize() * font);
+        // Move handle: a press on a Dummy reaches the window, which starts moving
+        ImGui::Dummy(ImVec2(total, std::floor(font * 0.6f)));
+        const bool handleHot = ImGui::IsItemHovered();
+        if (handleHot) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+        {
+            const ImVec2 handleMin = ImGui::GetItemRectMin(), handleMax = ImGui::GetItemRectMax();
+            const f32 middleX = (handleMin.x + handleMax.x) * 0.5f, middleY = (handleMin.y + handleMax.y) * 0.5f, halfWidth = font * 1.2f;
+            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(middleX - halfWidth, middleY - 1.5f), ImVec2(middleX + halfWidth, middleY + 1.5f),
+                                                      ImGui::GetColorU32(handleHot ? ImGuiCol_Text : ImGuiCol_TextDisabled), 1.5f);
+        }
         ImGui::SetNextItemWidth(total);
         const int picker = base | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview;
         changed |= alpha ? ImGui::ColorPicker4("##picker", color, picker) : ImGui::ColorPicker3("##picker", color, picker);
