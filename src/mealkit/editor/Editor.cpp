@@ -294,6 +294,7 @@ void Editor::update(f64 dt) {
         m_viewTableTimer = 0.0;
     }
     updateProblems(dt);
+    m_testsPanel.poll(m_project, dt);
     updateStateGraphs();
     m_modulesPanel.update();
     drawSettingsHub();

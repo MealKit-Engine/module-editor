@@ -88,6 +88,11 @@ void Editor::buildCommands() {
         {"Debug", 0, 0, always, [this] { m_debugOpen = !m_debugOpen; }},
         {"Problems", 0, 0, always, [this] { toggleDebugPage(DebugPage::Problems); }},
         {"State", 0, 0, always, [this] { toggleDebugPage(DebugPage::State); }},
+        {"Tests", 0, 0, always, [this] { toggleDebugPage(DebugPage::Tests); }},
+        {"Run All Tests", 0, 0, always, [this] {
+             openDebugPage(DebugPage::Tests);
+             m_testsPanel.runAll(m_project);
+         }},
         {"Tuning", 0, 0, always, [this] { toggleDataPage(DataPage::Tuning, 0); }},
         {"Tables", ImGuiMod_Ctrl | ImGuiKey_T, 0, always, [this] { toggleDataPage(DataPage::Table, 0); }},
         {"Sounds", 0, 0, [this] { return m_audio != nullptr; }, [this] { toggleDataPage(DataPage::Sounds, 0); }},

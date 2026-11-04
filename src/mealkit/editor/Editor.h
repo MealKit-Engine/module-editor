@@ -4,6 +4,7 @@
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/camera/Brain.h"
 #include "mealkit/editor/BuildPanel.h"
+#include "mealkit/editor/TestsPanel.h"
 #include "mealkit/editor/LogPanel.h"
 #include "mealkit/editor/PerfPanel.h"
 #include "mealkit/editor/Preferences.h"
@@ -541,6 +542,7 @@ private:
     bool m_upgradeRequested = false; // start the upgrade when the build finishes
     BuildPanel m_buildPanel;
     LogPanel m_logPanel;
+    TestsPanel m_testsPanel;
     PerfPanel m_perfPanel;
     game::FrameSample m_playSample; // PlaySession's simulation/network numbers during play ([Performance] window)
     Preferences m_prefs;
@@ -602,7 +604,7 @@ private:
     void drawProblems();
     std::vector<Problem> m_problems;
     f64 m_problemTimer = 1.0; // check on the first frame
-    enum class DebugPage { Log, Problems, Build, Performance, Sound, State };
+    enum class DebugPage { Log, Problems, Build, Performance, Sound, State, Tests };
     // [Settings] and [Previews] windows (EditorData.cpp)
     enum class SettingsPage { Project, Preferences, Modules, Tools, Shortcuts };
     enum class PreviewPage { Ui, LookDev, Cutscene };

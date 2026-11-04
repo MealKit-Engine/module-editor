@@ -267,6 +267,8 @@ void Editor::drawDebugHub() {
         entry(tr("Performance"), DebugPage::Performance);
         if (m_audio) entry(tr("Sounds"), DebugPage::Sound);
         entry(tr("State"), DebugPage::State);
+        const u32 failedTests = m_testsPanel.failedCount();
+        entry(failedTests ? trf("Tests (%u failed)", failedTests) : std::string(tr("Tests")), DebugPage::Tests);
     }
     ImGui::EndChild();
     ImGui::SameLine();
@@ -295,6 +297,7 @@ void Editor::drawDebugHub() {
             if (m_audio) m_soundPanel.drawMonitor(*m_audio);
             break;
         case DebugPage::State: drawState(); break;
+        case DebugPage::Tests: m_testsPanel.drawContent(m_project); break;
         }
     }
     ImGui::EndChild();
