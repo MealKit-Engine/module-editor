@@ -529,6 +529,10 @@ void Editor::updateProblems(f64 dt) {
         }
     }
 
+    required.clear();
+    m_uiPanel.collectBindingProblems(required);
+    for (const std::string& text : required) m_problems.push_back({false, trf("UI binding has no field: %s", text.c_str()), DataPage::Sounds, -1, 0});
+
     const data::TableIndexList& index = m_tablesPanel.index();
     if (index.empty()) return;
     std::vector<std::pair<int, std::string>> tableProblems;
