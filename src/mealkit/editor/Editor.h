@@ -116,6 +116,7 @@ public:
         if (!file.empty()) m_uiPanel.select(file);
     }
     bool selectUiNode(const std::string& name) { return m_uiPanel.selectNode(name); } // --ui-select (after --ui)
+    void setUiPreviewState(int state) { m_uiPanel.setPreviewState(state); } // --ui-state
     void dragUiNode(const std::string& name, f32 dx, f32 dy) { m_uiPanel.queueTestDrag(name, dx, dy); } // --ui-drag
     // [UI] panel in edit mode: undo/save/delete and scene view clicks go to the screen being edited
     bool uiEditing() const { return m_uiPanelOpen && m_mode == Mode::Edit && m_uiPanel.editing(); }

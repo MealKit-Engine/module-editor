@@ -79,6 +79,7 @@ struct Options {
     std::vector<std::string> commands; // --command "<English name>": run a command from the command table right after start (can be given multiple times)
     std::string uiPreview;        // open the [UI] window and preview this screen (file name in assets/ui)
     std::string uiSelect;         // with --ui: edit mode on, select this node (automated capture)
+    int uiState = 0;              // with --ui-select: state shown on it (1 hover, 2 pressed, 3 focus, 4 disabled, 5 checked)
     std::string uiDrag;           // with --ui-select: "dx,dy" logical units to drag it after the first frame (logs the result)
     std::string language; // --lang: this language for this run only (docs screenshots)
     std::string penpotToken; // --penpot-token: live connection server token (Penpot import automated tests, random if empty)
@@ -171,6 +172,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--ui" && next(v)) o.uiPreview = v;
         else if (a == "--ui-select" && next(v)) o.uiSelect = v;
         else if (a == "--ui-drag" && next(v)) o.uiDrag = v;
+        else if (a == "--ui-state" && next(v)) o.uiState = std::atoi(v);
         else if (a == "--scene" && next(v)) o.scenePath = v;
         else if (a == "--lang" && next(v)) o.language = v;
         else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
@@ -329,6 +331,7 @@ int main(int argc, char** argv) {
     if (opt.feedback) editor.openFeedback();
     if (!opt.uiPreview.empty()) editor.openUiPanel(opt.uiPreview);
     if (!opt.uiSelect.empty() && !editor.selectUiNode(opt.uiSelect)) MEALKIT_ERROR("--ui-select: no node '%s'", opt.uiSelect.c_str());
+    if (opt.uiState > 0 && opt.uiState < 6) editor.setUiPreviewState(opt.uiState);
     if (!opt.uiDrag.empty()) {
         char* end = nullptr;
         const f32 dx = std::strtof(opt.uiDrag.c_str(), &end);
