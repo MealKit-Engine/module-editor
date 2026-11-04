@@ -104,6 +104,7 @@ public:
     void openTuning() { openDataPage(DataPage::Tuning, 0); m_dataFrontFrames = 30; }
     void revealAsset(const std::string& relative);
     void openAssetGrid() { revealAsset("models/tree.glb"); m_assetThumb = 96.0f; m_assetsFront = 30; }
+    void setCompact() { m_prefs.compact = true; } // --compact, not saved
     void openProblems() { m_problemsOpen = true; m_problemsFront = true; }
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
@@ -572,6 +573,10 @@ private:
     std::vector<Problem> m_problems;
     f64 m_problemTimer = 1.0; // check on the first frame
     bool m_problemsOpen = true;
+    bool m_compactApplied = false;
+    bool updateFieldHandles(); // viewport handles of gizmo= fields; true while they own the mouse
+    u32 m_handleEntity = 0;
+    std::string m_handleField;
     struct Badge {
         bool error = false;
         std::string text;

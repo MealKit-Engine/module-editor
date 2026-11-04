@@ -72,6 +72,7 @@ struct Options {
     bool tables = false;          // start with the [Tables] window open
     bool tuning = false;
     bool problems = false;
+    bool compact = false;
     bool assetGrid = false;
     bool sounds = false;          // start with the [Sound] window open
     bool bakeProbes = false;      // --bake-probes: bake all reflection probes in the scene (6 frames each, with --frames)
@@ -169,6 +170,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--tables") o.tables = true;
         else if (a == "--tuning") o.tuning = true;
         else if (a == "--problems") o.problems = true;
+        else if (a == "--compact") o.compact = true;
         else if (a == "--asset-grid") o.assetGrid = true;
         else if (a == "--sounds") o.sounds = true;
         else if (a == "--lookdev") o.lookdev = true;
@@ -342,6 +344,7 @@ int main(int argc, char** argv) {
     if (opt.tables) editor.openTables();
     if (opt.tuning) editor.openTuning();
     if (opt.problems) editor.openProblems();
+    if (opt.compact) editor.setCompact();
     if (opt.assetGrid) editor.openAssetGrid();
     if (opt.sounds) editor.openSounds();
     if (opt.lookdev) editor.openLookdev();

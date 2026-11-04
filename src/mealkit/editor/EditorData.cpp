@@ -1,4 +1,5 @@
 #include "mealkit/editor/Editor.h"
+#include "mealkit/editor/EditorColors.h"
 
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/FieldEditor.h"
@@ -6,7 +7,10 @@
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Window.h"
 
+#include <ImGuizmo.h>
+
 #include <algorithm>
+#include <cmath>
 #include <set>
 
 #include <imgui.h>
@@ -175,6 +179,84 @@ void Editor::updateProblems(f64 dt) {
     }
 }
 
+// gizmo=radius fields of the selected object: three circles and a handle at the camera's right. Dragging is one undo step
+bool Editor::updateFieldHandles() {
+    Entity* e = selected();
+    const reflect::TypeInfo* type = e ? entityType(*e) : nullptr;
+    if (!type) return false;
+    const reflect::FieldInfo* field = nullptr;
+    for (const reflect::FieldInfo& f : type->fields)
+        if (f.value->kind == reflect::Kind::Float && splitFieldLabel(f.label).gizmo == "radius") field = &f;
+    if (!field) return false;
+
+    reflect::Instance instance(*type);
+    reflect::fromText(*type, instance.data(), e->fields);
+    f32& radius = *reinterpret_cast<f32*>(static_cast<u8*>(instance.data()) + field->offset);
+    const Vec3 center = scene::worldTransform(m_scene, *e).position;
+    const Mat4 viewProj = m_view * m_proj;
+    const auto project = [&](Vec3 p, ImVec2* out) {
+        const f32 cx = p.x * viewProj.m[0][0] + p.y * viewProj.m[1][0] + p.z * viewProj.m[2][0] + viewProj.m[3][0];
+        const f32 cy = p.x * viewProj.m[0][1] + p.y * viewProj.m[1][1] + p.z * viewProj.m[2][1] + viewProj.m[3][1];
+        const f32 cw = p.x * viewProj.m[0][3] + p.y * viewProj.m[1][3] + p.z * viewProj.m[2][3] + viewProj.m[3][3];
+        if (cw <= 0.0f) return false;
+        *out = ImVec2(m_viewport.x + (cx / cw * 0.5f + 0.5f) * m_viewport.width, m_viewport.y + (0.5f - cy / cw * 0.5f) * m_viewport.height);
+        return true;
+    };
+
+    ImDrawList* draw = ImGui::GetBackgroundDrawList(); // over the scene view, under the editor windows
+    const ImU32 line = ImGui::GetColorU32(ImVec4(1.0f, 0.85f, 0.45f, 0.8f));
+    const Vec3 axes[3][2] = {{{1, 0, 0}, {0, 1, 0}}, {{1, 0, 0}, {0, 0, 1}}, {{0, 1, 0}, {0, 0, 1}}};
+    for (const auto& axis : axes) {
+        ImVec2 previous;
+        bool hasPrevious = false;
+        for (int i = 0; i <= 64; ++i) {
+            const f32 a = static_cast<f32>(i) / 64.0f * 6.2831853f;
+            ImVec2 now;
+            const bool visible = project(center + (axis[0] * std::cos(a) + axis[1] * std::sin(a)) * radius, &now);
+            if (visible && hasPrevious) draw->AddLine(previous, now, line, 1.5f);
+            previous = now;
+            hasPrevious = visible;
+        }
+    }
+    const Vec3 forward = cameraForward();
+    const Vec3 right = normalize(cross(Vec3{0, 1, 0}, forward));
+    ImVec2 handle;
+    if (!project(center + right * radius, &handle)) return false;
+    const ImGuiIO& io = ImGui::GetIO();
+    const f32 dx = io.MousePos.x - handle.x, dy = io.MousePos.y - handle.y;
+    const bool dragging = m_handleEntity == e->id && m_handleField == field->name;
+    const bool hovered = !io.WantCaptureMouse && !ImGuizmo::IsUsing() && dx * dx + dy * dy < 100.0f;
+    draw->AddCircleFilled(handle, hovered || dragging ? 7.0f : 5.0f, ImGui::GetColorU32(ImVec4(1.0f, 0.85f, 0.45f, 1.0f)));
+    if (hovered || dragging) ImGui::SetTooltip("%s: %.2f", trData(splitFieldLabel(field->label).name.c_str()), static_cast<double>(radius));
+
+    if (!dragging && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        pushUndo(capture());
+        m_handleEntity = e->id;
+        m_handleField = field->name;
+        return true;
+    }
+    if (!dragging) return hovered;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        m_handleEntity = 0;
+        return true;
+    }
+    // The mouse on the plane through the center facing the camera
+    Vec3 origin, dir;
+    mouseRay(io.MousePos.x, io.MousePos.y, &origin, &dir);
+    const f32 facing = dot(dir, forward);
+    if (std::fabs(facing) > 0.001f) {
+        const Vec3 hit = origin + dir * (dot(center - origin, forward) / facing);
+        const f32 next = length(hit - center);
+        if (next != radius) {
+            radius = next;
+            reflect::TextFields fields;
+            reflect::toText(*type, instance.data(), fields);
+            e->fields = std::move(fields);
+        }
+    }
+    return true;
+}
+
 void Editor::drawProblems() {
     if (!m_problemsOpen) return;
     // The count is in the tab, so problems show without opening it. Old layout files don't have this window: first open docks it by the log
@@ -189,7 +271,7 @@ void Editor::drawProblems() {
     for (size_t i = 0; i < m_problems.size(); ++i) {
         const Problem& p = m_problems[i];
         ImGui::PushID(static_cast<int>(i));
-        ImGui::PushStyleColor(ImGuiCol_Text, p.error ? ImVec4(1.0f, 0.55f, 0.45f, 1.0f) : ImVec4(0.95f, 0.75f, 0.4f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, p.error ? color::kDanger : color::kWarning);
         const bool clicked = ImGui::Selectable(p.text.c_str());
         ImGui::PopStyleColor();
         if (clicked) { // copied first: opening a page must not depend on the list staying the same

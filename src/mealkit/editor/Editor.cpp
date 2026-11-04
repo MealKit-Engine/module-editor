@@ -1,4 +1,5 @@
 ﻿#include "mealkit/editor/Editor.h"
+#include "mealkit/editor/EditorColors.h"
 
 #include "mealkit/core/Log.h"
 #include "mealkit/core/Profile.h"
@@ -229,6 +230,14 @@ void Editor::update(f64 dt) {
     m_changed = false;
 
     ImGui::GetStyle().FontScaleMain = m_prefs.uiScale;
+    if (m_prefs.compact != m_compactApplied) { // spacing from the normal style, so turning it off restores it exactly
+        ImGuiStyle& style = ImGui::GetStyle();
+        const f32 scale = m_prefs.compact ? 0.5f : 2.0f;
+        style.FramePadding.y *= scale;
+        style.ItemSpacing.y *= scale;
+        style.CellPadding.y *= scale;
+        m_compactApplied = m_prefs.compact;
+    }
     m_buildPanel.setCodeEditor(m_prefs.externalEditor);
     m_logPanel.setCodeEditor(m_prefs.externalEditor);
     if (m_selected != m_multiOwner) {
@@ -305,7 +314,7 @@ void Editor::update(f64 dt) {
         drawGizmo();
         drawViewportToolbar();
         handleAssetDrop();
-        handlePicking();
+        if (!updateFieldHandles()) handlePicking();
     } else if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { // F5 (Shift+F5 too) stops; Esc belongs to the game (pause menus)
         m_stopRequest = true;
     } else if (m_simDebug && m_canPause && m_simDebug->timeline().recording) {
@@ -371,7 +380,7 @@ void Editor::drawPlayControls() {
     if (shadow.enabled) {
         if (shadow.desynced)
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), tr("Shadow: diverged at tick %u"), shadow.tick);
-        else ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", tr("Shadow: in sync"));
+        else ImGui::TextColored(color::kGood, "%s", tr("Shadow: in sync"));
     }
 }
 
@@ -1093,7 +1102,7 @@ void Editor::drawStatusBar() {
             const char* fps = "0000 fps";
             ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - 16.0f);
             // Red when over budget; clicking opens the [Performance] window
-            const ImVec4 fpsColor = m_perfPanel.overBudget() ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
+            const ImVec4 fpsColor = m_perfPanel.overBudget() ? color::kDanger
                                                              : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
             ImGui::TextColored(fpsColor, "%.0f fps", m_perf.sample().fps);
             if (ImGui::IsItemClicked()) *m_perfPanel.openFlag() = true;
@@ -1331,13 +1340,13 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     f32 badgeEnd = rowMin.x + ImGui::GetTreeNodeToLabelSpacing() + ImGui::CalcTextSize(("      " + label).c_str()).x + ImGui::GetFontSize() * 0.5f;
     const auto badge = m_badges.find(id);
     if (badge != m_badges.end()) {
-        const ImU32 color = ImGui::GetColorU32(badge->second.error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f) : ImVec4(0.95f, 0.75f, 0.4f, 1.0f));
+        const ImU32 color = ImGui::GetColorU32(badge->second.error ? color::kDanger : color::kWarning);
         ImGui::GetWindowDrawList()->AddText(ImVec2(badgeEnd, rowMin.y), color, "!");
         badgeEnd += ImGui::GetFontSize() * 0.6f;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", badge->second.text.c_str());
     }
     if (m_differsFromDefault.count(id)) {
-        ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(badgeEnd + 3.0f, (rowMin.y + rowMax.y) * 0.5f), 2.5f, ImGui::GetColorU32(ImVec4(0.45f, 0.70f, 1.0f, 1.0f)));
+        ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(badgeEnd + 3.0f, (rowMin.y + rowMax.y) * 0.5f), 2.5f, ImGui::GetColorU32(color::kChanged));
         badgeEnd += ImGui::GetFontSize() * 0.7f;
     }
     if (kindText) {
@@ -1561,7 +1570,7 @@ void Editor::drawInspector(bool editing) {
                     ImGui::TextDisabled("%s", trf("Budget: %s", kind).c_str());
                     usage(model->triangles[0], b.triangles, tr("Triangles"));
                     usage(model->materials, b.materials, tr("Materials"));
-                } else ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", tr("Could not load (see the log)"));
+                } else ImGui::TextColored(color::kDanger, "%s", tr("Could not load (see the log)"));
             }
             if (ImGui::Button(tr("Choose Model..."))) {
                 const std::string path = chooseModel();
@@ -1664,7 +1673,7 @@ bool Editor::transformRow(const char* label, const char* id, f32 v[3], f32 speed
     if (differs) {
         const ImVec2 min = ImGui::GetItemRectMin();
         ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(min.x - 5.0f, min.y + ImGui::GetFrameHeight() * 0.5f), 2.5f,
-                                                    ImGui::GetColorU32(ImVec4(0.45f, 0.70f, 1.0f, 1.0f)));
+                                                    ImGui::GetColorU32(color::kChanged));
     }
     if (ImGui::BeginPopupContextItem("##transformMenu")) {
         if (ImGui::MenuItem(tr("Reset to Default"), nullptr, false, differs)) {
@@ -3136,7 +3145,7 @@ void Editor::drawNotices() {
 void Editor::drawPlayFrame() {
     if (m_mode != Mode::Play) return;
     const ImVec2 a(m_viewport.x, m_viewport.y), b(m_viewport.x + m_viewport.width, m_viewport.y + m_viewport.height);
-    ImGui::GetBackgroundDrawList()->AddRect(a, b, ImGui::GetColorU32(ImVec4(0.95f, 0.55f, 0.15f, 1.0f)), 0.0f, 0, 4.0f);
+    ImGui::GetBackgroundDrawList()->AddRect(a, b, ImGui::GetColorU32(color::kPlay), 0.0f, 0, 4.0f);
 }
 
 void Editor::drawEmptyViewport() {

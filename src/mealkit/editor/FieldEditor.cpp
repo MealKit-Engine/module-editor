@@ -1,4 +1,5 @@
 #include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/EditorColors.h"
 
 #include "mealkit/core/Hash.h"
 
@@ -180,7 +181,7 @@ bool drawPicker(const char* label, std::string& value, const std::string& pick) 
     const std::vector<std::string>& names = pickChoices(pick);
     if (names.empty()) return inputString(label, value); // nothing to pick from (no audio, no folder)
     const bool found = value.empty() || std::find(names.begin(), names.end(), value) != names.end();
-    if (!found) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+    if (!found) ImGui::PushStyleColor(ImGuiCol_Text, color::kDanger);
     const std::string preview = value.empty() ? std::string(tr("(none)")) : value + (found ? "" : " (?)");
     const bool open = ImGui::BeginCombo(label, preview.c_str());
     if (!found) ImGui::PopStyleColor();
@@ -223,7 +224,7 @@ bool drawRowRef(const char* label, const ValueInfo& v, void* data, const FieldCo
     if (!ids) return inputString(label, *ref.id);
     bool found = ref.id->empty();
     for (const std::string& id : *ids) found = found || id == *ref.id;
-    if (!found) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+    if (!found) ImGui::PushStyleColor(ImGuiCol_Text, color::kDanger);
     const std::string preview = ref.id->empty() ? std::string(tr("(none)")) : *ref.id + (found ? "" : " (?)");
     bool changed = false;
     if (ImGui::BeginCombo(label, preview.c_str())) {
@@ -411,6 +412,7 @@ FieldLabel splitFieldLabel(const char* label) {
         if (key == "group") out.group = value;
         else if (key == "unit") out.unit = value;
         else if (key == "pick") out.pick = value;
+        else if (key == "gizmo") out.gizmo = value;
         else if (key == "step") out.step = std::strtof(value.c_str(), nullptr);
         else if (key == "range" && value.find("..") != std::string::npos) {
             out.min = std::strtof(value.c_str(), nullptr);
@@ -480,7 +482,7 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
             if (differs) {
                 const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
                 ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(min.x - 5.0f, (min.y + std::min(max.y, min.y + ImGui::GetFrameHeight())) * 0.5f),
-                                                            2.5f, ImGui::GetColorU32(ImVec4(0.45f, 0.70f, 1.0f, 1.0f)));
+                                                            2.5f, ImGui::GetColorU32(color::kChanged));
             }
         }
         // Right click: reset to default / copy value / paste

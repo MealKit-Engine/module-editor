@@ -10,6 +10,7 @@ namespace mealkit::editor {
 
 struct Preferences {
     f32 cameraSpeed = 15.0f;          // camera fly speed when the editor starts (values changed with the wheel aren't saved)
+    bool compact = false;             // tighter rows, so more fits on small screens
     f32 uiScale = 1.0f;               // text size scale (multiplied on top of the DPI scale)
     u32 autosaveSeconds = 90;         // interval for writing unsaved changes to <scene>.autosave (0 = off)
     std::string externalEditor = "code"; // editor used for opening code (VS Code style "-g file:line")

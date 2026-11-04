@@ -16,7 +16,7 @@ namespace {
 std::string settingsPath() { return editorUserDirectory() + "\\editor_settings.txt"; }
 
 const char* const kKeys[] = {"cameraSpeed", "uiScale",  "autosaveSeconds", "externalEditor",
-                             "projectLayout", "snapMove", "snapRotate", "snapScale"};
+                             "projectLayout", "snapMove", "snapRotate", "snapScale", "compact"};
 
 bool ownKey(const std::string& key) {
     for (const char* k : kKeys)
@@ -45,6 +45,7 @@ Preferences loadPreferences() {
         else if (key == "autosaveSeconds") p.autosaveSeconds = static_cast<u32>(strtoul(value.c_str(), nullptr, 10));
         else if (key == "externalEditor") p.externalEditor = value;
         else if (key == "projectLayout") p.projectLayout = value != "0";
+        else if (key == "compact") p.compact = value != "0";
         else if (key == "snapMove") p.snapMove = std::clamp(static_cast<f32>(atof(value.c_str())), 0.01f, 100.0f);
         else if (key == "snapRotate") p.snapRotate = std::clamp(static_cast<f32>(atof(value.c_str())), 0.1f, 180.0f);
         else if (key == "snapScale") p.snapScale = std::clamp(static_cast<f32>(atof(value.c_str())), 0.001f, 10.0f);
@@ -66,9 +67,9 @@ bool savePreferences(const Preferences& p) {
     char buf[512];
     snprintf(buf, sizeof(buf),
              "cameraSpeed %g\nuiScale %g\nautosaveSeconds %u\nexternalEditor %s\nprojectLayout %d\nsnapMove %g\n"
-             "snapRotate %g\nsnapScale %g\n",
+             "snapRotate %g\nsnapScale %g\ncompact %d\n",
              p.cameraSpeed, p.uiScale, p.autosaveSeconds, p.externalEditor.c_str(), p.projectLayout ? 1 : 0, p.snapMove,
-             p.snapRotate, p.snapScale);
+             p.snapRotate, p.snapScale, p.compact ? 1 : 0);
     createDirectories(editorUserDirectory());
     return writeTextFile(settingsPath(), out + buf);
 }
@@ -100,6 +101,7 @@ bool PreferencesPanel::draw(Preferences& p) {
     changed |= drawSnapSettings(p);
     ImGui::SeparatorText(tr("Interface"));
     changed |= ImGui::SliderFloat(tr("Text size"), &p.uiScale, 0.75f, 2.0f, "%.2fx");
+    changed |= ImGui::Checkbox(tr("Compact rows"), &p.compact);
     changed |= ImGui::Checkbox(tr("Save the window layout per project"), &p.projectLayout);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Takes effect the next time a project opens"));
     ImGui::SeparatorText(tr("Files"));

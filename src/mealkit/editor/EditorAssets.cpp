@@ -1,6 +1,7 @@
 // [Assets] window: assets/ folder tree and files, drag models into the scene view, rename/move (references fixed too), broken reference list.
 // Assets are referenced by paths relative to assets ("models/tree.glb") (docs/CODING_MODEL.md "Asset references and loading").
 #include "mealkit/editor/Editor.h"
+#include "mealkit/editor/EditorColors.h"
 
 #include "mealkit/asset/ModelCache.h"
 #include "mealkit/editor/ImGuiLayer.h"
@@ -165,7 +166,7 @@ void Editor::drawAssetBrowser() {
             m_assetMissing.assign(missing.begin(), missing.end());
         }
         if (!m_assetMissing.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.45f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, color::kDanger);
             for (const std::string& m : m_assetMissing) ImGui::TextWrapped("%s", trf("Missing in this scene: %s", m.c_str()).c_str());
             ImGui::PopStyleColor();
         }

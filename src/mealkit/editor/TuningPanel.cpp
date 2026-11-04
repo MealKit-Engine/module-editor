@@ -1,4 +1,5 @@
 #include "mealkit/editor/TuningPanel.h"
+#include "mealkit/editor/EditorColors.h"
 
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/FieldEditor.h"
@@ -113,9 +114,9 @@ void TuningPanel::drawDoc(Doc& doc, bool liveInMultiplayer, bool playing, bool m
         doc.undo.mark();
     }
     if (playing && (!multiplayer || liveInMultiplayer))
-        ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", tr("Playing: changes apply immediately"));
+        ImGui::TextColored(color::kGood, "%s", tr("Playing: changes apply immediately"));
     else if (playing)
-        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.4f, 1.0f), "%s",
+        ImGui::TextColored(color::kWarning, "%s",
                            tr("Changes do not apply during multiplayer play (from the next play)"));
     ImGui::Separator();
     ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
