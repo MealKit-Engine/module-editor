@@ -35,9 +35,10 @@ void Editor::buildCommands() {
         {"Open Replay...", 0, 0, [this] { return m_mode == Mode::Edit && m_gameLoaded; },
          [this] { openReplayDialog(); }},
         {"Save As...", 0, 0, editing, [this] { saveSceneAs(); }},
+        {"Settings...", 0, 0, always, [this] { m_settingsOpen = !m_settingsOpen; }},
         {"Project Settings...", 0, 0, [this] { return m_mode == Mode::Edit && !m_project.directory.empty(); },
-         [this] { m_projectPanel.open(); }},
-        {"Modules...", 0, 0, [this] { return !m_project.directory.empty(); }, [this] { m_modulesPanel.open(); }},
+         [this] { openSettingsPage(SettingsPage::Project); }},
+        {"Modules...", 0, 0, [this] { return !m_project.directory.empty(); }, [this] { openSettingsPage(SettingsPage::Modules); }},
         {"Undo", ImGuiMod_Ctrl | ImGuiKey_Z, 0,
          [this] { return m_dataFocused ? dataCanStep(true) : m_mode == Mode::Edit && (uiEditing() ? m_uiPanel.canUndo() : !m_undo.empty()); },
          [this] { m_dataFocused ? dataStep(true) : uiEditing() ? m_uiPanel.undo() : undo(); }},
@@ -80,8 +81,8 @@ void Editor::buildCommands() {
              m_playFromHere = false;
              m_playRequest = true;
          }},
-        {"Preferences...", 0, 0, always, [this] { *m_prefsPanel.openFlag() = true; }},
-        {"Keyboard Shortcuts", ImGuiKey_F1, 0, always, [this] { m_shortcutsOpen = !m_shortcutsOpen; }},
+        {"Preferences...", 0, 0, always, [this] { openSettingsPage(SettingsPage::Preferences); }},
+        {"Keyboard Shortcuts", ImGuiKey_F1, 0, always, [this] { openSettingsPage(SettingsPage::Shortcuts); }},
         {"Command Palette", ImGuiMod_Ctrl | ImGuiKey_P, 0, always, [this] { m_paletteOpen = true; }},
         {"Data", 0, 0, always, [this] { m_dataOpen = !m_dataOpen; }},
         {"Debug", 0, 0, always, [this] { m_debugOpen = !m_debugOpen; }},
@@ -91,8 +92,11 @@ void Editor::buildCommands() {
         {"Tables", ImGuiMod_Ctrl | ImGuiKey_T, 0, always, [this] { toggleDataPage(DataPage::Table, 0); }},
         {"Sounds", 0, 0, [this] { return m_audio != nullptr; }, [this] { toggleDataPage(DataPage::Sounds, 0); }},
         {"Feedback", 0, 0, always, [this] { toggleDataPage(DataPage::Feedback, 0); }},
-        {"UI", 0, 0, always, [this] { m_uiPanelOpen = !m_uiPanelOpen; }},
-        {"Look Dev", 0, 0, always, [this] { m_lookdevOpen = !m_lookdevOpen; }},
+        {"Previews", 0, 0, always, [this] { m_previewOpen = !m_previewOpen; }},
+        {"UI", 0, 0, always, [this] { openPreviewPage(PreviewPage::Ui); }},
+        {"Look Dev", 0, 0, always, [this] { openPreviewPage(PreviewPage::LookDev); }},
+        {"Preview Cutscene", 0, 0, always, [this] { openPreviewPage(PreviewPage::Cutscene); }},
+        {"Effects", 0, 0, always, [this] { toggleDataPage(DataPage::Effects, 0); }},
         {"Reset Layout", 0, 0, always, [this] { m_layoutReset = true; }},
         {"Build Game Code (Hot Reload)", ImGuiMod_Ctrl | ImGuiKey_R, 0,
          [this, canBuild] { return canBuild() && m_mode == Mode::Edit; }, [this] { startBuild(BuildKind::GameCode); }},
@@ -155,12 +159,6 @@ void Editor::runShortcuts() {
 
 // F1: shortcut list from the command table
 void Editor::drawShortcutHelp() {
-    if (!m_shortcutsOpen) return;
-    ImGui::SetNextWindowSize(ImVec2(420, 520), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl("Keyboard Shortcuts###Shortcuts"), &m_shortcutsOpen, ImGuiWindowFlags_NoDocking)) {
-        ImGui::End();
-        return;
-    }
     if (ImGui::BeginTable("##keys", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
         for (const Command& c : m_commands) {
             if (!c.chord) continue;
@@ -186,7 +184,6 @@ void Editor::drawShortcutHelp() {
         }
         ImGui::EndTable();
     }
-    ImGui::End();
 }
 
 void Editor::openPalette(const std::string& text) {

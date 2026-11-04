@@ -279,8 +279,7 @@ void Editor::update(f64 dt) {
     drawInspector(editing);
     drawDataHub(dt, editing);
     drawDebugHub();
-    if (m_uiPanelOpen) m_uiPanel.draw(&m_uiPanelOpen);
-    if (m_lookdevOpen && m_renderer) m_lookdev.draw(*m_renderer, &m_lookdevOpen);
+    drawPreviewHub();
     // Editing the sound event table (view-only) saves it so changes are heard immediately (audio rereads the file)
     m_viewTableDirty |= m_tablesPanel.takeViewTableChanged();
     m_viewTableTimer += dt;
@@ -291,8 +290,8 @@ void Editor::update(f64 dt) {
         m_viewTableTimer = 0.0;
     }
     updateProblems(dt);
-    m_projectPanel.draw(m_project, relativeTo(m_project.directory + "\\assets", m_scenePath));
-    m_modulesPanel.draw(m_project, m_engineDirectory, m_mode == Mode::Edit);
+    m_modulesPanel.update();
+    drawSettingsHub();
     // Module sim/ and view/ are game code: adding or changing them rebuilds the game DLL
     if (m_modulesPanel.takeChanged()) startBuild(BuildKind::GameCode);
     pollBuild();
@@ -300,11 +299,9 @@ void Editor::update(f64 dt) {
     drawBuildLog();
     takePanelStatus();
     drawNotices();
-    m_prefsPanel.draw(m_prefs);
     drawHistory();
     drawSceneList();
     drawAssetBrowser();
-    drawShortcutHelp();
     drawPlayFrame();
     drawEmptyViewport();
     if (ImGui::IsKeyPressed(ImGuiKey_F11, false) && rhi::gpuCaptureTool()) captureGpuFrame(); // both edit and play
@@ -905,9 +902,9 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     ImGui::DockBuilderDockWindow(kHierarchyWindow, left);
     if (preset == LayoutPreset::LookDev) {
         const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
-        ImGui::DockBuilderDockWindow(LookdevPanel::kWindow, right);
+        ImGui::DockBuilderDockWindow("Previews###Previews", right);
         right = rightBottom;
-        m_lookdevOpen = true;
+        openPreviewPage(PreviewPage::LookDev);
     }
     ImGui::DockBuilderDockWindow(kInspectorWindow, right);
     for (const char* w : kBottomWindows) ImGui::DockBuilderDockWindow(w, bottom);
@@ -939,9 +936,7 @@ void Editor::drawMenuBar() {
             if (!chosen.empty() && chosen != m_scenePath) openSceneFile(chosen);
         }
         ImGui::Separator();
-        commandMenuItem("Project Settings...");
-        commandMenuItem("Modules...");
-        commandMenuItem("Preferences...");
+        commandMenuItem("Settings..."); // project settings, preferences, modules, tools and shortcuts are its pages
         ImGui::Separator();
         if (ImGui::MenuItem(tr("Exit"))) m_quit = true;
         ImGui::EndMenu();
@@ -973,27 +968,14 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("View"))) {
         commandMenuItem("Focus Selected");
         commandMenuItem("Command Palette");
-        commandMenuItem("Keyboard Shortcuts");
         ImGui::Separator();
         // Every panel in one place
         commandMenuItem("Assets", &m_assetsOpen);
         commandMenuItem("Debug", &m_debugOpen); // log, problems, build log, performance and state are its pages
         ImGui::Separator();
         commandMenuItem("Data", &m_dataOpen); // tuning, tables, feedback and sounds are its pages (their commands stay in the palette)
-        commandMenuItem("UI", &m_uiPanelOpen);
-        commandMenuItem("Look Dev", &m_lookdevOpen);
+        commandMenuItem("Previews", &m_previewOpen); // UI, look dev and cutscenes are its pages
         ImGui::Separator();
-        if (ImGui::BeginMenu(tr("Preview Cutscene"), m_mode == Mode::Edit)) {
-            if (ImGui::IsWindowAppearing()) m_previewCutscenes.load(); // assets/tables/cutscenes.table as it is now
-            for (u32 i = 0; i < m_previewCutscenes.count(); ++i) {
-                const asset::Cutscenes::Cutscene& c = m_previewCutscenes.at(i);
-                char label[160];
-                std::snprintf(label, sizeof(label), "%s (%.1f s)", c.name.c_str(), c.clip ? static_cast<double>(c.clip->duration) : 0.0);
-                if (ImGui::MenuItem(label, nullptr, c.name == m_cutscenePreview, c.clip != nullptr)) previewCutscene(c.name);
-            }
-            if (m_previewCutscenes.count() == 0) ImGui::TextDisabled("%s", tr("No rows in tables/cutscenes.table"));
-            ImGui::EndMenu();
-        }
         if (ImGui::BeginMenu(tr("Layout"))) {
             const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev")};
             for (int i = 0; i < 3; ++i)
@@ -1052,11 +1034,7 @@ void Editor::drawMenuBar() {
             }
         }
         ImGui::Separator();
-        if (ImGui::MenuItem(tr("Open Tools Folder"))) {
-            createDirectories(defaultToolsFolder());
-            openInExplorer(defaultToolsFolder());
-        }
-        if (ImGui::MenuItem(tr("Rescan Tools"))) m_tools = findTools(m_toolPaths);
+        if (ImGui::MenuItem(tr("Manage Tools..."))) openSettingsPage(SettingsPage::Tools);
         ImGui::EndMenu();
     }
 
@@ -1125,6 +1103,7 @@ void Editor::drawStatusBar() {
             else // messages show as notices over the viewport (drawNotices)
                 ImGui::TextDisabled(
                     "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));
+            drawUnsavedStatus();
             const char* fps = "0000 fps";
             ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - 16.0f);
             // Red when over budget; clicking opens the [Performance] window
@@ -1744,6 +1723,17 @@ void Editor::drawHistory() {
     for (size_t i = m_redo.size(); i-- > 0;)
         ImGui::TextDisabled("%s", m_redo[i].label.c_str());
     ImGui::EndDisabled();
+    // The open [Data] page keeps its own steps
+    if (m_dataOpen) {
+        ImGui::SeparatorText(tr("Data"));
+        ImGui::BeginDisabled(!dataCanStep(true));
+        if (ImGui::Button(tr("Undo"))) dataStep(true);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!dataCanStep(false));
+        if (ImGui::Button(tr("Redo"))) dataStep(false);
+        ImGui::EndDisabled();
+    }
     ImGui::End();
     for (int i = 0; i < target; ++i) undo();
 }

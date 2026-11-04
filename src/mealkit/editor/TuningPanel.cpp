@@ -140,6 +140,12 @@ void TuningPanel::drawContent(int which, bool playing, bool multiplayer, const d
     else ImGui::TextDisabled("%s", tr("The game declares no view tuning (ViewTuningType)."));
 }
 
+void TuningPanel::revertDoc(int which) {
+    Doc& doc = which == 0 ? m_tuning : m_viewTuning;
+    load(doc);
+    doc.undo.mark();
+}
+
 void TuningPanel::step(int which, bool back) {
     Doc& doc = which == 0 ? m_tuning : m_viewTuning;
     reflect::TextFields text;

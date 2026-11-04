@@ -27,13 +27,10 @@ bool drawSnapSettings(Preferences& prefs);
 
 class PreferencesPanel {
 public:
-    static constexpr const char* kWindow = "Preferences###Preferences";
-    bool* openFlag() { return &m_open; }
     // true if a value changed (and it was saved)
-    bool draw(Preferences& prefs);
+    bool drawContent(Preferences& prefs);
 
 private:
-    bool m_open = false;
     char m_editor[260] = {}; // editor path being edited
 };
 

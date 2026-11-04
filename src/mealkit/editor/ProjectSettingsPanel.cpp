@@ -66,13 +66,8 @@ bool ProjectSettingsPanel::save(ProjectInfo& project) {
     return true;
 }
 
-void ProjectSettingsPanel::draw(ProjectInfo& project, const std::string& currentScene) {
-    if (!m_open || project.directory.empty()) return;
-    ImGui::SetNextWindowSize(ImVec2(600, 480), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl("Project Settings###ProjectSettings"), &m_open)) {
-        ImGui::End();
-        return;
-    }
+void ProjectSettingsPanel::drawContent(ProjectInfo& project, const std::string& currentScene) {
+    if (project.directory.empty()) return;
     ImGui::TextDisabled("%s%s", project.filePath().c_str(), m_dirty ? " *" : "");
     ImGui::BeginDisabled(!m_dirty);
     if (ImGui::Button(tr("Save"))) save(project);
@@ -100,7 +95,6 @@ void ProjectSettingsPanel::draw(ProjectInfo& project, const std::string& current
         m_dirty = true;
     }
     ImGui::PopItemWidth();
-    ImGui::End();
 }
 
 } // namespace mealkit::editor

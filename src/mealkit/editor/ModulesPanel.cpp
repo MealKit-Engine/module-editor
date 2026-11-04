@@ -65,9 +65,8 @@ void ModulesPanel::poll() {
     m_needList = true; // recheck the current state whether it succeeded or not
 }
 
-void ModulesPanel::draw(const ProjectInfo& project, const std::string& engineDirectory, bool editing) {
-    poll();
-    if (!m_open || project.directory.empty()) return;
+void ModulesPanel::drawContent(const ProjectInfo& project, const std::string& engineDirectory, bool editing) {
+    if (project.directory.empty()) return;
     if (m_projectDir != project.directory) {
         m_projectDir = project.directory;
         m_list = {};
@@ -79,11 +78,6 @@ void ModulesPanel::draw(const ProjectInfo& project, const std::string& engineDir
         run(engineDirectory, project, tr("Module list"), "search -Tsv", false);
     }
 
-    ImGui::SetNextWindowSize(ImVec2(760, 520), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl(kWindow), &m_open)) {
-        ImGui::End();
-        return;
-    }
     const bool busy = m_process.running();
     const bool canChange = editing && !busy;
     if (ImGui::Button(tr("Refresh")) && !busy) m_needList = true;
@@ -197,7 +191,6 @@ void ModulesPanel::draw(const ProjectInfo& project, const std::string& engineDir
         }
         ImGui::EndPopup();
     }
-    ImGui::End();
 }
 
 } // namespace mealkit::editor

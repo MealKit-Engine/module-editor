@@ -95,7 +95,7 @@ public:
     // Project settings type added by the game (GameModule::projectSettingsType, nullptr before unloading the DLL). Values are kept as text.
     void setProjectSettingsType(const reflect::TypeInfo* type) { m_projectPanel.setGameType(type); }
     // Opens the [Project Settings] window (for automated tests)
-    void openProjectSettings() { m_projectPanel.open(); }
+    void openProjectSettings() { openSettingsPage(SettingsPage::Project); m_settingsFrontFrames = 30; }
     // Definition data tables registered by the game ([Tables] panel, nullptr before unloading the DLL. Values are kept as text)
     void setTables(const reflect::TableList* tables) { m_tablesPanel.setTables(tables); }
     // When play starts: saves edited tables (the game reads them from files when a match starts)
@@ -120,7 +120,7 @@ public:
         m_import.setViewModels(types);
     }
     void openUiPanel(const std::string& file = {}) {
-        m_uiPanelOpen = true;
+        openPreviewPage(PreviewPage::Ui);
         if (!file.empty()) m_uiPanel.select(file);
     }
     bool selectUiNode(const std::string& name) { return m_uiPanel.selectNode(name); } // --ui-select (after --ui)
@@ -133,7 +133,7 @@ public:
     }
     // Offscreen image for the [Lookdev] window: after the main screen 3D, before UI (only when the window is open)
     void renderLookdev(render::Renderer& renderer, f64 dt);
-    void openLookdev() { m_lookdevOpen = true; } // --lookdev (automated capture)
+    void openLookdev() { openPreviewPage(PreviewPage::LookDev); } // --lookdev (automated capture)
     // Camera previews in the scene view (edit mode, Esc stops): look through the selected virtual camera / play a cutscene row
     void lookThroughSelected() { m_lookThrough = m_selected; } // --look-through (automated capture)
     bool previewCutscene(const std::string& name);            // --cutscene <name>, View > Preview Cutscene
@@ -542,7 +542,6 @@ private:
     game::FrameSample m_playSample; // PlaySession's simulation/network numbers during play ([Performance] window)
     Preferences m_prefs;
     PreferencesPanel m_prefsPanel;
-    bool m_shortcutsOpen = false;
     bool m_gameCodeBuilt = false;
     bool m_gameCodeFailed = false;
     bool m_gameLoaded = false;
@@ -554,7 +553,7 @@ private:
     feedback::Player* m_feedback = nullptr;
     FeedbackPanel m_feedbackPanel;
     // [Data] window (EditorData.cpp)
-    enum class DataPage { Tuning, Table, Feedback, Sounds };
+    enum class DataPage { Tuning, Table, Feedback, Effects, Sounds };
     void openDataPage(DataPage page, int index);
     void toggleDataPage(DataPage page, int index);
     void drawDataHub(f64 dt, bool editing);
@@ -577,7 +576,23 @@ private:
     void drawProblems();
     std::vector<Problem> m_problems;
     f64 m_problemTimer = 1.0; // check on the first frame
-    enum class DebugPage { Log, Problems, Build, Performance, State };
+    enum class DebugPage { Log, Problems, Build, Performance, Sound, State };
+    // [Settings] and [Previews] windows (EditorData.cpp)
+    enum class SettingsPage { Project, Preferences, Modules, Tools, Shortcuts };
+    enum class PreviewPage { Ui, LookDev, Cutscene };
+    void openSettingsPage(SettingsPage page);
+    void openPreviewPage(PreviewPage page);
+    void drawSettingsHub();
+    void drawPreviewHub();
+    void drawUnsavedStatus(); // status bar: count and a list with save and revert for each document
+    bool m_settingsOpen = false;
+    SettingsPage m_settingsPage = SettingsPage::Project;
+    int m_settingsFrontFrames = 0;
+    bool m_previewOpen = false;
+    PreviewPage m_previewPage = PreviewPage::Ui;
+    int m_previewFrontFrames = 0;
+    bool m_revertSceneArmed = false; // a second click reverts: the scene's undo steps don't survive it
+
     void openDebugPage(DebugPage page);
     void toggleDebugPage(DebugPage page);
     void drawDebugHub();

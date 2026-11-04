@@ -21,12 +21,10 @@ using mkcontract::RegistryModule;
 
 class ModulesPanel {
 public:
-    static constexpr const char* kWindow = "Modules###Modules";
 
-    void open() { m_open = true; }
-    bool* openFlag() { return &m_open; }
     // editing: whether in edit mode (modules aren't changed during play)
-    void draw(const ProjectInfo& project, const std::string& engineDirectory, bool editing);
+    void update() { poll(); } // every frame, so a running command finishes with the page closed
+    void drawContent(const ProjectInfo& project, const std::string& engineDirectory, bool editing);
     // A module was added, changed, or removed (the editor rebuilds game code)
     bool takeChanged() {
         const bool changed = m_changed;
@@ -52,7 +50,6 @@ private:
     bool m_logFailed = false;
     char m_search[96] = {};
     std::string m_confirmRemove;
-    bool m_open = false;
     bool m_changed = false;
     std::string m_status;
 };

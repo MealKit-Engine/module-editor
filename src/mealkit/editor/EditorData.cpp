@@ -6,6 +6,7 @@
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Window.h"
+#include "mealkit/platform/Process.h"
 
 #include <ImGuizmo.h>
 
@@ -44,6 +45,7 @@ bool Editor::dataCanStep(bool back) const {
     case DataPage::Tuning: return m_tuningPanel.canStep(m_dataIndex, back);
     case DataPage::Table: return m_tablesPanel.canStep(m_dataIndex, back);
     case DataPage::Feedback: return m_feedbackPanel.canStep(back);
+    case DataPage::Effects: return m_feedbackPanel.canStepEffect(back);
     case DataPage::Sounds: return false;
     }
     return false;
@@ -54,6 +56,7 @@ void Editor::dataStep(bool back) {
     case DataPage::Tuning: m_tuningPanel.step(m_dataIndex, back); break;
     case DataPage::Table: m_tablesPanel.step(m_dataIndex, back); break;
     case DataPage::Feedback: m_feedbackPanel.step(back); break;
+    case DataPage::Effects: m_feedbackPanel.stepEffect(back); break;
     case DataPage::Sounds: break;
     }
 }
@@ -87,6 +90,7 @@ void Editor::drawDataHub(f64 dt, bool editing) {
         if (m_tablesPanel.docCount() == 0) ImGui::TextDisabled("%s", tr("Tables appear when the game code is loaded (MEALKIT_TABLE)."));
         ImGui::SeparatorText(tr("Reactions"));
         entry(tr("Feedback"), DataPage::Feedback, 0, false);
+        entry(tr("Effects"), DataPage::Effects, 0, false);
         if (m_audio) entry(tr("Sounds"), DataPage::Sounds, 0, false);
     }
     ImGui::EndChild();
@@ -107,8 +111,9 @@ void Editor::drawDataHub(f64 dt, bool editing) {
             break;
         case DataPage::Table: m_tablesPanel.drawContent(m_dataIndex, m_window->nativeHandle(), editing); break;
         case DataPage::Feedback: m_feedbackPanel.drawContent(m_feedback, m_cameraPos + cameraForward() * 10.0f); break;
+        case DataPage::Effects: m_feedbackPanel.drawEffects(m_feedback, m_cameraPos + cameraForward() * 10.0f); break;
         case DataPage::Sounds:
-            if (m_audio) m_soundPanel.drawContent(*m_audio);
+            if (m_audio) m_soundPanel.drawPreview(*m_audio);
             break;
         }
     }
@@ -150,6 +155,7 @@ void Editor::drawDebugHub() {
         entry(m_problems.empty() ? std::string(tr("Problems")) : trf("Problems (%zu)", m_problems.size()), DebugPage::Problems);
         entry(m_buildPanel.running() ? std::string(tr("Build Log")) + " ..." : std::string(tr("Build Log")), DebugPage::Build);
         entry(tr("Performance"), DebugPage::Performance);
+        if (m_audio) entry(tr("Sounds"), DebugPage::Sound);
         entry(tr("State"), DebugPage::State);
     }
     ImGui::EndChild();
@@ -164,11 +170,184 @@ void Editor::drawDebugHub() {
             break;
         }
         case DebugPage::Performance: m_perfPanel.drawContent(); break;
+        case DebugPage::Sound:
+            if (m_audio) m_soundPanel.drawMonitor(*m_audio);
+            break;
         case DebugPage::State: drawState(); break;
         }
     }
     ImGui::EndChild();
     ImGui::End();
+}
+
+void Editor::openSettingsPage(SettingsPage page) {
+    m_settingsOpen = true;
+    m_settingsPage = page;
+    m_settingsFrontFrames = 3;
+}
+
+void Editor::openPreviewPage(PreviewPage page) {
+    m_previewOpen = true;
+    m_previewPage = page;
+    m_previewFrontFrames = 3;
+    if (page == PreviewPage::Cutscene) m_previewCutscenes.load(); // assets/tables/cutscenes.table as it is now
+}
+
+// [Settings] window: project settings, preferences, modules, tools and shortcuts under one list
+void Editor::drawSettingsHub() {
+    if (!m_settingsOpen) return;
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 54.0f, ImGui::GetFontSize() * 34.0f), ImGuiCond_FirstUseEver);
+    if (m_settingsFrontFrames > 0) {
+        --m_settingsFrontFrames;
+        ImGui::SetNextWindowFocus();
+    }
+    if (!ImGui::Begin(trl("Settings###Settings"), &m_settingsOpen)) {
+        ImGui::End();
+        return;
+    }
+    if (ImGui::BeginChild("##settingsList", ImVec2(ImGui::GetFontSize() * 10.0f, 0.0f), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders)) {
+        const auto entry = [this](const std::string& label, SettingsPage page) {
+            if (ImGui::Selectable((label + "##" + std::to_string(static_cast<int>(page))).c_str(), m_settingsPage == page)) m_settingsPage = page;
+        };
+        entry(std::string(tr("Project Settings")) + (m_projectPanel.dirty() ? " *" : ""), SettingsPage::Project);
+        entry(tr("Preferences"), SettingsPage::Preferences);
+        entry(tr("Modules"), SettingsPage::Modules);
+        entry(tr("Tools"), SettingsPage::Tools);
+        entry(tr("Keyboard Shortcuts"), SettingsPage::Shortcuts);
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    if (ImGui::BeginChild("##settingsPage")) {
+        switch (m_settingsPage) {
+        case SettingsPage::Project:
+            ImGui::BeginDisabled(m_mode != Mode::Edit);
+            m_projectPanel.drawContent(m_project, relativeTo(m_project.directory + "\\assets", m_scenePath));
+            ImGui::EndDisabled();
+            break;
+        case SettingsPage::Preferences: m_prefsPanel.drawContent(m_prefs); break;
+        case SettingsPage::Modules: m_modulesPanel.drawContent(m_project, m_engineDirectory, m_mode == Mode::Edit); break;
+        case SettingsPage::Tools:
+            if (m_tools.empty()) ImGui::TextDisabled("%s", tr("No tools installed"));
+            for (const ToolInfo& t : m_tools) {
+                ImGui::PushID(t.folder.c_str());
+                ImGui::BeginDisabled(t.problem != ToolInfo::Problem::None);
+                if (ImGui::SmallButton(tr("Open"))) launchTool(t, m_project.directory);
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::TextUnformatted((t.version.empty() ? t.name : t.name + "  " + t.version).c_str());
+                ImGui::SameLine();
+                if (t.problem == ToolInfo::Problem::Protocol) ImGui::TextColored(color::kDanger, "%s", trf("Needs tool protocol %u, this editor has %u", t.protocol, live::kProtocol).c_str());
+                else if (t.problem == ToolInfo::Problem::MissingExe) ImGui::TextColored(color::kDanger, "%s", trf("Program not found: %s", t.exe.c_str()).c_str());
+                else ImGui::TextDisabled("%s", t.folder.c_str());
+                ImGui::PopID();
+            }
+            ImGui::Separator();
+            if (ImGui::Button(tr("Open Tools Folder"))) {
+                createDirectories(defaultToolsFolder());
+                openInExplorer(defaultToolsFolder());
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(tr("Rescan Tools"))) m_tools = findTools(m_toolPaths);
+            break;
+        case SettingsPage::Shortcuts: drawShortcutHelp(); break;
+        }
+    }
+    ImGui::EndChild();
+    ImGui::End();
+}
+
+// [Previews] window: game screens, models and cutscenes. The UI overlay and look dev rendering run only while their page is chosen
+void Editor::drawPreviewHub() {
+    m_uiPanelOpen = m_previewOpen && m_previewPage == PreviewPage::Ui;
+    m_lookdevOpen = m_previewOpen && m_previewPage == PreviewPage::LookDev;
+    if (!m_previewOpen) return;
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 40.0f, ImGui::GetFontSize() * 34.0f), ImGuiCond_FirstUseEver);
+    if (m_previewFrontFrames > 0) {
+        --m_previewFrontFrames;
+        ImGui::SetNextWindowFocus();
+    }
+    if (!ImGui::Begin(trl("Previews###Previews"), &m_previewOpen)) {
+        ImGui::End();
+        return;
+    }
+    if (ImGui::BeginTabBar("##previewPages")) {
+        // Follows m_previewPage when a command picks the page
+        const auto flagged = [this](const char* label, PreviewPage page) {
+            bool chosen = ImGui::BeginTabItem(label, nullptr, m_previewFrontFrames > 0 && m_previewPage == page ? ImGuiTabItemFlags_SetSelected : 0);
+            if (chosen) {
+                if (m_previewPage != page && m_previewFrontFrames == 0) openPreviewPage(page);
+                ImGui::EndTabItem();
+            }
+        };
+        flagged(tr("UI"), PreviewPage::Ui);
+        flagged(tr("Look Dev"), PreviewPage::LookDev);
+        flagged(tr("Preview Cutscene"), PreviewPage::Cutscene);
+        ImGui::EndTabBar();
+    }
+    if (ImGui::BeginChild("##previewPage")) {
+        switch (m_previewPage) {
+        case PreviewPage::Ui: m_uiPanel.drawContent(); break;
+        case PreviewPage::LookDev:
+            if (m_renderer) m_lookdev.drawContent(*m_renderer);
+            break;
+        case PreviewPage::Cutscene:
+            ImGui::BeginDisabled(m_mode != Mode::Edit);
+            for (u32 i = 0; i < m_previewCutscenes.count(); ++i) {
+                const asset::Cutscenes::Cutscene& c = m_previewCutscenes.at(i);
+                char label[160];
+                std::snprintf(label, sizeof(label), "%s (%.1f s)", c.name.c_str(), c.clip ? static_cast<double>(c.clip->duration) : 0.0);
+                if (ImGui::Selectable(label, c.name == m_cutscenePreview, c.clip ? 0 : ImGuiSelectableFlags_Disabled)) previewCutscene(c.name);
+            }
+            if (m_previewCutscenes.count() == 0) ImGui::TextDisabled("%s", tr("No rows in tables/cutscenes.table"));
+            ImGui::EndDisabled();
+            break;
+        }
+    }
+    ImGui::EndChild();
+    ImGui::End();
+}
+
+// Status bar: how many documents differ from their files; clicking lists them with save and revert
+void Editor::drawUnsavedStatus() {
+    int count = (m_dirty ? 1 : 0) + (m_tuningPanel.docDirty(0) ? 1 : 0) + (m_tuningPanel.docDirty(1) ? 1 : 0) + (m_uiPanel.dirty() ? 1 : 0) + (m_projectPanel.dirty() ? 1 : 0);
+    for (int i = 0; i < m_tablesPanel.docCount(); ++i) count += m_tablesPanel.docDirty(i) ? 1 : 0;
+    if (count > 0) {
+        ImGui::TextColored(color::kWarning, "%s", trf("Unsaved: %d", count).c_str());
+        if (ImGui::IsItemClicked()) ImGui::OpenPopup("##unsaved");
+        ImGui::SameLine();
+    }
+    if (!ImGui::BeginPopup("##unsaved")) {
+        m_revertSceneArmed = false;
+        return;
+    }
+    if (count == 0) ImGui::TextDisabled("%s", tr("Everything is saved."));
+    const auto row = [](const std::string& name, const std::function<void()>& save, const std::function<void()>& revert, const char* revertLabel) {
+        ImGui::PushID(name.c_str());
+        if (ImGui::SmallButton(tr("Save"))) save();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!revert);
+        if (ImGui::SmallButton(revertLabel) && revert) revert();
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(name.c_str());
+        ImGui::PopID();
+    };
+    if (m_dirty)
+        row(m_scenePath.empty() ? std::string(tr("Untitled")) : fileName(m_scenePath), [this] { saveScene(); },
+            m_scenePath.empty() || m_mode != Mode::Edit ? std::function<void()>() : [this] {
+                if (m_revertSceneArmed) loadScene(m_scenePath);
+                m_revertSceneArmed = !m_revertSceneArmed;
+            }, m_revertSceneArmed ? tr("Really revert?") : tr("Revert"));
+    for (int i = 0; i < 2; ++i)
+        if (m_tuningPanel.docDirty(i))
+            row(i == 0 ? "game.tuning" : "view.tuning", [this, i] { m_tuningPanel.saveDoc(i); }, [this, i] { m_tuningPanel.revertDoc(i); }, tr("Revert"));
+    for (int i = 0; i < m_tablesPanel.docCount(); ++i)
+        if (m_tablesPanel.docDirty(i))
+            row(m_tablesPanel.docName(i), [this, i] { m_tablesPanel.saveDoc(i); }, [this, i] { m_tablesPanel.revertDoc(i); }, tr("Revert"));
+    if (m_uiPanel.dirty()) row(tr("UI"), [this] { m_uiPanel.save(); }, {}, tr("Revert"));
+    if (m_projectPanel.dirty())
+        row(tr("Project Settings"), [this] { m_projectPanel.save(m_project); }, [this] { m_projectPanel.revert(m_project); }, tr("Revert"));
+    ImGui::EndPopup();
 }
 
 // Gathers problems twice a second: missing models, models over budget, and row references in tables, tuning and scene objects

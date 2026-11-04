@@ -88,13 +88,7 @@ bool drawSnapSettings(Preferences& p) {
     return changed;
 }
 
-bool PreferencesPanel::draw(Preferences& p) {
-    if (!m_open) return false;
-    ImGui::SetNextWindowSize(ImVec2(460, 0), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl(kWindow), &m_open, ImGuiWindowFlags_NoDocking)) {
-        ImGui::End();
-        return false;
-    }
+bool PreferencesPanel::drawContent(Preferences& p) {
     bool changed = false;
     ImGui::SeparatorText(tr("Scene view"));
     changed |= ImGui::SliderFloat(tr("Camera speed"), &p.cameraSpeed, 1.0f, 100.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
@@ -116,7 +110,6 @@ bool PreferencesPanel::draw(Preferences& p) {
         p.externalEditor = m_editor;
         changed = true;
     }
-    ImGui::End();
     if (changed) savePreferences(p);
     return changed;
 }

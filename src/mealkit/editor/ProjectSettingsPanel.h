@@ -24,11 +24,9 @@ public:
         m_edit.engineVersion = from.engineVersion;
     }
 
-    void open() { m_open = true; }
-    bool* openFlag() { return &m_open; }
     bool dirty() const { return m_dirty; }
     // currentScene: current scene path relative to assets ([Use current scene as start scene], empty string if none)
-    void draw(ProjectInfo& project, const std::string& currentScene);
+    void drawContent(ProjectInfo& project, const std::string& currentScene);
     std::string takeStatus() { return std::move(m_status); }
 
 private:
@@ -36,7 +34,6 @@ private:
     reflect::Instance m_game;       // instance of the game DLL's project settings type
     reflect::TextFields m_gameText; // keeps values when there's no game type (when swapping the DLL)
     bool m_dirty = false;
-    bool m_open = false;
     std::string m_status;
 };
 

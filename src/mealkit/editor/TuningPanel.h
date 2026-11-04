@@ -41,6 +41,8 @@ public:
     bool docDirty(int which) const { return (which == 0 ? m_tuning : m_viewTuning).dirty; }
     bool canStep(int which, bool back) const { return (which == 0 ? m_tuning : m_viewTuning).undo.canStep(back); }
     void step(int which, bool back);
+    void saveDoc(int which) { save(which == 0 ? m_tuning : m_viewTuning); }
+    void revertDoc(int which); // undoable
     // Text to show in the status bar (empty string if none)
     std::string takeStatus() { return std::move(m_status); }
 
