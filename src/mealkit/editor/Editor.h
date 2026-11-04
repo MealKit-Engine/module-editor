@@ -27,6 +27,8 @@
 #include "mealkit/render/Renderer.h"
 #include "mealkit/scene/Scene.h"
 
+#include "mealkit/editor/AssetThumbnails.h"
+
 #include <functional>
 #include <map>
 #include <string>
@@ -101,6 +103,7 @@ public:
     void openTables() { openDataPage(DataPage::Table, 0); m_dataFrontFrames = 30; } // for automated tests: also brought to the front
     void openTuning() { openDataPage(DataPage::Tuning, 0); m_dataFrontFrames = 30; }
     void revealAsset(const std::string& relative);
+    void openAssetGrid() { revealAsset("models/tree.glb"); m_assetThumb = 96.0f; m_assetsFront = 30; }
     void openProblems() { m_problemsOpen = true; m_problemsFront = true; }
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
@@ -274,7 +277,7 @@ private:
     void handleAssetDrop();
     void renameAsset(const std::string& from, const std::string& to);
     bool m_assetsOpen = true;
-    bool m_assetsFront = false;
+    int m_assetsFront = 0; // frames left to bring the tab to the front
     std::string m_assetFolder;   // relative to assets ("models")
     std::string m_assetSelected; // file relative to assets
     // Folder listings and missing model references, read again once a second rather than every frame
@@ -456,10 +459,19 @@ private:
     bool m_changed = false;
 
     struct TreeAction {
-        enum Kind { None, Reparent, Duplicate, SavePrefab, Delete } kind = None;
+        enum Kind { None, Reparent, Duplicate, SavePrefab, Delete, SetFolder, RenameFolder, Ungroup } kind = None;
         u32 entity = 0;
         u32 parent = 0;
     };
+    std::string m_treeActionFolder; // folder of SetFolder/RenameFolder/Ungroup
+    std::string m_treeFolderTo;     // RenameFolder: new path
+    u32 m_folderDialogEntity = 0;   // "Move to Folder..." dialog
+    std::string m_folderDialogFrom; // "Rename Folder..." dialog
+    bool m_folderDialogOpen = false;
+    char m_folderBuffer[128] = {};
+    void drawTreeFolders(const std::string& prefix, const std::vector<size_t>& roots, const std::unordered_map<u32, std::vector<size_t>>& children);
+    void setFolder(u32 entity, const std::string& folder);
+    void renameFolder(const std::string& from, const std::string& to);
     TreeAction m_treeAction; // structure change chosen in the scene tree (handled after drawing the whole tree)
 
     char m_nameBuffer[128] = {};
@@ -504,6 +516,8 @@ private:
     void addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) const; // gameView: only what the game shows, no highlight
     void fillEnvironment(render::FrameParams& frame) const;
     u32 probeMaxCount() const;
+    AssetThumbnails m_thumbnails; // pictures in the [Assets] grid
+    f32 m_assetThumb = 0.0f;      // grid cell size, 0 = list
     LookdevPanel m_lookdev; // [Lookdev] window: the selected object's model under fixed lighting on a stand
     bool m_lookdevOpen = false; // project settings lighting model/toon ramp (passed again when hot reload changes them)
     unsigned long long m_sceneTime = 0; // scene file time at open/save (whether it changed outside)

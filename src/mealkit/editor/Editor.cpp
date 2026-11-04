@@ -760,6 +760,7 @@ void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 widt
 }
 
 void Editor::renderLookdev(render::Renderer& renderer, f64 dt) {
+    if (m_models) m_thumbnails.render(renderer, *m_models);
     if (!m_lookdevOpen || !m_models) return;
     // Follows the selected object's model (selecting an object without a model keeps the previous model)
     if (const Entity* e = selected(); e && !e->model.empty()) m_lookdev.setModel(e->model);
@@ -1156,7 +1157,7 @@ void Editor::drawHierarchy(bool editing) {
             }
             if (!found) ImGui::TextDisabled("%s", tr("No matching objects"));
         } else {
-            for (size_t i : roots) drawEntityNode(i, children);
+            drawTreeFolders({}, roots, children);
         }
         m_treeRevealed = m_selected;
         // Clicking empty space deselects, dropping on it moves to top level
@@ -1172,9 +1173,42 @@ void Editor::drawHierarchy(bool editing) {
         }
     }
     ImGui::EndChild();
+    // "Move to Folder..." and "Rename Folder...": a path, with / for folders inside folders (empty = out of folders)
+    if (m_folderDialogOpen) {
+        ImGui::OpenPopup("##folderDialog");
+        m_folderDialogOpen = false;
+    }
+    if (ImGui::BeginPopupModal("##folderDialog", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(tr("Folder path (use / for folders inside folders, empty for none)"));
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 22.0f);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        const bool enter = ImGui::InputText("##folder", m_folderBuffer, sizeof(m_folderBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
+        if (ImGui::Button(tr("OK")) || enter) {
+            std::string to = m_folderBuffer;
+            std::replace(to.begin(), to.end(), '\\', '/');
+            while (!to.empty() && (to.back() == '/' || to.back() == ' ')) to.pop_back();
+            while (!to.empty() && (to.front() == '/' || to.front() == ' ')) to.erase(0, 1);
+            if (!m_folderDialogFrom.empty()) m_treeAction = {TreeAction::RenameFolder, 0, 0}, m_treeActionFolder = m_folderDialogFrom, m_treeFolderTo = to;
+            else m_treeAction = {TreeAction::SetFolder, m_folderDialogEntity, 0}, m_treeActionFolder = to;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(tr("Cancel")) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
     // Change the structure after drawing the whole tree (so the list doesn't change mid-draw)
     switch (m_treeAction.kind) {
-    case TreeAction::Reparent: reparent(m_treeAction.entity, m_treeAction.parent); break;
+    case TreeAction::Reparent:
+        reparent(m_treeAction.entity, m_treeAction.parent);
+        if (m_treeAction.parent == 0) setFolder(m_treeAction.entity, {}); // dropped on empty space: out of folders too
+        break;
+    case TreeAction::SetFolder: setFolder(m_treeAction.entity, m_treeActionFolder); break;
+    case TreeAction::RenameFolder: renameFolder(m_treeActionFolder, m_treeFolderTo); break;
+    case TreeAction::Ungroup: {
+        const size_t slash = m_treeActionFolder.rfind('/');
+        renameFolder(m_treeActionFolder, slash == std::string::npos ? std::string() : m_treeActionFolder.substr(0, slash));
+        break;
+    }
     case TreeAction::Duplicate: duplicateSelected(); break;
     case TreeAction::SavePrefab: saveSelectionAsPrefab(); break;
     case TreeAction::Delete: deleteSelected(); break;
@@ -1182,6 +1216,86 @@ void Editor::drawHierarchy(bool editing) {
     }
     ImGui::EndDisabled();
     ImGui::End();
+}
+
+// One level of folders, then the objects directly in it. Children stay under their parent, whatever folder they have
+void Editor::drawTreeFolders(const std::string& prefix, const std::vector<size_t>& roots, const std::unordered_map<u32, std::vector<size_t>>& children) {
+    const std::string lead = prefix.empty() ? std::string() : prefix + "/";
+    std::vector<std::string> names; // in order of first appearance
+    for (size_t i : roots) {
+        const std::string& folder = m_scene.entities[i].folder;
+        if (folder.size() <= lead.size() || folder.compare(0, lead.size(), lead) != 0) continue;
+        const std::string name = folder.substr(lead.size(), folder.find('/', lead.size()) - lead.size());
+        if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+    }
+    // The newly selected object's folder opens, as for parents
+    std::string revealFolder;
+    if (m_selected != m_treeRevealed && m_selected != 0) {
+        const Entity* top = m_scene.find(m_selected);
+        while (top && top->parent && m_scene.find(top->parent)) top = m_scene.find(top->parent);
+        if (top) revealFolder = top->folder + "/";
+    }
+    for (const std::string& name : names) {
+        const std::string path = lead + name;
+        ImGui::PushID(path.c_str());
+        if (revealFolder.rfind(path + "/", 0) == 0) ImGui::SetNextItemOpen(true);
+        const bool open = ImGui::TreeNodeEx("##folder", ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen, "%s  %s", icon::kFolder, name.c_str());
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload)) {
+                m_treeAction = {TreeAction::SetFolder, *static_cast<const u32*>(payload->Data), 0};
+                m_treeActionFolder = path;
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if (ImGui::BeginPopupContextItem()) {
+            if (ImGui::MenuItem(tr("Rename Folder..."))) {
+                m_folderDialogFrom = path;
+                m_folderDialogOpen = true;
+                snprintf(m_folderBuffer, sizeof(m_folderBuffer), "%s", path.c_str());
+            }
+            if (ImGui::MenuItem(tr("Remove Folder (keep objects)"))) {
+                m_treeAction = {TreeAction::Ungroup, 0, 0};
+                m_treeActionFolder = path;
+            }
+            ImGui::EndPopup();
+        }
+        if (open) {
+            drawTreeFolders(path, roots, children);
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+    for (size_t i : roots)
+        if (m_scene.entities[i].folder == prefix) drawEntityNode(i, children);
+}
+
+// Moves the object, and the rest of the selection when it is part of it. A child leaves its parent, since only top-level objects sit in folders
+void Editor::setFolder(u32 entity, const std::string& folder) {
+    std::vector<u32> ids{entity};
+    if (isSelected(entity)) {
+        if (m_selected != entity && m_selected != 0) ids.push_back(m_selected);
+        for (u32 id : m_multi)
+            if (id != entity && id != m_selected) ids.push_back(id);
+    }
+    bool any = false;
+    for (u32 id : ids)
+        if (const Entity* e = m_scene.find(id)) any = any || e->folder != folder || (!folder.empty() && e->parent != 0);
+    if (!any) return;
+    for (u32 id : ids)
+        if (const Entity* e = m_scene.find(id); e && e->parent && !folder.empty()) reparent(id, 0);
+    pushUndo(capture());
+    for (u32 id : ids)
+        if (Entity* e = m_scene.find(id)) e->folder = folder;
+}
+
+void Editor::renameFolder(const std::string& from, const std::string& to) {
+    if (from == to) return;
+    pushUndo(capture());
+    const std::string lead = from + "/";
+    for (Entity& e : m_scene.entities) {
+        if (e.folder == from) e.folder = to;
+        else if (e.folder.rfind(lead, 0) == 0) e.folder = (to.empty() ? std::string() : to + "/") + e.folder.substr(lead.size());
+    }
 }
 
 void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vector<size_t>>& children) {
@@ -1290,6 +1404,12 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
         if (!isSelected(id)) m_selected = id;
         if (ImGui::MenuItem(tr("Duplicate"), "Ctrl+D")) m_treeAction = {TreeAction::Duplicate, id, 0};
         if (ImGui::MenuItem(tr("Save as Prefab..."))) m_treeAction = {TreeAction::SavePrefab, id, 0};
+        if (ImGui::MenuItem(tr("Move to Folder..."))) {
+            m_folderDialogEntity = id;
+            m_folderDialogFrom.clear();
+            m_folderDialogOpen = true;
+            snprintf(m_folderBuffer, sizeof(m_folderBuffer), "%s", e.folder.c_str());
+        }
         if (ImGui::MenuItem(tr("Delete"), "Delete")) m_treeAction = {TreeAction::Delete, id, 0};
         if (ImGui::MenuItem(tr("Move to Top Level"), nullptr, false, e.parent != 0))
             m_treeAction = {TreeAction::Reparent, id, 0};

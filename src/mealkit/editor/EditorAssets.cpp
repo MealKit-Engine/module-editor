@@ -9,6 +9,7 @@
 #include "mealkit/platform/Process.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <cctype>
@@ -95,7 +96,7 @@ void Editor::revealAsset(const std::string& relative) {
     m_assetFolder = slash == std::string::npos ? std::string() : relative.substr(0, slash);
     m_assetSelected = relative;
     m_assetsOpen = true;
-    m_assetsFront = true;
+    m_assetsFront = 3;
     m_assetScanTime = -1000.0;
 }
 
@@ -123,8 +124,8 @@ void Editor::drawAssetFolder(const std::string& root, const std::string& relativ
 
 void Editor::drawAssetBrowser() {
     if (!m_assetsOpen) return;
-    if (m_assetsFront) {
-        m_assetsFront = false;
+    if (m_assetsFront > 0) {
+        --m_assetsFront;
         ImGui::SetNextWindowFocus();
     }
     if (!ImGui::Begin(trl("Assets###Assets"), &m_assetsOpen)) {
@@ -150,6 +151,12 @@ void Editor::drawAssetBrowser() {
     if (ImGui::BeginChild("##files")) {
         const std::string folder = m_assetFolder.empty() ? root : root + "\\" + toNative(m_assetFolder);
         ImGui::TextDisabled("assets/%s", m_assetFolder.c_str());
+        // Slider at the far left = list, further right = grid with bigger pictures
+        const f32 sliderWidth = ImGui::GetFontSize() * 8.0f;
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - sliderWidth));
+        ImGui::SetNextItemWidth(sliderWidth);
+        ImGui::SliderFloat("##thumbSize", &m_assetThumb, 0.0f, 160.0f, m_assetThumb < 48.0f ? tr("List") : "%.0f");
+        const f32 cell = m_assetThumb < 48.0f ? 0.0f : m_assetThumb;
         // Broken model references in the current scene (paths gone after renaming in Explorer)
         if (rescan) {
             std::set<std::string> missing;
@@ -171,7 +178,10 @@ void Editor::drawAssetBrowser() {
             const std::string relative = m_assetFolder.empty() ? name : m_assetFolder + "/" + name;
             ImGui::PushID(relative.c_str());
             const std::string label = std::string(assetIcon(name)) + "  " + name;
-            if (ImGui::Selectable(label.c_str(), m_assetSelected == relative, ImGuiSelectableFlags_AllowDoubleClick)) {
+            const f32 textHeight = ImGui::GetTextLineHeight();
+            const std::string shownLabel = cell > 0.0f ? "##cell" : label;
+            if (ImGui::Selectable(shownLabel.c_str(), m_assetSelected == relative, ImGuiSelectableFlags_AllowDoubleClick,
+                                  cell > 0.0f ? ImVec2(cell, cell + textHeight) : ImVec2(0.0f, 0.0f))) {
                 m_assetSelected = relative;
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     if (lowerExtension(name) == ".scene") openSceneFile(folder + "\\" + name);
@@ -184,6 +194,22 @@ void Editor::drawAssetBrowser() {
                 ImGui::Text("%s  %s", assetIcon(name), relative.c_str());
                 ImGui::EndDragDropSource();
             }
+            if (cell > 0.0f) { // picture for models, icon for the rest, then the name cut to the cell
+                const ImVec2 min = ImGui::GetItemRectMin();
+                ImDrawList* draw = ImGui::GetWindowDrawList();
+                const unsigned long long picture = isModel(name) ? m_thumbnails.texture(relative, m_renderer) : 0;
+                if (picture) {
+                    draw->AddImage(ImTextureRef(static_cast<ImTextureID>(picture)), min, ImVec2(min.x + cell, min.y + cell));
+                } else {
+                    const char* glyph = assetIcon(name);
+                    const ImVec2 size = ImGui::CalcTextSize(glyph);
+                    draw->AddText(ImVec2(min.x + (cell - size.x) * 0.5f, min.y + (cell - size.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), glyph);
+                }
+                draw->PushClipRect(ImVec2(min.x, min.y + cell), ImVec2(min.x + cell, min.y + cell + textHeight), true);
+                draw->AddText(ImVec2(min.x + 2.0f, min.y + cell), ImGui::GetColorU32(ImGuiCol_Text), name.c_str());
+                draw->PopClipRect();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", relative.c_str());
+            }
             if (ImGui::BeginPopupContextItem("##assetMenu")) {
                 if (ImGui::MenuItem(tr("Rename or Move..."), nullptr, false, m_mode == Mode::Edit)) {
                     m_assetRenameFrom = relative;
@@ -193,6 +219,8 @@ void Editor::drawAssetBrowser() {
                 ImGui::EndPopup();
             }
             ImGui::PopID();
+            if (cell > 0.0f && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + cell < ImGui::GetWindowPos().x + ImGui::GetContentRegionMax().x)
+                ImGui::SameLine();
         }
     }
     ImGui::EndChild();

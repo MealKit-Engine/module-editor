@@ -264,6 +264,10 @@ void Editor::drawCommandPalette() {
             if (recent != m_paletteRecent.end()) it.score = 1000 - static_cast<int>(recent - m_paletteRecent.begin());
         }
     std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.score > b.score; });
+    if (q[0] && !items.empty()) { // scattered letters only count when nothing matches better
+        const int keep = items.front().score / 2;
+        std::erase_if(items, [keep](const Item& it) { return it.score < keep; });
+    }
     if (items.size() > 200) items.erase(items.begin() + 200, items.end());
 
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
