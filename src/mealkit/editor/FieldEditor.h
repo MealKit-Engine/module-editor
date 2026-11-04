@@ -3,6 +3,8 @@
 #include "mealkit/core/Reflect.h"
 #include "mealkit/data/Tables.h"
 
+#include <string>
+
 // Draws field declarations (reflect::TypeInfo) as ImGui widgets. Shared by inspector object fields, the tuning panel, the [Tables] panel, and the live state view.
 namespace mealkit::editor {
 
@@ -32,5 +34,13 @@ bool inputString(const char* label, std::string& text);
 
 // Read-only table (name | value). Structs/arrays/Pools can be expanded. Large Pools draw only visible rows.
 void drawFieldsReadOnly(const reflect::TypeInfo& type, const void* data);
+
+// One "name | value" row: draws the name in the left column (shortened with its full text in a tooltip), makes the next
+// widget fill the value column, and returns the hidden label to give that widget:
+//   ImGui::DragFloat(propertyRow(tr("Speed")).c_str(), &speed);
+std::string propertyRow(const char* label, const char* tooltip = nullptr);
+
+// Inspector section: a neutral bar, so the accent color stays for selection and active states
+bool sectionHeader(const char* label, int treeNodeFlags = 0);
 
 } // namespace mealkit::editor

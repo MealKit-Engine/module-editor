@@ -85,6 +85,8 @@ struct Options {
     std::string penpotToken; // --penpot-token: live connection server token (Penpot import automated tests, random if empty)
     std::vector<std::string> toolPaths; // --tool-path: extra folders for the [Tools] menu to search (build folder of a tool in development)
     bool listTools = false;             // --list-tools: print found tools and exit (no window)
+    u32 windowWidth = 1600;             // --window WxH: window size (checking layouts at other sizes)
+    u32 windowHeight = 900;
     bool builtinManager = false;        // --builtin-manager: the in-editor project manager instead of the installed MealKit Manager
     bool uiCheck = false;    // --ui-check: compare the layout of screens exported from Penpot with the Penpot boxes and exit (no window)
     std::string uiRender, uiRenderOut; // --ui-render <ui/x.ui> <png>: draw just one screen, save, and exit (pixel comparison)
@@ -178,6 +180,13 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
         else if (a == "--tool-path" && next(v)) o.toolPaths.push_back(v);
         else if (a == "--list-tools") o.listTools = true;
+        else if (a == "--window" && next(v)) {
+            int w = 0, h = 0;
+            if (sscanf_s(v, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) {
+                o.windowWidth = static_cast<u32>(w);
+                o.windowHeight = static_cast<u32>(h);
+            }
+        }
         else if (a == "--builtin-manager") o.builtinManager = true;
         else if (a == "--ui-check") o.uiCheck = true;
         else if (a == "--ui-render" && i + 2 < argc) o.uiRender = argv[++i], o.uiRenderOut = argv[++i];
@@ -267,7 +276,7 @@ int main(int argc, char** argv) {
     if (opt.projectDir.empty() && !opt.builtinManager && !opt.frames && startManager(engineDir)) return 0;
 
     Window window;
-    if (!window.create({"MealKit Editor", 1600, 900, editor::kEditorCaptionColor})) return 1;
+    if (!window.create({"MealKit Editor", opt.windowWidth, opt.windowHeight, editor::kEditorCaptionColor})) return 1;
     render::Renderer renderer;
     if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer, opt.gpuCapture,
                         userDataDirectory() + "/MealKit Editor/cache"}))

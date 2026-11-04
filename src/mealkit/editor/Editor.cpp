@@ -340,7 +340,12 @@ void Editor::drawPlayControls() {
         ImGui::BeginDisabled(!t.paused);
         if (ImGui::Button(tr("Step (F7)"))) m_simDebug->stepOnce();
         int view = static_cast<int>(t.view);
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        // The timeline gives way so [Save Scenario] and the shadow status stay on the bar in a narrow window
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const f32 font = ImGui::GetFontSize();
+        const f32 after = ImGui::CalcTextSize(tr("Save Scenario")).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x * 2.0f +
+                          (m_simDebug->shadow().enabled ? font * 10.0f : 0.0f);
+        ImGui::SetNextItemWidth(std::clamp(ImGui::GetWindowWidth() - ImGui::GetCursorPosX() - after, font * 4.0f, font * 14.0f));
         if (ImGui::SliderInt("##timeline", &view, static_cast<int>(t.first), static_cast<int>(t.live),
                              t.viewingPast ? tr("Past tick %d") : tr("Tick %d")))
             m_simDebug->seek(static_cast<u32>(view));
@@ -916,20 +921,26 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Add"), editing)) {
-        drawTypeMenuItems();
-        ImGui::Separator();
-        if (ImGui::MenuItem(tr("Model..."))) addModelEntity();
+        drawAddMenuItems();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("View"))) {
         commandMenuItem("Focus Selected");
         commandMenuItem("Command Palette");
         commandMenuItem("Keyboard Shortcuts");
+        ImGui::Separator();
+        // Every panel in one place
+        commandMenuItem("Assets", &m_assetsOpen);
+        commandMenuItem("Log", m_logPanel.openFlag());
+        commandMenuItem("Build Log", m_buildPanel.openFlag());
+        commandMenuItem("Performance", m_perfPanel.openFlag());
+        ImGui::Separator();
         commandMenuItem("Tables", &m_tablesOpen);
         commandMenuItem("Sounds", &m_soundsOpen);
         commandMenuItem("Feedback", &m_feedbackOpen);
         commandMenuItem("UI", &m_uiPanelOpen);
         commandMenuItem("Look Dev", &m_lookdevOpen);
+        ImGui::Separator();
         if (ImGui::BeginMenu(tr("Preview Cutscene"), m_mode == Mode::Edit)) {
             if (ImGui::IsWindowAppearing()) m_previewCutscenes.load(); // assets/tables/cutscenes.table as it is now
             for (u32 i = 0; i < m_previewCutscenes.count(); ++i) {
@@ -981,11 +992,6 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         commandMenuItem("Open Release Folder");
         commandMenuItem("Open Project Folder");
-        ImGui::Separator();
-        commandMenuItem("Build Log", m_buildPanel.openFlag());
-        commandMenuItem("Log", m_logPanel.openFlag());
-        commandMenuItem("Assets", &m_assetsOpen);
-        commandMenuItem("Performance", m_perfPanel.openFlag());
         ImGui::EndMenu();
     }
     // Tool suite (editor/Tools.h): opens MealKit tools from separate repos with this project
@@ -1029,23 +1035,29 @@ void Editor::drawMenuBar() {
     if (editing && !m_gameLoaded && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("%s", m_gameStatus.c_str());
 
-    // Player count (with multiple, more join windows open)
-    ImGui::BeginDisabled(!editing);
-    const char* counts[] = {tr("Solo"), tr("2 players"), tr("3 players"), tr("4 players")};
-    int players = static_cast<int>(m_playPlayers) - 1;
-    ImGui::SetNextItemWidth(ImGui::CalcTextSize(counts[1]).x + ImGui::GetFrameHeight() * 2.0f);
-    if (ImGui::Combo("##players", &players, counts, 4)) m_playPlayers = static_cast<u32>(players + 1);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("%s", tr("With several players the editor hosts and opens more player windows (current scene and tuning, same PC)"));
-    if (m_playPlayers > 1) ImGui::Checkbox(tr("Bots in player windows"), &m_playClientBots);
+    // Play options (only before play, so the play controls have the room): player count, with several more join windows open
     if (editing) {
-        ImGui::Checkbox(tr("Shadow check"), &m_shadowCheck);
+        const char* counts[] = {tr("Solo"), tr("2 players"), tr("3 players"), tr("4 players")};
+        const int players = static_cast<int>(m_playPlayers) - 1;
+        ImGui::SetNextItemWidth(ImGui::CalcTextSize(counts[1]).x + ImGui::GetFrameHeight() * 2.0f);
+        if (ImGui::BeginCombo("##playOptions", counts[players], ImGuiComboFlags_HeightLargest)) {
+            for (int i = 0; i < 4; ++i)
+                if (ImGui::Selectable(counts[i], i == players)) m_playPlayers = static_cast<u32>(i + 1);
+            ImGui::Separator();
+            ImGui::BeginDisabled(m_playPlayers == 1);
+            ImGui::Checkbox(tr("Bots in player windows"), &m_playClientBots);
+            ImGui::EndDisabled();
+            ImGui::Checkbox(tr("Shadow check"), &m_shadowCheck);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                ImGui::SetTooltip("%s", tr("Runs a second simulation with the same inputs during play and compares every tick.\n"
+                                        "On a mismatch it stops and shows the first diverging tick and state fields (2x simulation CPU)"));
+            ImGui::EndCombo();
+        }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-            ImGui::SetTooltip("%s", tr("Runs a second simulation with the same inputs during play and compares every tick.\n"
-                                    "On a mismatch it stops and shows the first diverging tick and state fields (2x simulation CPU)"));
+            ImGui::SetTooltip("%s", tr("With several players the editor hosts and opens more player windows (current scene and tuning, same PC)"));
+    } else {
+        drawPlayControls();
     }
-    ImGui::EndDisabled();
-    if (!editing) drawPlayControls();
     ImGui::EndMainMenuBar();
 }
 
@@ -1068,9 +1080,7 @@ void Editor::drawStatusBar() {
                 ImGui::TextDisabled("|");
             }
             if (m_mode == Mode::Play) ImGui::TextUnformatted(m_playStatus.c_str());
-            else if (m_time - m_statusTime < 4.0)
-                ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", m_status.c_str());
-            else
+            else // messages show as notices over the viewport (drawNotices)
                 ImGui::TextDisabled(
                     "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));
             const char* fps = "0000 fps";
@@ -1092,23 +1102,19 @@ void Editor::drawHierarchy(bool editing) {
         return;
     }
     ImGui::BeginDisabled(!editing);
-    if (ImGui::Button(tr("+ Box"))) addEntity(scene::kTypeSolid);
-    ImGui::SameLine();
-    if (ImGui::Button(tr("+ Model"))) addModelEntity();
-    ImGui::SameLine();
-    if (ImGui::Button(tr("+ Spawn"))) addEntity(scene::kTypeSpawn);
-    ImGui::SameLine();
-    if (ImGui::Button(tr("+ Type..."))) ImGui::OpenPopup("##addType");
-    if (ImGui::BeginPopup("##addType")) {
-        drawTypeMenuItems();
+    // One row whatever the panel width: the same list as the [Add] menu, then search
+    if (ImGui::Button(tr("+ Add"))) ImGui::OpenPopup("##add");
+    if (ImGui::BeginPopup("##add")) {
+        drawAddMenuItems();
         ImGui::EndPopup();
     }
+    ImGui::SameLine();
     // Search (name/kind, Ctrl+F): with text, only matching objects, flat
     if (m_treeSearchFocus) {
         ImGui::SetKeyboardFocusHere();
         m_treeSearchFocus = false;
     }
-    ImGui::SetNextItemWidth(-1);
+    ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##treeSearch", (std::string(icon::kSearch) + "  " + tr("Find (Ctrl+F)")).c_str(), m_treeSearch,
                              sizeof(m_treeSearch));
     ImGui::Separator();
@@ -1132,20 +1138,27 @@ void Editor::drawHierarchy(bool editing) {
         }
         if (m_treeSearch[0]) {
             const std::unordered_map<u32, std::vector<size_t>> none;
+            bool found = false;
             for (size_t i = 0; i < m_scene.entities.size(); ++i) {
                 const Entity& e = m_scene.entities[i];
                 const reflect::TypeInfo* type = entityType(e);
                 if (containsNoCase(e.name, m_treeSearch) || containsNoCase(e.type, m_treeSearch) ||
-                    (type && containsNoCase(trData(type->label), m_treeSearch)))
+                    (type && containsNoCase(trData(type->label), m_treeSearch))) {
                     drawEntityNode(i, none);
+                    found = true;
+                }
             }
+            if (!found) ImGui::TextDisabled("%s", tr("No matching objects"));
         } else {
             for (size_t i : roots) drawEntityNode(i, children);
         }
         m_treeRevealed = m_selected;
-        // Dropping on empty space moves to top level
+        // Clicking empty space deselects, dropping on it moves to top level
         const ImVec2 rest = ImGui::GetContentRegionAvail();
-        ImGui::InvisibleButton("##treeRoot", ImVec2(std::max(rest.x, 1.0f), std::max(rest.y, ImGui::GetFrameHeight())));
+        if (ImGui::InvisibleButton("##treeRoot", ImVec2(std::max(rest.x, 1.0f), std::max(rest.y, ImGui::GetFrameHeight())))) {
+            m_selected = 0;
+            m_sceneRow = false;
+        }
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload))
                 m_treeAction = {TreeAction::Reparent, *static_cast<const u32*>(payload->Data), 0};
@@ -1173,11 +1186,10 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     ImGui::PushID(static_cast<int>(id));
     f32 rgb[3];
     unpackColor(e.color, rgb);
-    std::string label = e.name.empty() ? tr("(no name)") : e.name;
-    if (!e.is(scene::kTypeSolid)) {
-        const reflect::TypeInfo* type = entityType(e);
-        label += std::string("  · ") + (type ? trData(type->label) : e.type.c_str());
-    }
+    const std::string label = e.name.empty() ? tr("(no name)") : e.name;
+    // Kind after the name, dimmer so names scan as a column
+    const reflect::TypeInfo* kind = e.is(scene::kTypeSolid) ? nullptr : entityType(e);
+    const char* kindText = e.is(scene::kTypeSolid) ? nullptr : (kind ? trData(kind->label) : e.type.c_str());
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth |
                                ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap;
     if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -1195,6 +1207,18 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     ImGui::GetWindowDrawList()->AddText(ImVec2(rowMin.x + ImGui::GetTreeNodeToLabelSpacing(), rowMin.y),
                                         ImGui::ColorConvertFloat4ToU32(ImVec4(rgb[0], rgb[1], rgb[2], 1.0f)),
                                         entityIcon(e));
+    if (kindText) {
+        const f32 x = rowMin.x + ImGui::GetTreeNodeToLabelSpacing() + ImGui::CalcTextSize(("      " + label).c_str()).x +
+                      ImGui::GetFontSize() * 0.6f;
+        // Makes room for the row's visibility/lock toggles only while they show
+        const bool togglesShown = ImGui::IsItemHovered() || m_hidden.count(id) != 0 || m_locked.count(id) != 0;
+        const f32 right = rowMax.x - (togglesShown ? ImGui::GetFrameHeight() * 2.0f : ImGui::GetStyle().ItemInnerSpacing.x);
+        if (x < right) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), ImVec2(x, rowMin.y), ImVec2(right, rowMax.y), right, kindText, nullptr, nullptr);
+            ImGui::PopStyleColor();
+        }
+    }
     if (hiddenRow) ImGui::PopStyleVar();
     // Click to select, double-click to move to, drag to reparent
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
@@ -1298,18 +1322,17 @@ void Editor::drawInspector(bool editing) {
         ImGui::TextDisabled("%s", tr("Nothing selected."));
         ImGui::TextDisabled("%s", tr("Click in the viewport or pick from the scene tree."));
     } else {
-        ImGui::PushItemWidth(-ImGui::CalcTextSize(tr("Rotation (deg)")).x - 12.0f);
         if (m_nameBufferId != e->id) {
             strncpy_s(m_nameBuffer, e->name.c_str(), _TRUNCATE);
             m_nameBufferId = e->id;
         }
-        if (ImGui::InputText(tr("Name"), m_nameBuffer, sizeof(m_nameBuffer))) {
+        if (ImGui::InputText(propertyRow(tr("Name")).c_str(), m_nameBuffer, sizeof(m_nameBuffer))) {
             e->name = m_nameBuffer;
             markChanged();
         }
         const reflect::TypeInfo* type = entityType(*e);
         const std::string typeLabel = type ? trData(type->label) : trf("%s (not in game code)", e->type.c_str());
-        if (ImGui::BeginCombo(tr("Type"), typeLabel.c_str())) {
+        if (ImGui::BeginCombo(propertyRow(tr("Type")).c_str(), typeLabel.c_str())) {
             for (const reflect::TypeInfo* t : allTypes()) {
                 if (ImGui::Selectable(trData(t->label), t == type) && t != type) {
                     e->type = t->name;
@@ -1332,12 +1355,12 @@ void Editor::drawInspector(bool editing) {
         drawObjectFields(*e);
 
         if (const asset::Model* model = e->model.empty() ? nullptr : m_models->get(e->model);
-            model && model->skinned() && ImGui::CollapsingHeader(tr("Animation"), ImGuiTreeNodeFlags_DefaultOpen)) {
+            model && model->skinned() && sectionHeader(tr("Animation"), ImGuiTreeNodeFlags_DefaultOpen)) {
             // Skinned model: looping view clip (scene field anim, also played on the game screen)
             ImGui::TextDisabled(tr("%u joints, %u clips"), model->bones, static_cast<u32>(model->clips.size()));
             const std::string current = scene::animField(*e);
             const std::string currentClip = current.substr(0, current.find(' '));
-            if (ImGui::BeginCombo(tr("Clip"), currentClip.empty() ? tr("(rest pose)") : currentClip.c_str())) {
+            if (ImGui::BeginCombo(propertyRow(tr("Clip")).c_str(), currentClip.empty() ? tr("(rest pose)") : currentClip.c_str())) {
                 const auto set = [&](const std::string& value) {
                     std::erase_if(e->fields, [](const auto& f) { return f.first == scene::kAnimField; });
                     if (!value.empty()) e->fields.emplace_back(scene::kAnimField, value);
@@ -1353,7 +1376,7 @@ void Editor::drawInspector(bool editing) {
             }
         }
 
-        if (e->is(scene::kTypeVirtualCamera) && ImGui::CollapsingHeader(tr("Virtual camera"), ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (e->is(scene::kTypeVirtualCamera) && sectionHeader(tr("Virtual camera"), ImGuiTreeNodeFlags_DefaultOpen)) {
             // Shows the scene view through this camera (no follow target in edit mode: it stands at its placement)
             bool through = m_lookThrough == e->id;
             if (ImGui::Checkbox(tr("Look Through"), &through)) m_lookThrough = through ? e->id : 0;
@@ -1361,7 +1384,7 @@ void Editor::drawInspector(bool editing) {
             ImGui::TextDisabled("%s", tr("Esc stops"));
         }
 
-        if (e->is(scene::kTypeProbe) && ImGui::CollapsingHeader(tr("Reflection probe"), ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (e->is(scene::kTypeProbe) && sectionHeader(tr("Reflection probe"), ImGuiTreeNodeFlags_DefaultOpen)) {
             // Reflection probe: bake (edit mode, baked files in assets/probes/)
             const std::string file = scene::probeFile(*e);
             ImGui::TextDisabled("%s", file.empty() ? tr("Not baked") : file.c_str());
@@ -1380,7 +1403,7 @@ void Editor::drawInspector(bool editing) {
         if (e->is(scene::kTypeTerrain)) drawTerrainInspector(*e);
         if (e->is(scene::kTypeScatter)) drawScatterInspector(*e);
 
-        if (!isMarker(*e) && !e->is(scene::kTypeTerrain) && !e->is(scene::kTypeScatter) && ImGui::CollapsingHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!isMarker(*e) && !e->is(scene::kTypeTerrain) && !e->is(scene::kTypeScatter) && sectionHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
             if (e->model.empty()) {
                 ImGui::TextDisabled("%s", tr("Default box"));
             } else {
@@ -1422,8 +1445,8 @@ void Editor::drawInspector(bool editing) {
         compose(scene::localTransform(*e), matrix);
         ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
         bool changed = false;
-        if (ImGui::CollapsingHeader(e->parent ? tr("Transform (relative to parent)###transform") : tr("Transform###transform"),
-                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (sectionHeader(e->parent ? tr("Transform (relative to parent)###transform") : tr("Transform###transform"),
+                          ImGuiTreeNodeFlags_DefaultOpen)) {
             changed |= transformRow(tr("Position"), "##pos", t, 0.05f, 0.0f, 0.0f, "%.2f", 0.0f);
             changed |= transformRow(tr("Rotation (deg)"), "##rot", r, 0.5f, 0.0f, 0.0f, "%.1f", 0.0f);
             if (!isMarker(*e)) changed |= transformRow(tr("Scale"), "##scale", s, 0.02f, 0.01f, 10000.0f, "%.2f", 1.0f, &m_scaleLock);
@@ -1439,26 +1462,28 @@ void Editor::drawInspector(bool editing) {
             markChanged();
         }
 
-        if (ImGui::CollapsingHeader(tr("Look"), ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (sectionHeader(tr("Look"), ImGuiTreeNodeFlags_DefaultOpen)) {
             f32 rgb[3];
             unpackColor(e->color, rgb);
-            if (ImGui::ColorEdit3(tr("Color"), rgb)) {
+            if (ImGui::ColorEdit3(propertyRow(tr("Color")).c_str(), rgb)) {
                 e->color = packColor(rgb, e->color);
                 markChanged();
             }
             bool checker = (e->flags & render::kInstanceChecker) != 0;
-            if (ImGui::Checkbox(tr("Checker pattern"), &checker)) {
+            if (ImGui::Checkbox(propertyRow(tr("Checker pattern")).c_str(), &checker)) {
                 e->flags = checker ? (e->flags | render::kInstanceChecker) : (e->flags & ~render::kInstanceChecker);
                 markChanged();
             }
         }
-        ImGui::PopItemWidth();
         ImGui::TextDisabled("ID %u", e->id);
 
         ImGui::Spacing();
         if (ImGui::Button(tr("Duplicate (Ctrl+D)"))) duplicateSelected();
         ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.62f, 0.20f, 0.18f, 1.0f)); // the one destructive button here
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.72f, 0.24f, 0.21f, 1.0f));
         if (ImGui::Button(tr("Delete (Del)"))) deleteSelected(); // e isn't used after this
+        ImGui::PopStyleColor(2);
     }
     ImGui::EndDisabled();
     ImGui::End();
@@ -1469,13 +1494,25 @@ bool Editor::transformRow(const char* label, const char* id, f32 v[3], f32 speed
                           f32 defaultValue, bool* lockRatio) {
     ImGui::PushID(id);
     const f32 before[3] = {v[0], v[1], v[2]};
+    const std::string hidden = propertyRow(label);
     if (lockRatio) {
-        if (ImGui::SmallButton(*lockRatio ? icon::kLock : icon::kUnlock)) *lockRatio = !*lockRatio;
+        if (ImGui::Button(*lockRatio ? icon::kLock : icon::kUnlock, ImVec2(ImGui::GetFrameHeight(), 0.0f))) *lockRatio = !*lockRatio;
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Keep the ratio between X, Y and Z"));
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetItemRectSize().x - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::SetNextItemWidth(-FLT_MIN);
     }
-    bool changed = ImGui::DragFloat3(label, v, speed, lo, hi, format);
+    bool changed = ImGui::DragFloat3(hidden.c_str(), v, speed, lo, hi, format);
+    {
+        // A thin bar on each component in the gizmo's axis colors
+        const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+        const f32 gap = ImGui::GetStyle().ItemInnerSpacing.x;
+        const f32 step = (max.x - min.x + gap) / 3.0f;
+        const ImVec4 axes[3] = {ImVec4(0.85f, 0.30f, 0.30f, 1.0f), ImVec4(0.35f, 0.72f, 0.35f, 1.0f), ImVec4(0.35f, 0.50f, 0.90f, 1.0f)};
+        for (int i = 0; i < 3; ++i) {
+            const f32 x = min.x + step * static_cast<f32>(i);
+            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, min.y), ImVec2(x + 2.0f, max.y), ImGui::GetColorU32(axes[i]));
+        }
+    }
     if (changed && lockRatio && *lockRatio) { // the rest follow the ratio of the changed axis
         for (int i = 0; i < 3; ++i)
             if (v[i] != before[i] && before[i] != 0.0f) {
@@ -1613,33 +1650,32 @@ void Editor::drawEnvironment() {
     scene::Environment& env = m_scene.environment;
     const ImGuiColorEditFlags hdr = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR;
     bool c = false;
-    ImGui::PushItemWidth(-ImGui::CalcTextSize(tr("Ground bounce")).x - 12.0f);
-    c |= ImGui::DragFloat3(tr("Sun direction"), &env.sunDirection.x, 0.01f, -1.0f, 1.0f, "%.2f");
-    c |= ImGui::ColorEdit3(tr("Sun light"), &env.sunColor.x, hdr);
-    c |= ImGui::ColorEdit3(tr("Sky ambient"), &env.skyColor.x, hdr);
-    c |= ImGui::ColorEdit3(tr("Ground bounce"), &env.groundColor.x, hdr);
-    c |= ImGui::ColorEdit3(tr("Fog / background"), &env.fogColor.x, hdr);
-    c |= ImGui::DragFloat(tr("Fog density"), &env.fogDensity, 0.0002f, 0.0f, 0.1f, "%.4f");
+    c |= ImGui::DragFloat3(propertyRow(tr("Sun direction")).c_str(), &env.sunDirection.x, 0.01f, -1.0f, 1.0f, "%.2f");
+    c |= ImGui::ColorEdit3(propertyRow(tr("Sun light")).c_str(), &env.sunColor.x, hdr);
+    c |= ImGui::ColorEdit3(propertyRow(tr("Sky ambient")).c_str(), &env.skyColor.x, hdr);
+    c |= ImGui::ColorEdit3(propertyRow(tr("Ground bounce")).c_str(), &env.groundColor.x, hdr);
+    c |= ImGui::ColorEdit3(propertyRow(tr("Fog / background")).c_str(), &env.fogColor.x, hdr);
+    c |= ImGui::DragFloat(propertyRow(tr("Fog density")).c_str(), &env.fogDensity, 0.0002f, 0.0f, 0.1f, "%.4f");
     // Sky HDRI: one .hdr under assets/textures/ (none = the color gradient above). First selection pauses briefly to bake
-    if (ImGui::BeginCombo(tr("Sky HDRI"), env.hdri.empty() ? tr("None (sky colors)") : env.hdri.c_str())) {
+    if (ImGui::BeginCombo(propertyRow(tr("Sky HDRI")).c_str(), env.hdri.empty() ? tr("None (sky colors)") : env.hdri.c_str())) {
         if (ImGui::Selectable(tr("None (sky colors)"), env.hdri.empty())) env.hdri.clear(), c = true;
         for (const std::string& h : asset::listHdris(asset::ModelCache::assetsRoot()))
             if (ImGui::Selectable(h.c_str(), env.hdri == h)) env.hdri = h, c = true;
         ImGui::EndCombo();
     }
     ImGui::BeginDisabled(env.hdri.empty());
-    c |= ImGui::DragFloat(tr("HDRI intensity"), &env.hdriIntensity, 0.01f, 0.0f, 16.0f, "%.2f");
-    c |= ImGui::DragFloat(tr("HDRI rotation"), &env.hdriRotation, 1.0f, -360.0f, 360.0f, "%.0f");
+    c |= ImGui::DragFloat(propertyRow(tr("HDRI intensity")).c_str(), &env.hdriIntensity, 0.01f, 0.0f, 16.0f, "%.2f");
+    c |= ImGui::DragFloat(propertyRow(tr("HDRI rotation")).c_str(), &env.hdriRotation, 1.0f, -360.0f, 360.0f, "%.0f");
     ImGui::EndDisabled();
 
     // Post-processing (scene::PostFields → render::PostParams). View values; player settings can turn effects off
     ImGui::SeparatorText(tr("Post processing"));
     scene::PostFields& post = env.post;
-    c |= ImGui::Checkbox(tr("Tone mapping (AgX)"), &post.toneMapping);
+    c |= ImGui::Checkbox(propertyRow(tr("Tone mapping (AgX)")).c_str(), &post.toneMapping);
     ImGui::BeginDisabled(!post.toneMapping);
-    c |= ImGui::Checkbox(tr("Punchy look (contrast, saturation)"), &post.punchy);
-    c |= ImGui::DragFloat(tr("Exposure (EV)"), &post.exposure, 0.02f, -6.0f, 6.0f, "%.2f");
-    if (ImGui::BeginCombo(tr("Color LUT"), post.lut.empty() ? tr("None") : post.lut.c_str())) {
+    c |= ImGui::Checkbox(propertyRow(tr("Punchy look (contrast, saturation)")).c_str(), &post.punchy);
+    c |= ImGui::DragFloat(propertyRow(tr("Exposure (EV)")).c_str(), &post.exposure, 0.02f, -6.0f, 6.0f, "%.2f");
+    if (ImGui::BeginCombo(propertyRow(tr("Color LUT")).c_str(), post.lut.empty() ? tr("None") : post.lut.c_str())) {
         if (ImGui::Selectable(tr("None"), post.lut.empty())) post.lut.clear(), c = true;
         for (const std::string& l : asset::listLuts(asset::ModelCache::assetsRoot()))
             if (ImGui::Selectable(l.c_str(), post.lut == l)) post.lut = l, c = true;
@@ -1649,15 +1685,14 @@ void Editor::drawEnvironment() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", tr("Saves the scene view without the LUT to art/grading/ with a neutral .cube. Grade it in DaVinci "
                                    "Resolve or Photoshop, export a 32-point .cube into assets/lut/ and pick it above."));
-    c |= ImGui::DragFloat(tr("Bloom intensity"), &post.bloomIntensity, 0.01f, 0.0f, 2.0f, "%.2f");
-    c |= ImGui::DragFloat(tr("Bloom threshold"), &post.bloomThreshold, 0.02f, 0.0f, 16.0f, "%.2f");
-    c |= ImGui::ColorEdit3(tr("Bloom tint"), &post.bloomTint.x, hdr);
-    c |= ImGui::SliderFloat(tr("Vignette"), &post.vignette, 0.0f, 1.0f, "%.2f");
-    c |= ImGui::SliderFloat(tr("Vignette start"), &post.vignetteSmoothness, 0.0f, 1.0f, "%.2f");
-    c |= ImGui::SliderFloat(tr("Film grain"), &post.grain, 0.0f, 1.0f, "%.2f");
-    c |= ImGui::SliderFloat(tr("Chromatic aberration"), &post.chromaticAberration, 0.0f, 0.05f, "%.3f");
+    c |= ImGui::DragFloat(propertyRow(tr("Bloom intensity")).c_str(), &post.bloomIntensity, 0.01f, 0.0f, 2.0f, "%.2f");
+    c |= ImGui::DragFloat(propertyRow(tr("Bloom threshold")).c_str(), &post.bloomThreshold, 0.02f, 0.0f, 16.0f, "%.2f");
+    c |= ImGui::ColorEdit3(propertyRow(tr("Bloom tint")).c_str(), &post.bloomTint.x, hdr);
+    c |= ImGui::SliderFloat(propertyRow(tr("Vignette")).c_str(), &post.vignette, 0.0f, 1.0f, "%.2f");
+    c |= ImGui::SliderFloat(propertyRow(tr("Vignette start")).c_str(), &post.vignetteSmoothness, 0.0f, 1.0f, "%.2f");
+    c |= ImGui::SliderFloat(propertyRow(tr("Film grain")).c_str(), &post.grain, 0.0f, 1.0f, "%.2f");
+    c |= ImGui::SliderFloat(propertyRow(tr("Chromatic aberration")).c_str(), &post.chromaticAberration, 0.0f, 0.05f, "%.3f");
     ImGui::EndDisabled();
-    ImGui::PopItemWidth();
     if (c) markChanged();
     ImGui::TextDisabled("%s", tr("Colors are linear values."));
 }
@@ -1745,7 +1780,9 @@ void Editor::drawViewportToolbar() {
     if (m_viewport.width < 200.0f || m_viewport.height < 120.0f) return;
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
-                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                   ImGuiWindowFlags_NoBringToFrontOnFocus;
+    const f32 cubeSize = std::floor(ImGui::GetFrameHeight() * 3.0f); // axis gizmo in the top right corner
     ImGui::SetNextWindowPos(ImVec2(m_viewport.x + 8.0f, m_viewport.y + 8.0f));
     ImGui::SetNextWindowBgAlpha(0.75f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
@@ -1753,6 +1790,30 @@ void Editor::drawViewportToolbar() {
         auto tip = [](const char* text) {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", text);
         };
+        // Groups stay on one row while they fit beside the axis gizmo and flow onto the next row in a narrow viewport,
+        // so the toolbar never covers the panels. Group widths come from the previous frame.
+        static f32 groupWidths[3] = {};
+        const f32 rowLimit = m_viewport.width - cubeSize - 32.0f;
+        const f32 gap = ImGui::GetStyle().ItemSpacing.x * 2.0f + 1.0f;
+        f32 rowUsed = 0.0f;
+        const auto beginGroup = [&](int g) {
+            if (g > 0 && rowUsed + gap + groupWidths[g] <= rowLimit) {
+                ImGui::SameLine();
+                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+                ImGui::SameLine();
+                rowUsed += gap;
+            } else {
+                rowUsed = 0.0f;
+            }
+            ImGui::BeginGroup();
+        };
+        const auto endGroup = [&](int g) {
+            ImGui::EndGroup();
+            groupWidths[g] = ImGui::GetItemRectSize().x;
+            rowUsed += groupWidths[g];
+        };
+
+        beginGroup(0);
         if (toolButton(tr("Move W"), m_gizmoOp == 0)) m_gizmoOp = 0;
         ImGui::SameLine(0, 2);
         if (toolButton(tr("Rotate E"), m_gizmoOp == 1)) m_gizmoOp = 1;
@@ -1760,18 +1821,24 @@ void Editor::drawViewportToolbar() {
         if (toolButton(tr("Scale R"), m_gizmoOp == 2)) m_gizmoOp = 2;
         ImGui::SameLine();
         if (toolButton(m_gizmoLocal ? tr("Local Axes") : tr("World Axes"), false)) m_gizmoLocal = !m_gizmoLocal;
-        ImGui::SameLine();
+        endGroup(0);
+
+        beginGroup(1);
         if (toolButton(tr("Snap"), m_snapOn)) m_snapOn = !m_snapOn;
         tip(tr("Snap without holding Ctrl (Ctrl turns it off for a moment)"));
         ImGui::SameLine(0, 0);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
         if (ImGui::ArrowButton("##snapSettings", ImGuiDir_Down)) ImGui::OpenPopup("##snapPopup");
+        ImGui::PopStyleColor();
         if (ImGui::BeginPopup("##snapPopup")) {
             if (drawSnapSettings(m_prefs)) savePreferences(m_prefs);
             ImGui::EndPopup();
         }
         ImGui::SameLine(0, 2);
         if (toolButton(tr("Grid"), m_showGrid)) m_showGrid = !m_showGrid;
-        ImGui::SameLine();
+        endGroup(1);
+
+        beginGroup(2);
         if (toolButton(m_ortho ? tr("Orthographic") : tr("Perspective"), false)) m_ortho = !m_ortho;
         tip(tr("Switch between perspective and orthographic (wheel zooms in orthographic)"));
         ImGui::SameLine();
@@ -1792,12 +1859,13 @@ void Editor::drawViewportToolbar() {
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
         ImGui::SliderFloat("##camSpeed", &m_cameraSpeed, 1.0f, 400.0f, "%.0f m/s", ImGuiSliderFlags_Logarithmic);
         tip(tr("Camera speed"));
+        endGroup(2);
     }
     ImGui::End();
     ImGui::PopStyleVar();
 
     // Axis gizmo: when ImGuizmo rotates the view matrix, convert back to camera angles/position
-    const f32 size = 96.0f;
+    const f32 size = cubeSize;
     Mat4 view = m_view;
     const f32 pivot = 10.0f; // orbits around the point this far ahead
     ImGuizmo::ViewManipulate(&view.m[0][0], pivot, ImVec2(m_viewport.x + m_viewport.width - size - 8.0f, m_viewport.y + 8.0f),
@@ -2323,7 +2391,7 @@ std::vector<const reflect::TypeInfo*> Editor::allTypes() const {
     return list;
 }
 
-void Editor::drawTypeMenuItems() {
+void Editor::drawAddMenuItems() {
     const size_t builtins = scene::builtinTypes().size();
     const std::vector<const reflect::TypeInfo*> types = allTypes();
     for (size_t i = 0; i < types.size(); ++i) {
@@ -2332,20 +2400,22 @@ void Editor::drawTypeMenuItems() {
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", types[i]->name);
     }
     if (!m_gameTypes) ImGui::TextDisabled("%s", tr("(game types appear when the game code is loaded)"));
+    ImGui::Separator();
+    if (ImGui::MenuItem(tr("Model..."))) addModelEntity();
 }
 
 // Game kind fields: read text values into an instance of the declared type, edit with widgets, and write back as text
 void Editor::drawObjectFields(Entity& e) {
     const reflect::TypeInfo* type = entityType(e);
     if (type && type->fields.empty()) return;
-    if (!ImGui::CollapsingHeader(tr("Fields"), ImGuiTreeNodeFlags_DefaultOpen)) return;
+    if (!sectionHeader(tr("Fields"), ImGuiTreeNodeFlags_DefaultOpen)) return;
     if (!type) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1.0f), tr("The game code has no '%s' type. The values are kept as they are."),
                            e.type.c_str());
         for (auto& [path, value] : e.fields) {
             char buffer[256];
             strncpy_s(buffer, value.c_str(), _TRUNCATE);
-            if (ImGui::InputText(path.c_str(), buffer, sizeof(buffer))) {
+            if (ImGui::InputText(propertyRow(path.c_str()).c_str(), buffer, sizeof(buffer))) {
                 value = buffer;
                 markChanged();
             }
@@ -2712,8 +2782,6 @@ void Editor::redo() {
 }
 
 void Editor::setStatus(const std::string& text, bool failed, NoticeOpen open) {
-    m_status = text;
-    m_statusTime = m_time;
     if (m_undoLabelFrame == ImGui::GetFrameCount() && !m_undo.empty()) m_undo.back().label = text; // names like duplicate/delete
     if (m_notices.size() >= 5) m_notices.erase(m_notices.begin());
     m_notices.push_back({text, m_time, failed, failed ? open : NoticeOpen::None});

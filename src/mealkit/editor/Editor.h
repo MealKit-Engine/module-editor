@@ -260,7 +260,7 @@ private:
     bool m_treeSearchFocus = false; // Ctrl+F
     u32 m_treeRevealed = 0;         // last selection expanded and shown in the tree
     std::vector<const reflect::TypeInfo*> allTypes() const; // built-in kinds + game kinds (by label)
-    void drawTypeMenuItems();
+    void drawAddMenuItems();
     void drawObjectFields(scene::Entity& e);
     void addModelEntity();
     void addModelEntity(const std::string& path, const Vec3* at); // at: floor point to place on (nullptr = in front of the camera)
@@ -373,8 +373,6 @@ private:
     bool m_stopRequest = false;
     bool m_quit = false;
     std::string m_playStatus;
-    std::string m_status;
-    f64 m_statusTime = -100.0;
     struct Notice {
         std::string text;
         f64 time = 0.0;

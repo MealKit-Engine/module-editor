@@ -5,11 +5,13 @@
 #include "mealkit/editor/Strings.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include <imgui.h>
+#include <imgui_internal.h> // RenderTextEllipsis
 
 namespace mealkit::editor {
 namespace {
@@ -154,8 +156,15 @@ bool drawRowRef(const char* label, const ValueInfo& v, void* data, const FieldCo
     return changed;
 }
 
-bool drawValue(const char* label, const char* name, const ValueInfo& v, void* data, const FieldContext* context) {
+bool drawValue(const char* label, const char* name, const ValueInfo& v, void* data, const FieldContext* context,
+               const char* tooltip = nullptr) {
     bool changed = false;
+    // Scalars get a name column; "##" labels are table cells, and structs/arrays/Pools have their own rows
+    std::string hidden;
+    if (label[0] != '#' && v.kind != Kind::Struct && v.kind != Kind::Array && v.kind != Kind::Container) {
+        hidden = propertyRow(label, tooltip);
+        label = hidden.c_str();
+    }
     switch (v.kind) {
     case Kind::Bool: changed = ImGui::Checkbox(label, static_cast<bool*>(data)); break;
     case Kind::Int:
@@ -308,10 +317,11 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         // For inner structs/arrays, defaults are moved to the same field position too
         FieldContext inner = context ? *context : FieldContext{};
         if (inner.defaults) inner.defaults = at(inner.defaults, f.offset);
-        changed |= drawValue(trData(label.name.c_str()), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr);
+        const char* description = label.tooltip.empty() ? nullptr : trData(label.tooltip.c_str());
+        changed |= drawValue(trData(label.name.c_str()), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr, description);
         ImGui::EndDisabled();
-        if (!label.tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", trData(label.tooltip.c_str()));
+        if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", description);
         // Dot on the left if different from the default
         const bool hasDefaults = context && context->defaults;
         bool differs = false;
@@ -348,6 +358,43 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         ImGui::PopID();
     }
     return changed;
+}
+
+std::string propertyRow(const char* label, const char* tooltip) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const f32 font = ImGui::GetFontSize();
+    // The value column starts at the same x in every row, including rows indented inside a tree
+    const f32 left = ImGui::GetCursorPosX();
+    const f32 start = ImGui::GetCursorStartPos().x;
+    const f32 region = left - start + ImGui::GetContentRegionAvail().x;
+    const f32 valueX = std::max(start + std::floor(std::clamp(region * 0.4f, font * 5.0f, font * 14.0f)), left + font * 3.0f);
+
+    const f32 width = valueX - left - style.ItemInnerSpacing.x;
+    const f32 height = ImGui::GetFrameHeight();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    const ImVec2 size = ImGui::CalcTextSize(label, end);
+    ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), ImVec2(pos.x, pos.y + style.FramePadding.y), ImVec2(pos.x + width, pos.y + height),
+                              pos.x + width, label, end, &size);
+    ImGui::Dummy(ImVec2(width, height));
+    const bool cut = size.x > width;
+    if ((cut || tooltip) && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) {
+        if (cut && tooltip) ImGui::SetTooltip("%.*s\n%s", static_cast<int>(end - label), label, tooltip);
+        else if (cut) ImGui::SetTooltip("%.*s", static_cast<int>(end - label), label);
+        else ImGui::SetTooltip("%s", tooltip);
+    }
+    ImGui::SameLine(valueX);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    return std::string("##") + label;
+}
+
+bool sectionHeader(const char* label, int treeNodeFlags) {
+    ImGui::PushStyleColor(ImGuiCol_Header, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+    const bool open = ImGui::CollapsingHeader(label, treeNodeFlags);
+    ImGui::PopStyleColor(3);
+    return open;
 }
 
 void drawFieldsReadOnly(const TypeInfo& type, const void* data) {

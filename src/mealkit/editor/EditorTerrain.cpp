@@ -3,6 +3,7 @@
 #include "mealkit/editor/Editor.h"
 
 #include "mealkit/asset/ModelCache.h"
+#include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/FileDialog.h"
@@ -44,7 +45,7 @@ void Editor::setupNewTerrain(scene::Entity& e) {
 }
 
 void Editor::drawTerrainInspector(scene::Entity& e) {
-    if (!ImGui::CollapsingHeader(tr("Terrain"), ImGuiTreeNodeFlags_DefaultOpen)) return;
+    if (!sectionHeader(tr("Terrain"), ImGuiTreeNodeFlags_DefaultOpen)) return;
     const std::string file = scene::terrainFile(e);
     asset::Terrain* terrain = terrainOf(e);
     if (terrain) {
@@ -80,8 +81,8 @@ void Editor::drawTerrainInspector(scene::Entity& e) {
         if (i) ImGui::SameLine();
         if (ImGui::RadioButton(names[i], m_brush == i)) m_brush = i;
     }
-    ImGui::SliderFloat(tr("Radius (m)"), &m_brushRadius, 0.5f, 64.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
-    ImGui::SliderFloat(tr("Strength"), &m_brushStrength, 0.01f, 1.0f, "%.2f");
+    ImGui::SliderFloat(propertyRow(tr("Radius (m)")).c_str(), &m_brushRadius, 0.5f, 64.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SliderFloat(propertyRow(tr("Strength")).c_str(), &m_brushStrength, 0.01f, 1.0f, "%.2f");
     ImGui::TextDisabled("%s", tr("Left drag paints · Flatten keeps the height under the stroke start · Ctrl+Z undoes a stroke"));
     ImGui::EndDisabled();
 }
@@ -194,7 +195,7 @@ void Editor::setupNewScatter(Entity& e) {
 }
 
 void Editor::drawScatterInspector(Entity& e) {
-    if (!ImGui::CollapsingHeader(tr("Scatter"), ImGuiTreeNodeFlags_DefaultOpen)) return;
+    if (!sectionHeader(tr("Scatter"), ImGuiTreeNodeFlags_DefaultOpen)) return;
     const scene::ScatterFields f = scene::readObject<scene::ScatterFields>(e);
     if (f.file.empty()) {
         ImGui::TextDisabled("%s", tr("No instance file"));
@@ -214,8 +215,8 @@ void Editor::drawScatterInspector(Entity& e) {
     if (ImGui::RadioButton(tr("Paint"), !m_scatterErase)) m_scatterErase = false;
     ImGui::SameLine();
     if (ImGui::RadioButton(tr("Erase"), m_scatterErase)) m_scatterErase = true;
-    ImGui::SliderFloat(tr("Radius (m)"), &m_brushRadius, 0.5f, 64.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
-    ImGui::SliderFloat(tr("Strength"), &m_brushStrength, 0.01f, 1.0f, "%.2f");
+    ImGui::SliderFloat(propertyRow(tr("Radius (m)")).c_str(), &m_brushRadius, 0.5f, 64.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SliderFloat(propertyRow(tr("Strength")).c_str(), &m_brushStrength, 0.01f, 1.0f, "%.2f");
     ImGui::TextDisabled("%s", tr("Left drag paints onto terrain and floors (Shift erases) · density and sizes are fields below · Ctrl+Z undoes a stroke"));
     ImGui::EndDisabled();
 }
