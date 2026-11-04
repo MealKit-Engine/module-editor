@@ -1213,9 +1213,21 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
     ImGui::GetWindowDrawList()->AddText(ImVec2(rowMin.x + ImGui::GetTreeNodeToLabelSpacing(), rowMin.y),
                                         ImGui::ColorConvertFloat4ToU32(ImVec4(rgb[0], rgb[1], rgb[2], 1.0f)),
                                         entityIcon(e));
+    // Badges after the name: "!" for a problem (red) or warning (orange), a blue dot for fields changed from the kind's defaults
+    f32 badgeEnd = rowMin.x + ImGui::GetTreeNodeToLabelSpacing() + ImGui::CalcTextSize(("      " + label).c_str()).x + ImGui::GetFontSize() * 0.5f;
+    const auto badge = m_badges.find(id);
+    if (badge != m_badges.end()) {
+        const ImU32 color = ImGui::GetColorU32(badge->second.error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f) : ImVec4(0.95f, 0.75f, 0.4f, 1.0f));
+        ImGui::GetWindowDrawList()->AddText(ImVec2(badgeEnd, rowMin.y), color, "!");
+        badgeEnd += ImGui::GetFontSize() * 0.6f;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", badge->second.text.c_str());
+    }
+    if (m_differsFromDefault.count(id)) {
+        ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(badgeEnd + 3.0f, (rowMin.y + rowMax.y) * 0.5f), 2.5f, ImGui::GetColorU32(ImVec4(0.45f, 0.70f, 1.0f, 1.0f)));
+        badgeEnd += ImGui::GetFontSize() * 0.7f;
+    }
     if (kindText) {
-        const f32 x = rowMin.x + ImGui::GetTreeNodeToLabelSpacing() + ImGui::CalcTextSize(("      " + label).c_str()).x +
-                      ImGui::GetFontSize() * 0.6f;
+        const f32 x = badgeEnd + ImGui::GetFontSize() * 0.1f;
         // Makes room for the row's visibility/lock toggles only while they show
         const bool togglesShown = ImGui::IsItemHovered() || m_hidden.count(id) != 0 || m_locked.count(id) != 0;
         const f32 right = rowMax.x - (togglesShown ? ImGui::GetFrameHeight() * 2.0f : ImGui::GetStyle().ItemInnerSpacing.x);
@@ -1317,7 +1329,7 @@ void Editor::drawInspector(bool editing) {
     if (m_selected != 0) m_sceneRow = false; // selecting an object deselects the scene row
     if (!m_multi.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
-        ImGui::TextWrapped("%s", trf("%zu objects selected - the gizmo moves all, this panel edits the last one",
+        ImGui::TextWrapped("%s", trf("%zu objects selected - the gizmo moves all, fields of the same kind edit together",
                                      m_multi.size() + 1).c_str());
         ImGui::PopStyleColor();
     }
@@ -2410,10 +2422,28 @@ void Editor::drawObjectFields(Entity& e) {
     std::string warnings;
     reflect::fromText(*type, instance.data(), e.fields, &warnings);
     const reflect::Instance defaults(*type);
-    const FieldContext context{&m_tablesPanel.index(), defaults.data()};
+    // Multi-selection: other selected objects of this kind. Fields where they differ are marked, and a change goes to all of them
+    std::vector<Entity*> others;
+    for (u32 id : m_multi)
+        if (Entity* other = m_scene.find(id); other && other != &e && other->type == e.type) others.push_back(other);
+    const auto rootOf = [](const std::string& path) { return path.substr(0, path.find_first_of(".[")); };
+    std::set<std::string> mixed;
+    for (const Entity* other : others) {
+        for (const auto& field : e.fields)
+            if (std::find(other->fields.begin(), other->fields.end(), field) == other->fields.end()) mixed.insert(rootOf(field.first));
+    }
+    FieldContext context{&m_tablesPanel.index(), defaults.data()};
+    context.mixed = &mixed;
     if (drawFields(*type, instance.data(), &context)) {
         reflect::TextFields fields;
         reflect::toText(*type, instance.data(), fields);
+        for (Entity* other : others)
+            for (const auto& field : fields) {
+                if (std::find(e.fields.begin(), e.fields.end(), field) != e.fields.end()) continue; // not changed just now
+                auto it = std::find_if(other->fields.begin(), other->fields.end(), [&](const auto& f) { return f.first == field.first; });
+                if (it != other->fields.end()) it->second = field.second;
+                else other->fields.push_back(field);
+            }
         e.fields = std::move(fields);
         markChanged();
     }

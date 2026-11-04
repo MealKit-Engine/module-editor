@@ -459,8 +459,13 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         // For inner structs/arrays, defaults are moved to the same field position too
         FieldContext inner = context ? *context : FieldContext{};
         if (inner.defaults) inner.defaults = at(inner.defaults, f.offset);
+        inner.mixed = nullptr; // inner paths are marked by the top-level field
         const char* description = label.tooltip.empty() ? nullptr : trData(label.tooltip.c_str());
-        changed |= drawValue(trData(label.name.c_str()), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr, description, &label);
+        const bool mixedValue = context && context->mixed && context->mixed->count(f.name) != 0;
+        const std::string shown = std::string(trData(label.name.c_str())) + (mixedValue ? " \xE2\x80\x94" : "");
+        if (mixedValue) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.30f, 0.26f, 0.16f, 1.0f));
+        changed |= drawValue(shown.c_str(), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr, description, &label);
+        if (mixedValue) ImGui::PopStyleColor();
         ImGui::EndDisabled();
         if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", description);

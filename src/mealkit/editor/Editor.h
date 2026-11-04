@@ -100,6 +100,7 @@ public:
     void saveTablesForPlay();
     void openTables() { openDataPage(DataPage::Table, 0); m_dataFrontFrames = 30; } // for automated tests: also brought to the front
     void openTuning() { openDataPage(DataPage::Tuning, 0); m_dataFrontFrames = 30; }
+    void revealAsset(const std::string& relative);
     void openProblems() { m_problemsOpen = true; m_problemsFront = true; }
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
@@ -273,6 +274,7 @@ private:
     void handleAssetDrop();
     void renameAsset(const std::string& from, const std::string& to);
     bool m_assetsOpen = true;
+    bool m_assetsFront = false;
     std::string m_assetFolder;   // relative to assets ("models")
     std::string m_assetSelected; // file relative to assets
     // Folder listings and missing model references, read again once a second rather than every frame
@@ -556,6 +558,15 @@ private:
     std::vector<Problem> m_problems;
     f64 m_problemTimer = 1.0; // check on the first frame
     bool m_problemsOpen = true;
+    struct Badge {
+        bool error = false;
+        std::string text;
+    };
+    std::unordered_map<u32, Badge> m_badges;   // scene tree: objects with a problem
+    std::unordered_set<u32> m_differsFromDefault; // scene tree: objects with fields changed from their kind's defaults
+    std::vector<std::string> allAssetFiles() const;
+    std::vector<std::string> m_paletteAssets;
+    std::vector<std::string> m_paletteRecent;
     bool m_problemsFront = false;
     UiPanel m_uiPanel;
     bool m_uiPanelOpen = false;

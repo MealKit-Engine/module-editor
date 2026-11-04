@@ -4,6 +4,7 @@
 #include "mealkit/data/Tables.h"
 
 #include <functional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,8 @@ struct FieldContext {
     const data::TableIndexList* tables = nullptr;
     // Default instance (same type). If present, dots mark fields different from the default and right-click "Reset to default" is enabled
     const void* defaults = nullptr;
+    // Multi-selection: names of top-level fields whose values differ between the selected objects (marked with a dash)
+    const std::set<std::string>* mixed = nullptr;
 };
 
 // MEALKIT_FIELD display name: "name|description|group=Pushing|range=0..20|step=0.1|unit=m|pick=effects:.fx". Everything after the name is optional.

@@ -118,21 +118,39 @@ void Editor::updateProblems(f64 dt) {
     if (m_problemTimer < 0.5) return;
     m_problemTimer = 0.0;
     m_problems.clear();
+    m_badges.clear();
+    m_differsFromDefault.clear();
+    for (const Entity& e : m_scene.entities) { // field changes from the kind's defaults
+        const reflect::TypeInfo* type = entityType(e);
+        if (!type || type->fields.empty()) continue;
+        const reflect::TextFields defaults = scene::defaultFields(*type);
+        for (const auto& field : e.fields)
+            if (std::find(defaults.begin(), defaults.end(), field) == defaults.end()) {
+                m_differsFromDefault.insert(e.id);
+                break;
+            }
+    }
 
     const std::string root = asset::ModelCache::assetsRoot();
     std::set<std::string> seen;
     for (const Entity& e : m_scene.entities) {
-        if (e.model.empty() || !seen.insert(e.model).second) continue;
+        if (e.model.empty()) continue;
+        const bool first = seen.insert(e.model).second; // one list line per model, a badge on every object using it
         std::string native = e.model;
         std::replace(native.begin(), native.end(), '/', '\\');
         if (!fileExists(root + "\\" + native) && !fileExists(e.model)) {
-            m_problems.push_back({true, trf("Missing model: %s (%s)", e.model.c_str(), e.name.c_str()), DataPage::Sounds, -1, e.id});
+            std::string text = trf("Missing model: %s (%s)", e.model.c_str(), e.name.c_str());
+            m_badges[e.id] = {true, text};
+            if (first) m_problems.push_back({true, std::move(text), DataPage::Sounds, -1, e.id});
             continue;
         }
         const asset::Model* model = m_models ? m_models->get(e.model) : nullptr;
         if (!model) continue;
-        for (const std::string& over : model->budgetProblems)
-            m_problems.push_back({false, trf("Over budget: %s: %s", e.model.c_str(), over.c_str()), DataPage::Sounds, -1, e.id});
+        for (const std::string& over : model->budgetProblems) {
+            std::string text = trf("Over budget: %s: %s", e.model.c_str(), over.c_str());
+            m_badges[e.id] = {false, text};
+            if (first) m_problems.push_back({false, std::move(text), DataPage::Sounds, -1, e.id});
+        }
     }
 
     const data::TableIndexList& index = m_tablesPanel.index();
@@ -150,7 +168,10 @@ void Editor::updateProblems(f64 dt) {
         reflect::fromText(*type, instance.data(), e.fields);
         found.clear();
         data::resolveRows(*type, instance.data(), index, &found, fileName(m_scenePath) + " " + e.name + ": ");
-        for (std::string& text : found) m_problems.push_back({true, std::move(text), DataPage::Sounds, -1, e.id});
+        for (std::string& text : found) {
+            m_badges[e.id] = {true, text};
+            m_problems.push_back({true, std::move(text), DataPage::Sounds, -1, e.id});
+        }
     }
 }
 

@@ -83,6 +83,22 @@ size_t replacePath(std::string& text, const std::string& from, const std::string
 
 } // namespace
 
+std::vector<std::string> Editor::allAssetFiles() const {
+    std::vector<std::string> files;
+    const std::string root = asset::ModelCache::assetsRoot();
+    if (directoryExists(root)) collectFiles(root, {}, files);
+    return files;
+}
+
+void Editor::revealAsset(const std::string& relative) {
+    const size_t slash = relative.rfind('/');
+    m_assetFolder = slash == std::string::npos ? std::string() : relative.substr(0, slash);
+    m_assetSelected = relative;
+    m_assetsOpen = true;
+    m_assetsFront = true;
+    m_assetScanTime = -1000.0;
+}
+
 void Editor::drawAssetFolder(const std::string& root, const std::string& relative) {
     const std::string folder = relative.empty() ? root : root + "\\" + toNative(relative);
     auto directories = [this](const std::string& path) -> const std::vector<std::string>& {
@@ -107,6 +123,10 @@ void Editor::drawAssetFolder(const std::string& root, const std::string& relativ
 
 void Editor::drawAssetBrowser() {
     if (!m_assetsOpen) return;
+    if (m_assetsFront) {
+        m_assetsFront = false;
+        ImGui::SetNextWindowFocus();
+    }
     if (!ImGui::Begin(trl("Assets###Assets"), &m_assetsOpen)) {
         ImGui::End();
         return;

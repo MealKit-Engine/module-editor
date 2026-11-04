@@ -1,5 +1,7 @@
 // Editor command table and command palette (Ctrl+P). Menus, shortcuts, palette, and F1 help all use this one table.
 #include "mealkit/editor/Editor.h"
+#include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/FuzzyMatch.h"
 
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/Strings.h"
@@ -17,13 +19,6 @@ namespace mealkit::editor {
 namespace {
 
 // Case-insensitive substring (Korean compared byte for byte)
-bool matches(const char* text, const char* needle) {
-    if (!needle[0]) return true;
-    const size_t n = strlen(needle);
-    for (const char* p = text; *p; ++p)
-        if (_strnicmp(p, needle, n) == 0) return true;
-    return false;
-}
 
 } // namespace
 
@@ -197,7 +192,7 @@ void Editor::openPalette(const std::string& text) {
     m_paletteInitial = text;
 }
 
-// Ctrl+P: find commands, objects, scenes, and tools by name (Korean/English) and run them right away
+// Ctrl+P: find commands, objects, scenes, tools, assets, table rows and tuning values by name (Korean/English, gaps and Korean initial consonants allowed)
 void Editor::drawCommandPalette() {
     if (m_paletteOpen && ImGui::GetFrameCount() > 2) { // windows appearing on the first frame take focus and close the popup
         ImGui::OpenPopup("##palette");
@@ -216,33 +211,60 @@ void Editor::drawCommandPalette() {
         std::string label;
         std::string hint;
         std::function<void()> run;
+        int score = 0;
     };
     std::vector<Item> items;
     const char* q = m_paletteSearch;
+    const auto add = [&](std::string label, std::string hint, std::function<void()> run, int score) {
+        if (score >= 0) items.push_back({std::move(label), std::move(hint), std::move(run), score});
+    };
+    if (ImGui::IsWindowAppearing()) m_paletteAssets = allAssetFiles();
     for (const Command& c : m_commands) {
         if (c.name == std::string("Command Palette") || !c.enabled()) continue;
-        if (matches(tr(c.name), q) || matches(c.name, q)) items.push_back({tr(c.name), shortcutText(c), c.run});
+        add(tr(c.name), shortcutText(c), c.run, std::max(fuzzyScore(tr(c.name), q), fuzzyScore(c.name, q)));
     }
     if (m_mode == Mode::Edit) {
         for (const scene::Entity& e : m_scene.entities) {
-            if (!matches(e.name.c_str(), q) && !matches(e.type.c_str(), q)) continue;
             const u32 id = e.id;
-            items.push_back({e.name, e.type, [this, id] {
-                                 m_selected = id;
-                                 focusSelected();
-                             }});
+            add(e.name, e.type, [this, id] {
+                m_selected = id;
+                focusSelected();
+            }, std::max(fuzzyScore(e.name, q), fuzzyScore(e.type, q)));
         }
         const std::string sceneDir = m_project.directory.empty() ? std::string() : m_project.directory + "\\assets\\scenes";
         if (!sceneDir.empty())
             for (const std::string& f : listFiles(sceneDir, ".scene")) {
-                if (!matches(f.c_str(), q)) continue;
                 const std::string path = sceneDir + "\\" + f;
-                items.push_back({f, tr("Scene"), [this, path] { openSceneFile(path); }});
+                add(f, tr("Scene"), [this, path] { openSceneFile(path); }, fuzzyScore(f, q));
             }
     }
     for (const ToolInfo& t : m_tools)
-        if (t.problem == ToolInfo::Problem::None && matches(t.name.c_str(), q))
-            items.push_back({t.name, tr("Tools"), [this, &t] { launchTool(t, m_project.directory); }});
+        if (t.problem == ToolInfo::Problem::None) add(t.name, tr("Tools"), [this, &t] { launchTool(t, m_project.directory); }, fuzzyScore(t.name, q));
+    if (q[0]) { // long lists only once something is typed
+        for (const std::string& file : m_paletteAssets)
+            add(file, tr("Asset"), [this, file] { revealAsset(file); }, fuzzyScore(file, q));
+        for (int d = 0; d < m_tablesPanel.docCount(); ++d) {
+            const std::vector<std::string>& ids = m_tablesPanel.docIds(d);
+            for (int r = 0; r < static_cast<int>(ids.size()); ++r)
+                add(ids[static_cast<size_t>(r)], m_tablesPanel.docName(d), [this, d, r] {
+                    openDataPage(DataPage::Table, d);
+                    m_tablesPanel.selectRow(d, r);
+                }, fuzzyScore(ids[static_cast<size_t>(r)], q));
+        }
+        if (const reflect::TypeInfo* tuning = m_tuningPanel.tuning().type)
+            for (const reflect::FieldInfo& f : tuning->fields) {
+                const std::string name = trData(splitFieldLabel(f.label).name.c_str());
+                add(name, tr("Tuning"), [this] { openDataPage(DataPage::Tuning, 0); }, std::max(fuzzyScore(name, q), fuzzyScore(f.name, q)));
+            }
+    }
+    // Best match first; with nothing typed, recently run items first
+    if (!q[0])
+        for (Item& it : items) {
+            const auto recent = std::find(m_paletteRecent.begin(), m_paletteRecent.end(), it.label);
+            if (recent != m_paletteRecent.end()) it.score = 1000 - static_cast<int>(recent - m_paletteRecent.begin());
+        }
+    std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.score > b.score; });
+    if (items.size() > 200) items.erase(items.begin() + 200, items.end());
 
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
@@ -274,6 +296,9 @@ void Editor::drawCommandPalette() {
     ImGui::EndChild();
     if (chosen) {
         const std::function<void()> run = chosen->run;
+        std::erase(m_paletteRecent, chosen->label);
+        m_paletteRecent.insert(m_paletteRecent.begin(), chosen->label);
+        if (m_paletteRecent.size() > 8) m_paletteRecent.pop_back();
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         run();
