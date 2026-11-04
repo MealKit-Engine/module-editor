@@ -225,7 +225,7 @@ bool Editor::updateFieldHandles() {
     const ImGuiIO& io = ImGui::GetIO();
     const f32 dx = io.MousePos.x - handle.x, dy = io.MousePos.y - handle.y;
     const bool dragging = m_handleEntity == e->id && m_handleField == field->name;
-    const bool hovered = !io.WantCaptureMouse && !ImGuizmo::IsUsing() && dx * dx + dy * dy < 100.0f;
+    const bool hovered = !sceneMouseBlocked() && !ImGuizmo::IsUsing() && dx * dx + dy * dy < 100.0f;
     draw->AddCircleFilled(handle, hovered || dragging ? 7.0f : 5.0f, ImGui::GetColorU32(ImVec4(1.0f, 0.85f, 0.45f, 1.0f)));
     if (hovered || dragging) ImGui::SetTooltip("%s: %.2f", trData(splitFieldLabel(field->label).name.c_str()), static_cast<double>(radius));
 

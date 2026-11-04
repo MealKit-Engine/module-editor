@@ -111,7 +111,7 @@ bool Editor::handleTerrainBrush() {
         m_brushPoint = origin + dir * t;
     }
     if (m_brushStroke && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) m_brushStroke = false;
-    if (!m_brushStroke && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && m_brushHit && !io.WantCaptureMouse && !io.KeyAlt) {
+    if (!m_brushStroke && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && m_brushHit && !sceneMouseBlocked() && !io.KeyAlt) {
         m_brushStroke = true;
         pushUndo(capture());
         const f32 bottom = w.position.y - w.scale.y * 0.5f;
@@ -236,7 +236,7 @@ bool Editor::handleScatterBrush(Entity& e) {
         m_brushPoint = origin + dir * distance;
     }
     if (m_brushStroke && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) m_brushStroke = false;
-    if (!m_brushStroke && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && m_brushHit && !io.WantCaptureMouse && !io.KeyAlt) {
+    if (!m_brushStroke && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && m_brushHit && !sceneMouseBlocked() && !io.KeyAlt) {
         m_brushStroke = true;
         pushUndo(capture());
     }

@@ -254,7 +254,7 @@ void Editor::handleAssetDrop() {
     if (!payload || !payload->IsDataType(kAssetPayload) || !ImGui::IsMouseReleased(ImGuiMouseButton_Left)) return;
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     if (mouse.x < m_viewport.x || mouse.y < m_viewport.y || mouse.x >= m_viewport.x + m_viewport.width ||
-        mouse.y >= m_viewport.y + m_viewport.height || ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow))
+        mouse.y >= m_viewport.y + m_viewport.height || sceneMouseBlocked())
         return;
     Vec3 origin, dir;
     mouseRay(mouse.x, mouse.y, &origin, &dir);

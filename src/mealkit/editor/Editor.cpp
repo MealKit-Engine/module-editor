@@ -36,6 +36,7 @@ using scene::Entity;
 constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
 constexpr const char* kHierarchyWindow = "Scene Tree###Hierarchy";
 constexpr const char* kInspectorWindow = "Inspector###Inspector";
+constexpr const char* kSceneWindow = "Scene###SceneView";
 constexpr const char* kStateWindow = "State###State";
 // Windows docked as tabs in the bottom row (default layout)
 const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // menu bar during play
@@ -252,13 +253,21 @@ void Editor::update(f64 dt) {
         setupDefaultLayout(dockId, m_layoutPreset);
         m_layoutReset = false;
     }
-    ImGui::DockSpaceOverViewport(dockId, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
-    if (ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(dockId)) {
-        m_viewport = {central->Pos.x, central->Pos.y, central->Size.x, central->Size.y};
-    } else {
-        const ImVec2 size = ImGui::GetIO().DisplaySize;
-        m_viewport = {0.0f, 0.0f, size.x, size.y};
+    {
+        // Own host window, not DockSpaceOverViewport: with the passthrough flag ImGui fills an occupied center node, which would cover the 3D picture
+        const ImGuiViewport* main = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(main->WorkPos);
+        ImGui::SetNextWindowSize(main->WorkSize);
+        ImGui::SetNextWindowViewport(main->ID);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::Begin("##DockHost", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                                ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::PopStyleVar(2);
+        ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f));
+        ImGui::End();
     }
+    drawSceneWindow(dockId);
 
     updateCamera(dt);
     const f32 aspect = m_viewport.width / std::max(m_viewport.height, 1.0f);
@@ -310,7 +319,9 @@ void Editor::update(f64 dt) {
 
     runShortcuts();
     drawCommandPalette();
-    if (editing) {
+    if (editing && !m_sceneVisible) {
+        // Another tab covers the scene view: no gizmo, toolbar or picking
+    } else if (editing) {
         drawGizmo();
         drawViewportToolbar();
         handleAssetDrop();
@@ -408,6 +419,33 @@ void Editor::focusPanel(const char* window) {
     m_focusPanel = window;
     m_focusFrames = 3; // focus doesn't take on the first frame when the docking node doesn't exist yet, so request it for a few frames
 }
+
+// The scene view is a dock tab with a clear background: the 3D picture stays on the back buffer (offscreen targets have no shadows) and fits this window's area.
+// Docked windows are opaque, so it only works docked: let go while floating, it returns to the center.
+void Editor::drawSceneWindow(unsigned int dockId) {
+    ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(dockId);
+    if (central) {
+        const ImGuiWindow* existing = ImGui::FindWindowByName(kSceneWindow);
+        if (!existing || (!existing->DockIsActive && !ImGui::IsMouseDown(ImGuiMouseButton_Left))) ImGui::SetNextWindowDockID(central->ID, ImGuiCond_Always);
+    }
+    if (m_sceneFrontFrames > 0) {
+        --m_sceneFrontFrames;
+        ImGui::SetNextWindowFocus();
+    }
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    m_sceneVisible = ImGui::Begin(trl(kSceneWindow), nullptr, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
+    ImGui::PopStyleVar();
+    m_sceneHovered = m_sceneVisible && ImGui::IsWindowHovered();
+    if (m_sceneVisible) { // behind another tab it keeps its last size, so a playing game doesn't resize
+        const ImVec2 pos = ImGui::GetCursorScreenPos(), size = ImGui::GetContentRegionAvail();
+        m_viewport = {pos.x, pos.y, std::max(size.x, 1.0f), std::max(size.y, 1.0f)};
+        ImGuizmo::SetAlternativeWindow(ImGui::FindWindowByName(kSceneWindow)); // GetCurrentWindow reads DLL data
+    }
+    ImGui::End();
+}
+
+// The mouse is on a window other than the scene view
+bool Editor::sceneMouseBlocked() const { return ImGui::GetIO().WantCaptureMouse && !m_sceneHovered; }
 
 void Editor::focusInspector() { focusPanel(kInspectorWindow); }
 
@@ -792,6 +830,7 @@ void Editor::setMode(Mode mode) {
     m_looking = false;
     m_window->setCursorCaptured(false);
     if (mode == Mode::Edit) m_playStatus.clear();
+    if (mode == Mode::Play) m_sceneFrontFrames = 3; // the game must be seen
     focusPanel(mode == Mode::Play ? kStateWindow : kInspectorWindow); // during play, bring the [State] tab to front
 }
 
@@ -835,7 +874,7 @@ bool Editor::takeStopRequest() {
 
 bool Editor::gameKeyboardAllowed() const { return m_mode == Mode::Play && !ImGui::GetIO().WantCaptureKeyboard; }
 
-bool Editor::gameMouseAllowed() const { return m_mode == Mode::Play && !ImGui::GetIO().WantCaptureMouse; }
+bool Editor::gameMouseAllowed() const { return m_mode == Mode::Play && !sceneMouseBlocked(); }
 
 void Editor::saveBackupIfDirty() {
     if (!m_dirty) return;
@@ -869,6 +908,7 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, rightShare, nullptr, &center);
     const f32 bottomShare = preset == LayoutPreset::Play ? 0.18f : 0.26f;
     const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, bottomShare, nullptr, &center);
+    ImGui::DockBuilderDockWindow(kSceneWindow, center);
     ImGui::DockBuilderDockWindow(kHierarchyWindow, left);
     if (preset == LayoutPreset::LookDev) {
         const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
@@ -949,11 +989,7 @@ void Editor::drawMenuBar() {
         commandMenuItem("Build Log", m_buildPanel.openFlag());
         commandMenuItem("Performance", m_perfPanel.openFlag());
         ImGui::Separator();
-        commandMenuItem("Data", &m_dataOpen);
-        commandMenuItem("Tuning");
-        commandMenuItem("Tables");
-        commandMenuItem("Sounds");
-        commandMenuItem("Feedback");
+        commandMenuItem("Data", &m_dataOpen); // tuning, tables, feedback and sounds are its pages (their commands stay in the palette)
         commandMenuItem("UI", &m_uiPanelOpen);
         commandMenuItem("Look Dev", &m_lookdevOpen);
         ImGui::Separator();
@@ -1905,8 +1941,7 @@ void Editor::drawViewportToolbar() {
     if (m_viewport.width < 200.0f || m_viewport.height < 120.0f) return;
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
-                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
-                                   ImGuiWindowFlags_NoBringToFrontOnFocus;
+                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
     const f32 cubeSize = std::floor(ImGui::GetFrameHeight() * 3.0f); // axis gizmo in the top right corner
     ImGui::SetNextWindowPos(ImVec2(m_viewport.x + 8.0f, m_viewport.y + 8.0f));
     ImGui::SetNextWindowBgAlpha(0.75f);
@@ -2049,7 +2084,7 @@ void Editor::updateCamera(f64 dt) {
     const bool inViewport = mouse.x >= m_viewport.x && mouse.y >= m_viewport.y &&
                             mouse.x < m_viewport.x + m_viewport.width && mouse.y < m_viewport.y + m_viewport.height;
 
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && inViewport && !io.WantCaptureMouse) m_looking = true;
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && inViewport && !sceneMouseBlocked()) m_looking = true;
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) m_looking = false;
     m_window->setCursorCaptured(m_looking);
 
@@ -2076,7 +2111,7 @@ void Editor::updateCamera(f64 dt) {
     } else {
         io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
         // Alt + left drag: orbit around the selected object (or 10 m ahead if none)
-        if (io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && inViewport && !io.WantCaptureMouse) {
+        if (io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && inViewport && !sceneMouseBlocked()) {
             const Entity* e = selected();
             m_orbitPivot = e ? scene::worldTransform(m_scene, *e).position : m_cameraPos + forward * 10.0f;
             m_orbiting = true;
@@ -2087,7 +2122,7 @@ void Editor::updateCamera(f64 dt) {
             m_cameraYaw += io.MouseDelta.x * 0.006f;
             m_cameraPitch = std::clamp(m_cameraPitch - io.MouseDelta.y * 0.006f, -1.55f, 1.55f);
             m_cameraPos = m_orbitPivot - cameraForward() * dist;
-        } else if (inViewport && !io.WantCaptureMouse) {
+        } else if (inViewport && !sceneMouseBlocked()) {
             if (io.MouseWheel != 0.0f) {
                 if (m_ortho) { // orthographic: screen size
                     m_orthoHalfHeight = std::clamp(m_orthoHalfHeight * std::pow(0.85f, io.MouseWheel), 0.5f, 500.0f);
@@ -2194,10 +2229,10 @@ void Editor::handlePicking() {
         // [UI] panel editing: the mouse selects, moves and resizes boxes of the screen instead of scene objects
         if (uiEditing()) {
             m_uiPanel.pointer(io.MousePos.x, io.MousePos.y, ImGui::IsMouseClicked(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Left),
-                              io.KeyCtrl, io.WantCaptureMouse);
+                              io.KeyCtrl, sceneMouseBlocked());
             return;
         }
-        if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || io.WantCaptureMouse || io.KeyAlt || ImGuizmo::IsOver() ||
+        if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || sceneMouseBlocked() || io.KeyAlt || ImGuizmo::IsOver() ||
             ImGuizmo::IsUsing() || ImGuizmo::IsViewManipulateHovered() || ImGuizmo::IsUsingViewManipulate())
             return;
         const ImVec2 mouse = io.MousePos;

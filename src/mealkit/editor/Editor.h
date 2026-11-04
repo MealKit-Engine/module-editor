@@ -232,6 +232,11 @@ private:
     void updateHotReload(f64 dt); // reload changed model/scene files (edit mode)
     void focusPanel(const char* window);
     void focusInspector();
+    void drawSceneWindow(unsigned int dockId); // scene view tab: sets m_viewport
+    bool sceneMouseBlocked() const;
+    bool m_sceneVisible = true;
+    bool m_sceneHovered = false;
+    int m_sceneFrontFrames = 0;
     void focusPanelNow(); // called right before that window's Begin
     void drawGizmo();
     void drawBuildLog();
