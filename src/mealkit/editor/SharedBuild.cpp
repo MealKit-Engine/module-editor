@@ -67,8 +67,7 @@ bool publishSharedBuild(const ProjectInfo& project, std::string& error) {
     if (!copyWhole(dll, folder + "\\" + project.name() + "_game.dll", error)) return false;
     {
         std::ofstream stamp(fs::u8path(folder + "\\" + project.name() + ".engine"));
-        stamp << engineStamp() << "
-";
+        stamp << engineStamp() << '\n';
         if (!stamp) {
             error = "cannot write the engine stamp in " + folder;
             return false;
