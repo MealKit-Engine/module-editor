@@ -18,6 +18,7 @@
 #include "mealkit/core/Log.h"
 #include "mealkit/core/Profile.h"
 #include "mealkit/editor/Editor.h"
+#include "mealkit/editor/SharedBuild.h"
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/GameModuleHost.h"
 #include "mealkit/editor/ImGuiLayer.h"
@@ -406,7 +407,14 @@ int main(int argc, char** argv) {
                                                         : mealkit::editor::trf("Could not load the game code: %s", loadError.c_str()));
         }
     };
-    if (opt.buildGame || !fileExists(dllPath) || editor::GameModuleHost::olderThanEngine(dllPath, engineDirectory()) ||
+    const bool canCompile = editor::hasCompiler();
+    if (!canCompile) { // designer PC: the shared folder's game code, whatever the source and engine file times say
+        std::string fetchError;
+        editor::fetchSharedBuild(project, &fetchError);
+        if (!fetchError.empty()) MEALKIT_WARN("Shared build: %s", fetchError.c_str());
+        if (fileExists(dllPath)) loadGame();
+        else editor.setGameCodeStatus(false, mealkit::editor::tr("No game code: ask a programmer to publish it, and set the shared folder in Project Settings"));
+    } else if (opt.buildGame || !fileExists(dllPath) || editor::GameModuleHost::olderThanEngine(dllPath, engineDirectory()) ||
         editor::GameModuleHost::olderThanSources(dllPath, project.directory)) {
         editor.setGameCodeStatus(false, mealkit::editor::tr("Building game code - you can play when it finishes"));
         editor.startBuild(editor::BuildKind::GameCode);
@@ -424,6 +432,7 @@ int main(int argc, char** argv) {
     render::DrawList drawList;
     f64 lastTime = nowSeconds();
     f64 reloadTimer = 0.0;
+    f64 fetchTimer = 0.0;
     u32 frame = 0;
 
     // --render-golden: draw a few frames per scene (after models/atlases are uploaded) and save the last frame as <name>.png. Needs the game DLL's scene kinds
@@ -478,7 +487,12 @@ int main(int argc, char** argv) {
 
         // ---- Hot reload: edit mode only (the running game instance is using the previous DLL's code)
         reloadTimer += dt;
+        fetchTimer += dt;
         if (editor.mode() == editor::Mode::Edit) {
+            if (!canCompile && fetchTimer >= 30.0) { // a new copy is picked up as a changed DLL just below
+                fetchTimer = 0.0;
+                editor::fetchSharedBuild(project);
+            }
             bool reload = editor.takeGameCodeBuilt();
             if (!reload && reloadTimer >= 0.5 && !editor.building()) {
                 reload = host.sourceChangedAndStable(); // when built outside, e.g. VS Code

@@ -1,4 +1,5 @@
 ﻿#include "mealkit/editor/Editor.h"
+#include "mealkit/editor/SharedBuild.h"
 #include "mealkit/editor/EditorColors.h"
 
 #include "mealkit/core/Log.h"
@@ -3109,6 +3110,10 @@ bool Editor::takeGameCodeBuildFailed() {
 // Shipping copies assets and mealkit.project from disk, so unsaved scenes/project settings are saved first
 void Editor::startBuild(BuildKind kind) {
     if (m_buildPanel.running() || m_project.directory.empty()) return;
+    if (kind != BuildKind::Upgrade && !hasCompiler()) {
+        setStatus(tr("This PC has no C++ compiler: building is for programmers. Use Get Latest Game Code."), true);
+        return;
+    }
     if (kind == BuildKind::Export && m_dirty && !m_scenePath.empty() && !saveScene()) return;
     if (kind == BuildKind::Export && m_projectPanel.dirty() && !m_projectPanel.save(m_project)) return;
     m_buildPanel.start(kind, m_project, m_engineDirectory, m_time);
@@ -3212,6 +3217,11 @@ void Editor::drawEmptyViewport() {
     ImGui::SetNextWindowPos(ImVec2(m_viewport.x + m_viewport.width * 0.5f, m_viewport.y + m_viewport.height * 0.5f),
                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     if (ImGui::Begin("##NoGameCode", nullptr, flags)) {
+        if (!hasCompiler()) {
+            ImGui::TextUnformatted(m_gameStatus.c_str());
+            ImGui::End();
+            return;
+        }
         ImGui::TextUnformatted(tr("The game code is not built yet. Build it to play."));
         ImGui::BeginDisabled(m_buildPanel.running());
         if (ImGui::Button(tr("Build Game Code"))) startBuild(BuildKind::GameCode);

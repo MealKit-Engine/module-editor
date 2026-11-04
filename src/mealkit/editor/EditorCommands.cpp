@@ -1,5 +1,6 @@
 // Editor command table and command palette (Ctrl+P). Menus, shortcuts, palette, and F1 help all use this one table.
 #include "mealkit/editor/Editor.h"
+#include "mealkit/editor/SharedBuild.h"
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/FuzzyMatch.h"
 
@@ -105,6 +106,17 @@ void Editor::buildCommands() {
         {"Reset Layout", 0, 0, always, [this] { m_layoutReset = true; }},
         {"Build Game Code (Hot Reload)", ImGuiMod_Ctrl | ImGuiKey_R, 0,
          [this, canBuild] { return canBuild() && m_mode == Mode::Edit; }, [this] { startBuild(BuildKind::GameCode); }},
+        {"Publish Game Code", 0, 0, canBuild, [this] {
+             std::string error;
+             if (publishSharedBuild(m_project, error)) setStatus(tr("Game code published to the shared folder"));
+             else setStatus(error, true);
+         }},
+        {"Get Latest Game Code", 0, 0, [this] { return m_mode == Mode::Edit && !m_project.directory.empty(); }, [this] {
+             std::string error;
+             if (fetchSharedBuild(m_project, &error)) setStatus(tr("Got new game code from the shared folder"));
+             else if (!error.empty()) setStatus(error, true);
+             else setStatus(tr("Game code is up to date"));
+         }},
         {"Release Build", ImGuiMod_Ctrl | ImGuiKey_B, 0, canBuild, [this] { startBuild(BuildKind::Export); }},
         {"Open Release Folder", 0, 0, [this] { return directoryExists(m_project.exportDirectory()); },
          [this] { openInExplorer(m_project.exportDirectory()); }},

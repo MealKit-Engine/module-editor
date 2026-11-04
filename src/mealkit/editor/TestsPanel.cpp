@@ -1,6 +1,7 @@
 #include "mealkit/editor/TestsPanel.h"
 
 #include "mealkit/editor/GameModuleHost.h"
+#include "mealkit/editor/SharedBuild.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 
@@ -42,6 +43,16 @@ void TestsPanel::queue(const ProjectInfo& project) {
     const std::string exe = headlessExe(project);
     if (fileExists(exe) && !GameModuleHost::olderThanSources(exe, project.directory)) {
         startNext(project);
+        return;
+    }
+    if (!hasCompiler()) { // designer PC: only what the shared folder has
+        if (fileExists(exe)) {
+            startNext(project);
+        } else {
+            m_status = tr("No test program: ask a programmer to publish a Release build.");
+            for (Result& r : m_results)
+                if (r.state == State::Queued) r.state = State::NotRun;
+        }
         return;
     }
     m_status = tr("Building the test program...");
