@@ -33,7 +33,8 @@ bool copyWhole(const std::string& from, const std::string& to, std::string& erro
 
 // Which engine build this editor runs: a game DLL only works with the mealkit.dll it was built against, even when the API version is the same
 std::string engineStamp() {
-    std::ifstream in(fs::u8path(executableDirectory() + "\mealkit.dll"), std::ios::binary);
+    std::ifstream in(fs::u8path(executableDirectory() + "/mealkit.dll"), std::ios::binary);
+    if (!in) return {}; // no stamp, no comparison
     unsigned long long hash = 14695981039346656037ull;
     char buffer[65536];
     while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0) {
