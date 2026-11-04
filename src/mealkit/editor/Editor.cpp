@@ -38,7 +38,7 @@ constexpr const char* kInspectorWindow = "Inspector###Inspector";
 constexpr const char* kStateWindow = "State###State";
 // Windows docked as tabs in the bottom row (default layout)
 const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // menu bar during play
-const char* const kBottomWindows[] = {LogPanel::kWindow, "Assets###Assets", BuildPanel::kWindow, TablesPanel::kWindow};
+const char* const kBottomWindows[] = {LogPanel::kWindow, "Problems###Problems", "Assets###Assets", BuildPanel::kWindow};
 
 // Case-insensitive substring (scene tree search)
 bool containsNoCase(const std::string& text, const char* needle) {
@@ -260,18 +260,12 @@ void Editor::update(f64 dt) {
     const bool editing = m_mode == Mode::Edit;
     drawHierarchy(editing);
     drawInspector(editing);
-    if (m_tuningFrontFrames > 0) {
-        --m_tuningFrontFrames;
+    drawDataHub(dt, editing);
+    if (m_problemsFront) {
+        m_problemsFront = false;
         ImGui::SetNextWindowFocus();
     }
-    m_tuningPanel.draw(kInspectorWindow, m_mode == Mode::Play, m_playPlayers > 1, m_tablesPanel.index());
-    if (m_tablesOpen && m_tablesFrontFrames > 0) {
-        --m_tablesFrontFrames;
-        ImGui::SetNextWindowFocus();
-    }
-    if (m_tablesOpen) m_tablesPanel.draw(m_window->nativeHandle(), editing, &m_tablesOpen);
-    if (m_soundsOpen && m_audio) m_soundPanel.draw(*m_audio, &m_soundsOpen);
-    if (m_feedbackOpen) m_feedbackPanel.draw(m_feedback, m_cameraPos + cameraForward() * 10.0f, dt, &m_feedbackOpen);
+    drawProblems();
     if (m_uiPanelOpen) m_uiPanel.draw(&m_uiPanelOpen);
     if (m_lookdevOpen && m_renderer) m_lookdev.draw(*m_renderer, &m_lookdevOpen);
     // Editing the sound event table (view-only) saves it so changes are heard immediately (audio rereads the file)
@@ -283,7 +277,7 @@ void Editor::update(f64 dt) {
         m_viewTableDirty = false;
         m_viewTableTimer = 0.0;
     }
-    updateRowProblems(dt);
+    updateProblems(dt);
     m_projectPanel.draw(m_project, relativeTo(m_project.directory + "\\assets", m_scenePath));
     m_modulesPanel.draw(m_project, m_engineDirectory, m_mode == Mode::Edit);
     // Module sim/ and view/ are game code: adding or changing them rebuilds the game DLL
@@ -405,6 +399,8 @@ void Editor::focusPanel(const char* window) {
     m_focusPanel = window;
     m_focusFrames = 3; // focus doesn't take on the first frame when the docking node doesn't exist yet, so request it for a few frames
 }
+
+void Editor::focusInspector() { focusPanel(kInspectorWindow); }
 
 void Editor::focusPanelNow() {
     ImGui::SetNextWindowFocus();
@@ -872,7 +868,6 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     }
     ImGui::DockBuilderDockWindow(kInspectorWindow, right);
     ImGui::DockBuilderDockWindow(kStateWindow, right);
-    ImGui::DockBuilderDockWindow(TuningPanel::kWindow, right);
     for (const char* w : kBottomWindows) ImGui::DockBuilderDockWindow(w, bottom);
     ImGui::DockBuilderFinish(dockId);
     focusPanel(preset == LayoutPreset::Play ? kStateWindow : kInspectorWindow);
@@ -940,12 +935,15 @@ void Editor::drawMenuBar() {
         // Every panel in one place
         commandMenuItem("Assets", &m_assetsOpen);
         commandMenuItem("Log", m_logPanel.openFlag());
+        commandMenuItem("Problems", &m_problemsOpen);
         commandMenuItem("Build Log", m_buildPanel.openFlag());
         commandMenuItem("Performance", m_perfPanel.openFlag());
         ImGui::Separator();
-        commandMenuItem("Tables", &m_tablesOpen);
-        commandMenuItem("Sounds", &m_soundsOpen);
-        commandMenuItem("Feedback", &m_feedbackOpen);
+        commandMenuItem("Data", &m_dataOpen);
+        commandMenuItem("Tuning");
+        commandMenuItem("Tables");
+        commandMenuItem("Sounds");
+        commandMenuItem("Feedback");
         commandMenuItem("UI", &m_uiPanelOpen);
         commandMenuItem("Look Dev", &m_lookdevOpen);
         ImGui::Separator();
@@ -1712,28 +1710,6 @@ void Editor::saveTablesForPlay() {
     if (!m_tablesPanel.dirty()) return;
     if (m_tablesPanel.saveAll(&status)) setStatus(trf("Tables saved for play: %s", status.c_str()));
     else setStatus(status);
-}
-
-// Row references in data outside the panel (tuning, scene object fields) also go into the [Tables] panel's "missing row references" list (every 0.5 s)
-void Editor::updateRowProblems(f64 dt) {
-    m_rowCheckTimer += dt;
-    if (m_rowCheckTimer < 0.5) return;
-    m_rowCheckTimer = 0.0;
-    std::vector<std::string> problems;
-    const data::TableIndexList& index = m_tablesPanel.index();
-    if (index.empty()) {
-        m_tablesPanel.setExtraProblems({});
-        return;
-    }
-    m_tuningPanel.resolveRows(index, &problems);
-    for (const Entity& e : m_scene.entities) {
-        const reflect::TypeInfo* type = entityType(e);
-        if (!type || type->fields.empty() || !m_gameTypes) continue;
-        reflect::Instance instance(*type);
-        reflect::fromText(*type, instance.data(), e.fields);
-        data::resolveRows(*type, instance.data(), index, &problems, fileName(m_scenePath) + " " + e.name + ": ");
-    }
-    m_tablesPanel.setExtraProblems(std::move(problems));
 }
 
 // Simulation state during play (shows the state field declarations as is)

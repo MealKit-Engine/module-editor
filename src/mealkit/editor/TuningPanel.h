@@ -2,17 +2,17 @@
 
 #include "mealkit/core/Reflect.h"
 #include "mealkit/data/Tables.h"
+#include "mealkit/editor/UndoStack.h"
 
 #include <string>
 #include <vector>
 
-// Editor [Tuning] panel: edits game tuning (assets/game.tuning, simulation/content hash) and view tuning (assets/view.tuning)
+// Tuning pages of the editor [Data] window: edits game tuning (assets/game.tuning, simulation/content hash) and view tuning (assets/view.tuning)
 // with types declared by the game DLL. Value instances are of the DLL's types, so they're kept as text before unloading the DLL and put back into the new type.
 namespace mealkit::editor {
 
 class TuningPanel {
 public:
-    static constexpr const char* kWindow = "Tuning###Tuning";
     static constexpr const char* kPlayViewTuningFile = "play.view.tuning";
 
     void setProjectDirectory(const std::string& directory) { m_projectDir = directory; }
@@ -36,8 +36,11 @@ public:
 
     bool dirty() const { return m_tuning.dirty || m_viewTuning.dirty; }
     void saveDirty(); // saves only edited files
-    // dockWith: window to dock as a tab on first open. playing/multiplayer are used for the "applied immediately" hint.
-    void draw(const char* dockWith, bool playing, bool multiplayer, const data::TableIndexList& index);
+    // which: 0 game tuning, 1 view tuning. playing/multiplayer are used for the "applied immediately" hint.
+    void drawContent(int which, bool playing, bool multiplayer, const data::TableIndexList& index);
+    bool docDirty(int which) const { return (which == 0 ? m_tuning : m_viewTuning).dirty; }
+    bool canStep(int which, bool back) const { return (which == 0 ? m_tuning : m_viewTuning).undo.canStep(back); }
+    void step(int which, bool back);
     // Text to show in the status bar (empty string if none)
     std::string takeStatus() { return std::move(m_status); }
 
@@ -50,6 +53,7 @@ private:
         bool loaded = false;
         bool dirty = false;   // differs from the file
         bool changed = false; // not yet passed to the running game
+        UndoStack<reflect::TextFields> undo;
     };
 
     void setDocType(Doc& doc, const reflect::TypeInfo* type);

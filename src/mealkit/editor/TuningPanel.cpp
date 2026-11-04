@@ -22,14 +22,21 @@ void TuningPanel::setDocType(Doc& doc, const reflect::TypeInfo* type) {
     }
     doc.value = type ? reflect::Instance(*type) : reflect::Instance();
     if (!type) return;
+    const auto resetUndo = [&doc] {
+        reflect::TextFields now;
+        reflect::toText(*doc.value.type(), doc.value.data(), now);
+        doc.undo.reset(std::move(now));
+    };
     if (!doc.loaded) {
         load(doc);
         doc.loaded = true;
+        resetUndo();
     } else {
         std::string unknown;
         reflect::fromText(*type, doc.value.data(), doc.text, &unknown);
         if (!unknown.empty()) MEALKIT_WARN("%s fields no longer declared: %s", doc.file, unknown.c_str());
         doc.changed = true;
+        resetUndo();
     }
 }
 
@@ -95,11 +102,15 @@ void TuningPanel::drawDoc(Doc& doc, bool liveInMultiplayer, bool playing, bool m
     if (ImGui::Button(tr("Save"))) save(doc);
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button(tr("Reload from File"))) load(doc);
+    if (ImGui::Button(tr("Reload from File"))) {
+        load(doc);
+        doc.undo.mark();
+    }
     ImGui::SameLine();
     if (ImGui::Button(tr("Defaults"))) {
         doc.value = reflect::Instance(*type);
         doc.dirty = doc.changed = true;
+        doc.undo.mark();
     }
     if (playing && (!multiplayer || liveInMultiplayer))
         ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", tr("Playing: changes apply immediately"));
@@ -109,37 +120,32 @@ void TuningPanel::drawDoc(Doc& doc, bool liveInMultiplayer, bool playing, bool m
     ImGui::Separator();
     ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.45f);
     const FieldContext context{&index};
-    if (drawFields(*type, doc.value.data(), &context)) doc.dirty = doc.changed = true;
+    if (drawFields(*type, doc.value.data(), &context)) {
+        doc.dirty = doc.changed = true;
+        doc.undo.mark();
+    }
     ImGui::PopItemWidth();
+    doc.undo.settle(ImGui::IsAnyItemActive(), [&] {
+        reflect::TextFields now;
+        reflect::toText(*type, doc.value.data(), now);
+        return now;
+    });
 }
 
-void TuningPanel::draw(const char* dockWith, bool playing, bool multiplayer, const data::TableIndexList& index) {
-    // Old layout files don't have this window: on first open, dock it as a tab in the same place as the dockWith window
-    if (ImGuiWindow* other = ImGui::FindWindowByName(dockWith); other && other->DockId)
-        ImGui::SetNextWindowDockID(other->DockId, ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl(kWindow))) {
-        ImGui::End();
-        return;
-    }
-    if (!m_tuning.value.type()) {
-        ImGui::TextDisabled("%s", tr("Tuning values appear when the game code is loaded."));
-        ImGui::End();
-        return;
-    }
-    // Game = simulation rule values (content hash), View = display-only values (outside the hash, applied immediately even during multiplayer play)
-    if (ImGui::BeginTabBar("##tuningTabs")) {
-        if (ImGui::BeginTabItem(trl("Game###GameTuning"))) {
-            drawDoc(m_tuning, false, playing, multiplayer, index);
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem(trl("Display###ViewTuning"))) {
-            if (m_viewTuning.value.type()) drawDoc(m_viewTuning, true, playing, multiplayer, index);
-            else ImGui::TextDisabled("%s", tr("The game declares no view tuning (ViewTuningType)."));
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
-    }
-    ImGui::End();
+void TuningPanel::drawContent(int which, bool playing, bool multiplayer, const data::TableIndexList& index) {
+    Doc& doc = which == 0 ? m_tuning : m_viewTuning;
+    if (doc.value.type()) drawDoc(doc, which == 1, playing, multiplayer, index); // Game = simulation rule values (content hash), Display = outside the hash, applied at once even in multiplayer
+    else if (which == 0) ImGui::TextDisabled("%s", tr("Tuning values appear when the game code is loaded."));
+    else ImGui::TextDisabled("%s", tr("The game declares no view tuning (ViewTuningType)."));
+}
+
+void TuningPanel::step(int which, bool back) {
+    Doc& doc = which == 0 ? m_tuning : m_viewTuning;
+    reflect::TextFields text;
+    if (!doc.value.type() || !doc.undo.step(back, text)) return;
+    doc.value = reflect::Instance(*doc.value.type());
+    reflect::fromText(*doc.value.type(), doc.value.data(), text);
+    doc.dirty = doc.changed = true;
 }
 
 } // namespace mealkit::editor

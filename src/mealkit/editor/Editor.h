@@ -98,16 +98,17 @@ public:
     void setTables(const reflect::TableList* tables) { m_tablesPanel.setTables(tables); }
     // When play starts: saves edited tables (the game reads them from files when a match starts)
     void saveTablesForPlay();
-    void openTables() { m_tablesOpen = true; m_tablesFrontFrames = 30; } // for automated tests: also brought to the front
-    void openTuning() { m_tuningFrontFrames = 30; }
+    void openTables() { openDataPage(DataPage::Table, 0); m_dataFrontFrames = 30; } // for automated tests: also brought to the front
+    void openTuning() { openDataPage(DataPage::Tuning, 0); m_dataFrontFrames = 30; }
+    void openProblems() { m_problemsOpen = true; m_problemsFront = true; }
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
     void setAudio(audio::Engine* audio) { m_audio = audio; }
-    void openSounds() { m_soundsOpen = true; } // for automated tests
+    void openSounds() { openDataPage(DataPage::Sounds, 0); } // for automated tests
     // Feedback ([Feedback] panel preview). nullptr = none
     void setFeedback(feedback::Player* player) { m_feedback = player; }
     void setEventType(const reflect::TypeInfo* type) { m_feedbackPanel.setEventType(type); }
-    void openFeedback() { m_feedbackOpen = true; } // for automated tests
+    void openFeedback() { openDataPage(DataPage::Feedback, 0); } // for automated tests
     // Game screen UI preview ([UI] panel): the game's view model list, drawn over the scene view in edit mode
     void setViewModels(const std::vector<const reflect::TypeInfo*>* types) {
         m_uiPanel.setViewModels(types);
@@ -216,7 +217,6 @@ private:
     void reparent(u32 entityId, u32 parentId); // changes the parent while keeping the world position (0 = top level)
     void drawInspector(bool editing);
     void drawEnvironment(); // inside the inspector, when the scene row is selected
-    void updateRowProblems(f64 dt); // missing row references in tuning/scene objects → [Tables] panel
     void saveAll();         // Ctrl+S: scene, tuning, project settings, tables
     void takePanelStatus(); // moves status messages left by panels to the status bar
     void drawState();
@@ -226,6 +226,7 @@ private:
     void updateAutosave(f64 dt);
     void updateHotReload(f64 dt); // reload changed model/scene files (edit mode)
     void focusPanel(const char* window);
+    void focusInspector();
     void focusPanelNow(); // called right before that window's Begin
     void drawGizmo();
     void drawBuildLog();
@@ -271,8 +272,6 @@ private:
     void drawAssetFolder(const std::string& root, const std::string& relative);
     void handleAssetDrop();
     void renameAsset(const std::string& from, const std::string& to);
-    int m_tablesFrontFrames = 0;
-    int m_tuningFrontFrames = 0;
     bool m_assetsOpen = true;
     std::string m_assetFolder;   // relative to assets ("models")
     std::string m_assetSelected; // file relative to assets
@@ -528,13 +527,36 @@ private:
     std::string m_gameStatus;
     ChildProcess m_layoutCheck; // tools\check_layout.ps1 (when opening a project)
     TablesPanel m_tablesPanel;
-    bool m_tablesOpen = false;
     audio::Engine* m_audio = nullptr;
     SoundPanel m_soundPanel;
-    bool m_soundsOpen = false;
     feedback::Player* m_feedback = nullptr;
     FeedbackPanel m_feedbackPanel;
-    bool m_feedbackOpen = false;
+    // [Data] window (EditorData.cpp)
+    enum class DataPage { Tuning, Table, Feedback, Sounds };
+    void openDataPage(DataPage page, int index);
+    void toggleDataPage(DataPage page, int index);
+    void drawDataHub(f64 dt, bool editing);
+    bool dataCanStep(bool back) const;
+    void dataStep(bool back);
+    bool m_dataOpen = false;
+    bool m_dataFocused = false; // Ctrl+Z goes to the open document instead of the scene
+    DataPage m_dataPage = DataPage::Tuning;
+    int m_dataIndex = 0;
+    int m_dataFrontFrames = 0;
+    // [Problems] window
+    struct Problem {
+        bool error = true; // false = warning
+        std::string text;
+        DataPage page = DataPage::Tuning; // clicking opens this document (doc >= 0) ...
+        int doc = -1;
+        u32 entity = 0; // ... or selects this object
+    };
+    void updateProblems(f64 dt);
+    void drawProblems();
+    std::vector<Problem> m_problems;
+    f64 m_problemTimer = 1.0; // check on the first frame
+    bool m_problemsOpen = true;
+    bool m_problemsFront = false;
     UiPanel m_uiPanel;
     bool m_uiPanelOpen = false;
     ImportServer m_import; // Penpot plugin import (penpot/ service of the live connection server)
@@ -544,7 +566,6 @@ private:
     std::string m_penpotToken;
     bool m_viewTableDirty = false;
     f64 m_viewTableTimer = 0.0;
-    f64 m_rowCheckTimer = 0.0;
     std::string m_layoutOutput;
 };
 
