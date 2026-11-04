@@ -56,7 +56,10 @@ void Editor::buildCommands() {
                  if (!isHidden(e) && !isLocked(e)) ids.push_back(e.id);
              selectMany(ids, false);
          }},
-        {"Duplicate", ImGuiMod_Ctrl | ImGuiKey_D, 0, hasSelection, [this] { duplicateSelected(); }},
+        {"Duplicate", ImGuiMod_Ctrl | ImGuiKey_D, 0, [this, hasSelection] { return uiEditing() || hasSelection(); },
+         [this] { uiEditing() ? (void)m_uiPanel.duplicateSelected() : duplicateSelected(); }},
+        {"Copy", ImGuiMod_Ctrl | ImGuiKey_C, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.copySelected(); }},
+        {"Paste", ImGuiMod_Ctrl | ImGuiKey_V, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.paste(); }},
         {"Save as Prefab...", 0, 0, hasSelection, [this] { saveSelectionAsPrefab(); }},
         {"Delete", ImGuiKey_Delete, 0, [this, hasSelection] { return uiEditing() || hasSelection(); },
          [this] { uiEditing() ? (void)m_uiPanel.deleteSelected() : deleteSelected(); }},
