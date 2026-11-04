@@ -439,6 +439,69 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
     return changed;
 }
 
+void swapElements(const ValueInfo& v, void* a, void* b) {
+    if (v.kind == Kind::Struct && v.type && v.type->copy) {
+        reflect::Instance temp(*v.type);
+        v.type->copy(temp.data(), a);
+        v.type->copy(a, b);
+        v.type->copy(b, temp.data());
+    } else if (v.kind == Kind::String) {
+        std::swap(*static_cast<std::string*>(a), *static_cast<std::string*>(b));
+    } else {
+        std::vector<u8> temp(v.size);
+        memcpy(temp.data(), a, v.size);
+        memcpy(a, b, v.size);
+        memcpy(b, temp.data(), v.size);
+    }
+}
+
+// MEALKIT_LIST: a count field + an array. Only the used part shows, with add, remove and reorder
+bool drawList(const char* label, const char* name, const ValueInfo& v, void* data, u32& count, const FieldContext* context) {
+    bool changed = false;
+    count = std::min(count, v.count);
+    const std::string title = std::string(label) + " (" + std::to_string(count) + "/" + std::to_string(v.count) + ")###list";
+    if (!ImGui::TreeNode(title.c_str())) return false;
+    int remove = -1, up = -1;
+    const u32 size = v.element->size;
+    for (u32 i = 0; i < count; ++i) {
+        ImGui::PushID(static_cast<int>(i));
+        if (ImGui::SmallButton("x")) remove = static_cast<int>(i);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(i == 0);
+        if (ImGui::ArrowButton("##up", ImGuiDir_Up)) up = static_cast<int>(i);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        FieldContext element = context ? *context : FieldContext{};
+        if (element.defaults) element.defaults = at(element.defaults, i * size);
+        const std::string item = "[" + std::to_string(i) + "]";
+        ImGui::BeginGroup();
+        changed |= drawValue(item.c_str(), name, *v.element, at(data, i * size), context ? &element : nullptr);
+        ImGui::EndGroup();
+        ImGui::PopID();
+    }
+    if (up > 0) {
+        swapElements(*v.element, at(data, static_cast<u32>(up) * size), at(data, static_cast<u32>(up - 1) * size));
+        changed = true;
+    }
+    if (remove >= 0) {
+        for (u32 i = static_cast<u32>(remove); i + 1 < count; ++i) swapElements(*v.element, at(data, i * size), at(data, (i + 1) * size));
+        --count;
+        changed = true;
+    }
+    ImGui::BeginDisabled(count >= v.count);
+    if (ImGui::SmallButton(tr("+ Add Item"))) {
+        ++count; // keeps what was in the slot; a struct starts from its defaults
+        if (v.element->kind == Kind::Struct && v.element->type && v.element->type->copy) {
+            reflect::Instance fresh(*v.element->type);
+            v.element->type->copy(at(data, (count - 1) * size), fresh.data());
+        }
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::TreePop();
+    return changed;
+}
+
 } // namespace
 
 // Input field that edits a std::string directly (grows the string if the buffer is too small)
@@ -530,6 +593,11 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
     bool changed = false;
     bool groupOpen = true;
     for (const FieldInfo& f : type.fields) {
+        // MEALKIT_LIST: its count field is edited through the list below (Add, x)
+        const FieldInfo* next = &f + 1 != type.fields.data() + type.fields.size() ? &f + 1 : nullptr;
+        if (next && next->value->kind == Kind::Array && f.value->kind == Kind::UInt && f.value->size == sizeof(u32) && std::string(next->name) + "Count" == f.name) continue;
+        const FieldInfo* countField = &f != type.fields.data() ? &f - 1 : nullptr;
+        const bool isList = countField && f.value->kind == Kind::Array && countField->value->kind == Kind::UInt && countField->value->size == sizeof(u32) && std::string(f.name) + "Count" == countField->name;
         const FieldLabel label = splitFieldLabel(f.label);
         const bool searching = context && ((context->filter && context->filter[0]) || context->onlyChanged);
         if (!searching && !label.group.empty()) groupOpen = sectionHeader(trData(label.group.c_str()), ImGuiTreeNodeFlags_DefaultOpen);
@@ -557,7 +625,8 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         const bool missing = label.required && f.value->kind == Kind::String && static_cast<const std::string*>(static_cast<const void*>(at(data, f.offset)))->empty();
         if (mixedValue) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.30f, 0.26f, 0.16f, 1.0f));
         if (missing) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.40f, 0.16f, 0.15f, 1.0f));
-        changed |= drawValue(shown.c_str(), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr, description, &label);
+        if (isList) changed |= drawList(shown.c_str(), f.name, *f.value, at(data, f.offset), *static_cast<u32*>(static_cast<void*>(at(data, countField->offset))), context ? &inner : nullptr);
+        else changed |= drawValue(shown.c_str(), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr, description, &label);
         if (missing) ImGui::PopStyleColor();
         if (mixedValue) ImGui::PopStyleColor();
         ImGui::EndDisabled();

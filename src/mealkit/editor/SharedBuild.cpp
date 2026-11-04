@@ -4,6 +4,8 @@
 #include "mealkit/platform/Process.h"
 
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 
 namespace mealkit::editor {
 namespace {
@@ -29,6 +31,24 @@ bool copyWhole(const std::string& from, const std::string& to, std::string& erro
     return true;
 }
 
+// Which engine build this editor runs: a game DLL only works with the mealkit.dll it was built against, even when the API version is the same
+std::string engineStamp() {
+    std::ifstream in(fs::u8path(executableDirectory() + "\mealkit.dll"), std::ios::binary);
+    unsigned long long hash = 14695981039346656037ull;
+    char buffer[65536];
+    while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0) {
+        for (std::streamsize i = 0; i < in.gcount(); ++i) hash = (hash ^ static_cast<unsigned char>(buffer[i])) * 1099511628211ull;
+    }
+    return std::to_string(hash);
+}
+
+std::string readStamp(const std::string& path) {
+    std::ifstream in(fs::u8path(path));
+    std::string stamp;
+    in >> stamp;
+    return stamp;
+}
+
 } // namespace
 
 bool hasCompiler() { return hasCppCompiler(); }
@@ -45,6 +65,15 @@ bool publishSharedBuild(const ProjectInfo& project, std::string& error) {
         return false;
     }
     if (!copyWhole(dll, folder + "\\" + project.name() + "_game.dll", error)) return false;
+    {
+        std::ofstream stamp(fs::u8path(folder + "\\" + project.name() + ".engine"));
+        stamp << engineStamp() << "
+";
+        if (!stamp) {
+            error = "cannot write the engine stamp in " + folder;
+            return false;
+        }
+    }
     const std::string headless = headlessPath(project);
     return !fileExists(headless) || copyWhole(headless, folder + "\\" + project.name() + "_headless.exe", error);
 }
@@ -59,6 +88,11 @@ bool fetchSharedBuild(const ProjectInfo& project, std::string* error) {
         if (from == 0 || from <= (fileExists(local) ? fileWriteTime(local) : 0)) return;
         if (copyWhole(shared, local, failure)) changed = true;
     };
+    const std::string stamp = readStamp(folder + "\\" + project.name() + ".engine");
+    if (!stamp.empty() && stamp != engineStamp()) { // loading it could crash: keep the local code and say what to do
+        if (error) *error = "the shared game code was built for another engine build: get the same engine build, or ask for a new publish";
+        return false;
+    }
     fetch(folder + "\\" + project.name() + "_game.dll", project.gameDllPath());
     fetch(folder + "\\" + project.name() + "_headless.exe", headlessPath(project));
     if (error) *error = failure;
