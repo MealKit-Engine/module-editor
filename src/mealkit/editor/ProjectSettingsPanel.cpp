@@ -68,6 +68,8 @@ bool ProjectSettingsPanel::save(ProjectInfo& project) {
 
 void ProjectSettingsPanel::drawContent(ProjectInfo& project, const std::string& currentScene) {
     if (project.directory.empty()) return;
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+    ImGui::InputTextWithHint("##search", tr("Search"), m_search, sizeof(m_search));
     ImGui::TextDisabled("%s%s", project.filePath().c_str(), m_dirty ? " *" : "");
     ImGui::BeginDisabled(!m_dirty);
     if (ImGui::Button(tr("Save"))) save(project);
@@ -85,13 +87,15 @@ void ProjectSettingsPanel::drawContent(ProjectInfo& project, const std::string& 
 
     ImGui::PushItemWidth(-ImGui::GetContentRegionAvail().x * 0.4f);
     ImGui::SeparatorText(tr("Engine"));
-    if (drawFields(reflect::typeOf<game::ProjectSettings>(), &m_edit)) m_dirty = true;
+    FieldContext context;
+    context.filter = m_search;
+    if (drawFields(reflect::typeOf<game::ProjectSettings>(), &m_edit, &context)) m_dirty = true;
     ImGui::SeparatorText(tr("Game"));
     if (!m_game.type()) {
         ImGui::TextDisabled(tr("Game items appear when the game code is loaded (%zu lines kept)."), m_gameText.size());
     } else if (m_game.type()->fields.empty()) {
         ImGui::TextDisabled(tr("The game declares no items (%s)."), m_game.type()->name);
-    } else if (drawFields(*m_game.type(), m_game.data())) {
+    } else if (drawFields(*m_game.type(), m_game.data(), &context)) {
         m_dirty = true;
     }
     ImGui::PopItemWidth();

@@ -302,6 +302,12 @@ void Editor::drawCommandPalette() {
         std::erase(m_paletteRecent, chosen->label);
         m_paletteRecent.insert(m_paletteRecent.begin(), chosen->label);
         if (m_paletteRecent.size() > 8) m_paletteRecent.pop_back();
+        if (!m_project.directory.empty()) {
+            std::string text;
+            for (const std::string& line : m_paletteRecent) text += line + "\n";
+            createDirectories(m_project.directory + "\\build\\editor");
+            writeTextFile(m_project.directory + "\\build\\editor\\palette_recent.txt", text);
+        }
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         run();

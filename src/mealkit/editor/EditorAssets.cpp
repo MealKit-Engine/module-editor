@@ -191,7 +191,7 @@ void Editor::drawAssetBrowser() {
                     else if (isPrefab(name) && m_mode == Mode::Edit) placePrefab(relative, nullptr);
                 }
             }
-            if ((isModel(name) || isPrefab(name)) && ImGui::BeginDragDropSource()) {
+            if (ImGui::BeginDragDropSource()) { // models and prefabs go to the scene view, others to pick= fields
                 ImGui::SetDragDropPayload(kAssetPayload, relative.c_str(), relative.size() + 1);
                 ImGui::Text("%s  %s", assetIcon(name), relative.c_str());
                 ImGui::EndDragDropSource();
@@ -218,6 +218,7 @@ void Editor::drawAssetBrowser() {
                     snprintf(m_assetRenameBuffer, sizeof(m_assetRenameBuffer), "%s", relative.c_str());
                 }
                 if (ImGui::MenuItem(tr("Show in Explorer"))) openInExplorer(folder);
+                if (ImGui::MenuItem(tr("Find Uses"))) findAssetUses(relative);
                 ImGui::EndPopup();
             }
             ImGui::PopID();
@@ -227,6 +228,20 @@ void Editor::drawAssetBrowser() {
     }
     ImGui::EndChild();
 
+    if (m_assetUsesOpen) {
+        ImGui::OpenPopup("##assetUses");
+        m_assetUsesOpen = false;
+    }
+    if (ImGui::BeginPopup("##assetUses")) {
+        ImGui::TextDisabled("%s", m_assetUsesOf.c_str());
+        if (m_assetUses.empty()) ImGui::TextUnformatted(tr("Not used by any scene, table or other text file"));
+        for (const std::string& f : m_assetUses)
+            if (ImGui::Selectable(f.c_str())) {
+                if (lowerExtension(f) == ".scene" && m_mode == Mode::Edit) openSceneFile(root + "\\" + toNative(f));
+                else revealAsset(f);
+            }
+        ImGui::EndPopup();
+    }
     if (!m_assetRenameFrom.empty()) ImGui::OpenPopup("##renameAsset");
     if (ImGui::BeginPopupModal("##renameAsset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(tr("New path under assets (folders are created). References are updated."));
@@ -265,8 +280,22 @@ void Editor::handleAssetDrop() {
     else if (dir.y < -0.01f) at = origin + dir * (-origin.y / dir.y);
     else at = origin + dir * 12.0f;
     const std::string relative = static_cast<const char*>(payload->Data);
+    if (!isModel(relative) && !isPrefab(relative)) return;
     if (isPrefab(relative)) placePrefab(relative, &at);
     else addModelEntity(relative, &at);
+}
+
+// Text files that name this asset, found the same way a rename finds what to fix. Effects and sound events named without their folder aren't found
+void Editor::findAssetUses(const std::string& relative) {
+    m_assetUses.clear();
+    m_assetUsesOf = relative;
+    m_assetUsesOpen = true;
+    const std::string root = asset::ModelCache::assetsRoot();
+    for (const std::string& f : allAssetFiles()) {
+        if (f == relative || !referenceFile(f)) continue;
+        std::string text;
+        if (readTextFile(root + "\\" + toNative(f), text) && replacePath(text, relative, relative) > 0) m_assetUses.push_back(f);
+    }
 }
 
 // Moves the file and fixes path references in text files under assets and in mealkit.project. The open scene is fixed in memory too

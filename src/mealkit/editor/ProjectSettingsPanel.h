@@ -27,6 +27,7 @@ public:
     bool dirty() const { return m_dirty; }
     // currentScene: current scene path relative to assets ([Use current scene as start scene], empty string if none)
     void drawContent(ProjectInfo& project, const std::string& currentScene);
+    char m_search[64] = {};
     std::string takeStatus() { return std::move(m_status); }
 
 private:

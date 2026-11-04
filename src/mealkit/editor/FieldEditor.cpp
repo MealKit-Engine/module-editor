@@ -128,6 +128,46 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
 }
 
 std::function<std::vector<std::string>()> g_soundEvents;
+std::function<void(const std::string&, const std::string&)> g_pickPreview;
+
+bool containsText(const std::string& text, const char* needle) {
+    const auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+    const std::string n = needle;
+    return std::search(text.begin(), text.end(), n.begin(), n.end(), [&](char a, char b) { return lower(static_cast<unsigned char>(a)) == lower(static_cast<unsigned char>(b)); }) != text.end();
+}
+
+// showIf text against the type's other fields
+bool showIfPasses(const std::string& condition, const TypeInfo& type, const void* data) {
+    const size_t op = condition.find_first_of("><=!");
+    const std::string name = condition.substr(0, op);
+    for (const FieldInfo& f : type.fields) {
+        if (name != f.name) continue;
+        const void* value = at(data, f.offset);
+        const std::string text = f.value->kind == Kind::String ? *static_cast<const std::string*>(value) : reflect::formatScalar(*f.value, value);
+        if (op == std::string::npos) {
+            if (text.empty() || text == "false") return false;
+            char* end = nullptr;
+            const f32 number = std::strtof(text.c_str(), &end);
+            return *end != 0 || number != 0.0f; // text that isn't a number counts as set
+        }
+        const f32 left = std::strtof(text.c_str(), nullptr), right = std::strtof(condition.c_str() + op + 1, nullptr);
+        switch (condition[op]) {
+        case '>': return left > right;
+        case '<': return left < right;
+        case '=': return left == right;
+        default: return left != right;
+        }
+    }
+    return true; // unknown name: don't hide
+}
+
+bool fieldMatches(const FieldInfo& f, const char* filter) {
+    if (containsText(f.name, filter) || containsText(f.label, filter) || containsText(trData(splitFieldLabel(f.label).name.c_str()), filter)) return true;
+    if (f.value->kind == Kind::Struct)
+        for (const FieldInfo& inner : f.value->type->fields)
+            if (fieldMatches(inner, filter)) return true;
+    return false;
+}
 
 std::string withUnit(std::string format, const FieldLabel* attributes) {
     if (!attributes || attributes->unit.empty()) return format;
@@ -180,12 +220,36 @@ const std::vector<std::string>& pickChoices(const std::string& pick) {
 bool drawPicker(const char* label, std::string& value, const std::string& pick) {
     const std::vector<std::string>& names = pickChoices(pick);
     if (names.empty()) return inputString(label, value); // nothing to pick from (no audio, no folder)
+    bool dropped = false;
+    if (g_pickPreview) ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x));
     const bool found = value.empty() || std::find(names.begin(), names.end(), value) != names.end();
     if (!found) ImGui::PushStyleColor(ImGuiCol_Text, color::kDanger);
     const std::string preview = value.empty() ? std::string(tr("(none)")) : value + (found ? "" : " (?)");
     const bool open = ImGui::BeginCombo(label, preview.c_str());
     if (!found) ImGui::PopStyleColor();
-    if (!open) return false;
+    if (ImGui::BeginDragDropTarget()) { // a file dragged from [Assets], when it is in this field's folder
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MK_ASSET")) {
+            const std::string file = static_cast<const char*>(payload->Data);
+            const size_t colon = pick.find(':');
+            const std::string lead = pick.substr(0, colon) + "/", extension = colon == std::string::npos ? std::string() : pick.substr(colon + 1);
+            if (colon != std::string::npos && file.rfind(lead, 0) == 0 && file.size() > extension.size() && file.compare(file.size() - extension.size(), extension.size(), extension) == 0) {
+                value = file.substr(lead.size(), file.size() - lead.size() - extension.size());
+                dropped = true;
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    const auto previewButton = [&] {
+        if (!g_pickPreview) return;
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::BeginDisabled(value.empty());
+        if (ImGui::ArrowButton("##pickPreview", ImGuiDir_Right)) g_pickPreview(pick, value);
+        ImGui::EndDisabled();
+    };
+    if (!open) {
+        previewButton();
+        return dropped;
+    }
     static char search[64] = {};
     if (ImGui::IsWindowAppearing()) {
         search[0] = 0;
@@ -211,7 +275,8 @@ bool drawPicker(const char* label, std::string& value, const std::string& pick) 
         }
     }
     ImGui::EndCombo();
-    return changed;
+    previewButton();
+    return changed || dropped;
 }
 
 // Row reference: pick a row id of the referenced table (as text if the table is unknown)
@@ -413,6 +478,8 @@ FieldLabel splitFieldLabel(const char* label) {
         else if (key == "unit") out.unit = value;
         else if (key == "pick") out.pick = value;
         else if (key == "gizmo") out.gizmo = value;
+        else if (key == "showIf") out.showIf = value;
+        else if (part == "required") out.required = true;
         else if (key == "step") out.step = std::strtof(value.c_str(), nullptr);
         else if (key == "range" && value.find("..") != std::string::npos) {
             out.min = std::strtof(value.c_str(), nullptr);
@@ -426,6 +493,17 @@ FieldLabel splitFieldLabel(const char* label) {
 }
 
 void setSoundEventSource(std::function<std::vector<std::string>()> source) { g_soundEvents = std::move(source); }
+void setPickPreview(std::function<void(const std::string&, const std::string&)> preview) { g_pickPreview = std::move(preview); }
+
+void collectRequired(const TypeInfo& type, const void* data, const std::string& where, std::vector<std::string>& out) {
+    for (const FieldInfo& f : type.fields) {
+        const FieldLabel label = splitFieldLabel(f.label);
+        if (!label.required || f.value->kind != Kind::String) continue;
+        if (!label.showIf.empty() && !showIfPasses(label.showIf, type, data)) continue;
+        if (static_cast<const std::string*>(static_cast<const void*>(at(data, f.offset)))->empty())
+            out.push_back(where + trf("%s is required", trData(label.name.c_str())));
+    }
+}
 
 namespace {
 
@@ -453,8 +531,17 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
     bool groupOpen = true;
     for (const FieldInfo& f : type.fields) {
         const FieldLabel label = splitFieldLabel(f.label);
-        if (!label.group.empty()) groupOpen = sectionHeader(trData(label.group.c_str()), ImGuiTreeNodeFlags_DefaultOpen);
-        if (!groupOpen) continue;
+        const bool searching = context && ((context->filter && context->filter[0]) || context->onlyChanged);
+        if (!searching && !label.group.empty()) groupOpen = sectionHeader(trData(label.group.c_str()), ImGuiTreeNodeFlags_DefaultOpen);
+        if (!searching && !groupOpen) continue;
+        if (!label.showIf.empty() && !showIfPasses(label.showIf, type, data)) continue;
+        if (context && context->filter && context->filter[0] && !fieldMatches(f, context->filter)) continue;
+        if (context && context->onlyChanged && context->defaults) {
+            Hasher a, b;
+            reflect::hashValue(*f.value, at(data, f.offset), a);
+            reflect::hashValue(*f.value, at(context->defaults, f.offset), b);
+            if (a.value == b.value) continue;
+        }
         ImGui::PushID(f.name);
         const bool readOnly = (f.flags & reflect::kFieldReadOnly) != 0;
         ImGui::BeginDisabled(readOnly);
@@ -462,11 +549,16 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         FieldContext inner = context ? *context : FieldContext{};
         if (inner.defaults) inner.defaults = at(inner.defaults, f.offset);
         inner.mixed = nullptr; // inner paths are marked by the top-level field
+        inner.filter = nullptr; // a matching struct shows all of its fields
+        inner.onlyChanged = false;
         const char* description = label.tooltip.empty() ? nullptr : trData(label.tooltip.c_str());
         const bool mixedValue = context && context->mixed && context->mixed->count(f.name) != 0;
         const std::string shown = std::string(trData(label.name.c_str())) + (mixedValue ? " \xE2\x80\x94" : "");
+        const bool missing = label.required && f.value->kind == Kind::String && static_cast<const std::string*>(static_cast<const void*>(at(data, f.offset)))->empty();
         if (mixedValue) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.30f, 0.26f, 0.16f, 1.0f));
+        if (missing) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.40f, 0.16f, 0.15f, 1.0f));
         changed |= drawValue(shown.c_str(), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr, description, &label);
+        if (missing) ImGui::PopStyleColor();
         if (mixedValue) ImGui::PopStyleColor();
         ImGui::EndDisabled();
         if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))

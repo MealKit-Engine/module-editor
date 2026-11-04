@@ -104,6 +104,7 @@ public:
     void openTuning() { openDataPage(DataPage::Tuning, 0); m_dataFrontFrames = 30; }
     void revealAsset(const std::string& relative);
     void openAssetGrid() { revealAsset("models/tree.glb"); m_assetThumb = 96.0f; m_assetsFront = 30; }
+    Vec3 previewPoint() const { return m_cameraPos + cameraForward() * 10.0f; } // where previews play
     void setCompact() { m_prefs.compact = true; } // --compact, not saved
     // --input "move 500 300; down; wait 2; up; key ctrl+z; type abc; command Save; print": test input, one step per frame
     void setTestInput(const std::string& script);
@@ -576,6 +577,24 @@ private:
     };
     void updateProblems(f64 dt);
     void runTestInput();
+    char m_fieldSearch[64] = {};
+    std::string m_layoutLoad; // saved layout to read before the next frame
+    char m_layoutName[48] = {};
+    // [Assets] > Find Uses
+    void findAssetUses(const std::string& relative);
+    std::vector<std::string> m_assetUses; // files under assets, relative
+    std::string m_assetUsesOf;
+    bool m_assetUsesOpen = false;
+    // Graphs of state values on the [State] page, one sample per frame during play
+    struct StateGraph {
+        std::string path;
+        std::vector<float> samples;
+        size_t next = 0;
+    };
+    std::vector<StateGraph> m_graphs;
+    char m_graphPath[96] = {};
+    void updateStateGraphs();
+    void drawStateGraphs();
     std::vector<std::string> m_testInput;
     size_t m_testStep = 0;
     int m_testWait = 0;

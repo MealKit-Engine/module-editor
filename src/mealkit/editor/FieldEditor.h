@@ -18,6 +18,9 @@ struct FieldContext {
     const void* defaults = nullptr;
     // Multi-selection: names of top-level fields whose values differ between the selected objects (marked with a dash)
     const std::set<std::string>* mixed = nullptr;
+    // Search: only fields whose name or description contains this text (empty = all); onlyChanged: only those different from defaults
+    const char* filter = nullptr;
+    bool onlyChanged = false;
 };
 
 // MEALKIT_FIELD display name: "name|description|group=Pushing|range=0..20|step=0.1|unit=m|pick=effects:.fx". Everything after the name is optional.
@@ -27,6 +30,8 @@ struct FieldContext {
 //   step   drag speed. Without it, the speed follows the size of the value
 //   unit   text after a number
 //   gizmo  "radius" on an f32 field of a scene object: a sphere around the selected object in the scene view, with a handle to drag
+//   showIf "teams>0", "teams" or "sound": hides the field unless the other top-level field passes (> < = !, or not zero/empty)
+//   required  an empty string is marked and goes to the [Problems] list
 //   pick   searchable list for a string field: "sound" (sound events) or "<folder under assets>:<extension>" (file names without the extension)
 struct FieldLabel {
     std::string name;
@@ -35,6 +40,8 @@ struct FieldLabel {
     std::string unit;
     std::string pick;
     std::string gizmo;
+    std::string showIf;
+    bool required = false;
     f32 min = 0.0f, max = 0.0f, step = 0.0f;
     bool hasRange = false;
 };
@@ -49,6 +56,10 @@ bool drawValueWidget(const char* label, const char* name, const reflect::ValueIn
 
 // Where pick=sound gets its names (the editor's audio engine). Empty function = typed by hand.
 void setSoundEventSource(std::function<std::vector<std::string>()> source);
+// The play button next to a pick= field: (pick, value). Empty function = no button.
+void setPickPreview(std::function<void(const std::string&, const std::string&)> preview);
+// Adds a line to out for each required field that is empty and not hidden by showIf
+void collectRequired(const reflect::TypeInfo& type, const void* data, const std::string& where, std::vector<std::string>& out);
 
 // Input field that edits a std::string directly (grows the string if the buffer is too small)
 bool inputString(const char* label, std::string& text);

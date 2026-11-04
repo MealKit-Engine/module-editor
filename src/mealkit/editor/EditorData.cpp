@@ -185,6 +185,51 @@ void Editor::runTestInput() {
     }
 }
 
+void Editor::updateStateGraphs() {
+    if (m_mode != Mode::Play || !m_stateView.type || !m_stateView.data) return;
+    constexpr size_t kSamples = 600; // ten seconds at 60 fps
+    for (StateGraph& g : m_graphs) {
+        const reflect::ValueInfo* value = nullptr;
+        void* data = nullptr;
+        if (!reflect::resolvePath(*m_stateView.type, const_cast<void*>(m_stateView.data), g.path, value, data)) continue;
+        const float sample = std::strtof(reflect::formatScalar(*value, data).c_str(), nullptr);
+        if (g.samples.size() < kSamples) g.samples.push_back(sample);
+        else g.samples[g.next] = sample;
+        g.next = (g.next + 1) % kSamples;
+    }
+}
+
+void Editor::drawStateGraphs() {
+    if (!sectionHeader(tr("Graphs"))) return;
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
+    const bool enter = ImGui::InputTextWithHint("##graphPath", tr("Field path, such as tick"), m_graphPath, sizeof(m_graphPath), ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::SameLine();
+    const reflect::ValueInfo* value = nullptr;
+    void* data = nullptr;
+    const bool valid = reflect::resolvePath(*m_stateView.type, const_cast<void*>(m_stateView.data), m_graphPath, value, data) && !reflect::formatScalar(*value, data).empty();
+    ImGui::BeginDisabled(!valid);
+    if (ImGui::Button(tr("Add Graph")) || (enter && valid)) {
+        m_graphs.push_back({m_graphPath, {}, 0});
+        m_graphPath[0] = 0;
+    }
+    ImGui::EndDisabled();
+    int remove = -1;
+    for (size_t i = 0; i < m_graphs.size(); ++i) {
+        const StateGraph& g = m_graphs[i];
+        ImGui::PushID(static_cast<int>(i));
+        const size_t offset = g.samples.size() < 600 ? 0 : g.next;
+        const std::string last = g.samples.empty() ? std::string() : std::to_string(g.samples[(g.next + g.samples.size() - 1) % g.samples.size()]);
+        ImGui::PlotLines("##plot", g.samples.data(), static_cast<int>(g.samples.size()), static_cast<int>(offset), last.c_str(), FLT_MAX, FLT_MAX,
+                         ImVec2(ImGui::GetContentRegionAvail().x * 0.7f, ImGui::GetFontSize() * 3.0f));
+        ImGui::SameLine();
+        ImGui::TextUnformatted(g.path.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) remove = static_cast<int>(i);
+        ImGui::PopID();
+    }
+    if (remove >= 0) m_graphs.erase(m_graphs.begin() + remove);
+}
+
 void Editor::openDebugPage(DebugPage page) {
     m_debugOpen = true;
     m_debugPage = page;
@@ -452,6 +497,23 @@ void Editor::updateProblems(f64 dt) {
             std::string text = trf("Over budget: %s: %s", e.model.c_str(), over.c_str());
             m_badges[e.id] = {false, text};
             if (first) m_problems.push_back({false, std::move(text), DataPage::Sounds, -1, e.id});
+        }
+    }
+
+    // Required fields: tuning and scene objects
+    std::vector<std::string> required;
+    if (const reflect::View tuning = m_tuningPanel.tuning(); tuning.type) collectRequired(*tuning.type, tuning.data, "game.tuning: ", required);
+    for (std::string& text : required) m_problems.push_back({true, std::move(text), DataPage::Tuning, 0, 0});
+    for (const Entity& e : m_scene.entities) {
+        const reflect::TypeInfo* type = entityType(e);
+        if (!type || type->fields.empty()) continue;
+        reflect::Instance instance(*type);
+        reflect::fromText(*type, instance.data(), e.fields);
+        required.clear();
+        collectRequired(*type, instance.data(), e.name + ": ", required);
+        for (std::string& text : required) {
+            m_badges[e.id] = {true, text};
+            m_problems.push_back({true, std::move(text), DataPage::Sounds, -1, e.id});
         }
     }
 

@@ -328,6 +328,10 @@ int main(int argc, char** argv) {
     if (!editor.init(window, renderer, scenePath, models)) MEALKIT_FATAL("Editor initialization failed");
     editor.setAudio(&audio);
     editor::setSoundEventSource([&audio] { return audio.eventNames(); }); // pick=sound fields
+    editor::setPickPreview([&audio, &feedback, &editor](const std::string& pick, const std::string& value) {
+        if (pick == "sound") audio.play2D(value);
+        else if (pick.rfind("effects", 0) == 0) feedback.playEffect(value, editor.previewPoint());
+    });
     editor.setFeedback(&feedback);
     editor.setEngineTables(input::engineTables()); // engine tables shown in the [Tables] panel: input bindings (sound events are in MealKit Audio)
     editor.setEngineDirectory(engineDirectory());

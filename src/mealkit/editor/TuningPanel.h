@@ -70,6 +70,8 @@ private:
     Doc m_tuning{"game.tuning"};     // game tuning (simulation, content hash)
     Doc m_viewTuning{"view.tuning"}; // view tuning
     std::string m_status;
+    char m_search[64] = {};
+    bool m_onlyChanged = false;
 };
 
 } // namespace mealkit::editor

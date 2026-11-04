@@ -224,6 +224,10 @@ void Editor::update(f64 dt) {
     }
     updateHotReload(dt);
 
+    if (!m_layoutLoad.empty()) { // only between frames
+        ImGui::LoadIniSettingsFromDisk(m_layoutLoad.c_str());
+        m_layoutLoad.clear();
+    }
     m_imgui.newFrame([this] { runTestInput(); });
     ImGuizmo::BeginFrame();
     if (!m_editActive) m_pending = capture();
@@ -290,6 +294,7 @@ void Editor::update(f64 dt) {
         m_viewTableTimer = 0.0;
     }
     updateProblems(dt);
+    updateStateGraphs();
     m_modulesPanel.update();
     drawSettingsHub();
     // Module sim/ and view/ are game code: adding or changing them rebuilds the game DLL
@@ -985,6 +990,23 @@ void Editor::drawMenuBar() {
                 }
             ImGui::Separator();
             commandMenuItem("Reset Layout");
+            // Layouts the user saved (per user, in the editor's folder)
+            const std::string saved = editorUserDirectory() + "\\layouts";
+            const std::vector<std::string> layouts = listFiles(saved, ".ini");
+            if (!layouts.empty()) ImGui::Separator();
+            for (const std::string& f : layouts)
+                if (ImGui::MenuItem(f.substr(0, f.size() - 4).c_str())) m_layoutLoad = saved + "\\" + f;
+            ImGui::Separator();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+            ImGui::InputTextWithHint("##layoutName", tr("Layout name"), m_layoutName, sizeof(m_layoutName));
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!data::validRowId(m_layoutName));
+            if (ImGui::SmallButton(tr("Save"))) {
+                createDirectories(saved);
+                ImGui::SaveIniSettingsToDisk((saved + "\\" + m_layoutName + ".ini").c_str());
+                m_layoutName[0] = 0;
+            }
+            ImGui::EndDisabled();
             ImGui::EndMenu();
         }
         ImGui::Separator();
@@ -1054,6 +1076,18 @@ void Editor::drawMenuBar() {
     ImGui::PopStyleColor(2);
     if (editing && !m_gameLoaded && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("%s", m_gameStatus.c_str());
+
+    // Scene switcher: open another scene without leaving the play button
+    if (editing && !m_project.directory.empty()) {
+        const std::string current = m_scenePath.empty() ? std::string(tr("Untitled")) : fileName(m_scenePath);
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+        if (ImGui::BeginCombo("##sceneSwitch", current.c_str())) {
+            const std::string folder = m_project.directory + "\\assets\\scenes";
+            for (const std::string& f : listFiles(folder, ".scene"))
+                if (ImGui::Selectable(f.c_str(), f == current) && f != current) openSceneFile(folder + "\\" + f);
+            ImGui::EndCombo();
+        }
+    }
 
     // Play options (only before play, so the play controls have the room): player count, with several more join windows open
     if (editing) {
@@ -1609,6 +1643,17 @@ void Editor::drawInspector(bool editing) {
             ImGuizmo::RecomposeMatrixFromComponents(t, r, s, matrix);
             scene::Transform local;
             decompose(matrix, local);
+            // The other selected objects move, turn and scale by the same change
+            const Vec3 moved = local.position - e->position;
+            const Quat turned = local.rotation * Quat{-e->rotation.x, -e->rotation.y, -e->rotation.z, e->rotation.w};
+            const Vec3 scaled{local.scale.x / std::max(e->scale.x, 0.0001f), local.scale.y / std::max(e->scale.y, 0.0001f), local.scale.z / std::max(e->scale.z, 0.0001f)};
+            for (u32 id : m_multi) {
+                Entity* other = m_scene.find(id);
+                if (!other || other == e) continue;
+                other->position = other->position + moved;
+                other->rotation = normalize(turned * other->rotation);
+                other->scale = {other->scale.x * scaled.x, other->scale.y * scaled.y, other->scale.z * scaled.z};
+            }
             e->position = local.position;
             e->rotation = local.rotation;
             e->scale = local.scale;
@@ -1877,6 +1922,7 @@ void Editor::drawState() {
         return;
     }
     ImGui::TextDisabled(tr("%s (read-only)"), m_stateView.type->name);
+    drawStateGraphs();
     drawFieldsReadOnly(*m_stateView.type, m_stateView.data);
 }
 
@@ -2578,8 +2624,11 @@ void Editor::drawObjectFields(Entity& e) {
         for (const auto& field : before)
             if (std::find(text.begin(), text.end(), field) == text.end()) mixed.insert(rootOf(field.first));
     }
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##fieldSearch", tr("Search"), m_fieldSearch, sizeof(m_fieldSearch));
     FieldContext context{&m_tablesPanel.index(), defaults.data()};
     context.mixed = &mixed;
+    context.filter = m_fieldSearch;
     if (drawFields(*type, instance.data(), &context)) {
         reflect::TextFields fields;
         reflect::toText(*type, instance.data(), fields);
@@ -2971,6 +3020,15 @@ void Editor::setProject(const ProjectInfo& project) {
     loadViewState(); // the scene opens before the project
     loadRecentScenes();
     if (!m_scenePath.empty()) rememberRecentScene(m_scenePath);
+    { // recent palette items, per project
+        std::string text;
+        m_paletteRecent.clear();
+        if (readTextFile(project.directory + "\\build\\editor\\palette_recent.txt", text)) {
+            size_t start = 0;
+            for (size_t end = text.find('\n'); end != std::string::npos; start = end + 1, end = text.find('\n', start))
+                if (end > start) m_paletteRecent.push_back(text.substr(start, end - start));
+        }
+    }
     // Window layout per project (build\editor\layout.ini). A project opened for the first time gets the default layout
     if (m_prefs.projectLayout && !project.directory.empty()) {
         const std::string folder = project.directory + "\\build\\editor";
