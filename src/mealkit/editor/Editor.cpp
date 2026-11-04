@@ -296,6 +296,7 @@ void Editor::update(f64 dt) {
     }
     updateProblems(dt);
     m_testsPanel.poll(m_project, dt);
+    m_balancePanel.poll(m_project);
     updateStateGraphs();
     m_modulesPanel.update();
     drawSettingsHub();

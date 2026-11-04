@@ -269,6 +269,7 @@ void Editor::drawDebugHub() {
         entry(tr("State"), DebugPage::State);
         const u32 failedTests = m_testsPanel.failedCount();
         entry(failedTests ? trf("Tests (%u failed)", failedTests) : std::string(tr("Tests")), DebugPage::Tests);
+        entry(tr("Balance"), DebugPage::Balance);
     }
     ImGui::EndChild();
     ImGui::SameLine();
@@ -298,6 +299,7 @@ void Editor::drawDebugHub() {
             break;
         case DebugPage::State: drawState(); break;
         case DebugPage::Tests: m_testsPanel.drawContent(m_project); break;
+        case DebugPage::Balance: m_balancePanel.drawContent(m_project); break;
         }
     }
     ImGui::EndChild();

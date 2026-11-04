@@ -90,6 +90,11 @@ void Editor::buildCommands() {
         {"Problems", 0, 0, always, [this] { toggleDebugPage(DebugPage::Problems); }},
         {"State", 0, 0, always, [this] { toggleDebugPage(DebugPage::State); }},
         {"Tests", 0, 0, always, [this] { toggleDebugPage(DebugPage::Tests); }},
+        {"Balance", 0, 0, always, [this] { toggleDebugPage(DebugPage::Balance); }},
+        {"Run Bot Matches", 0, 0, always, [this] {
+             openDebugPage(DebugPage::Balance);
+             m_balancePanel.run(m_project);
+         }},
         {"Run All Tests", 0, 0, always, [this] {
              openDebugPage(DebugPage::Tests);
              m_testsPanel.runAll(m_project);
