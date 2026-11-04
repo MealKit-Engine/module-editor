@@ -3,10 +3,14 @@
 #include "mealkit/core/Hash.h"
 
 #include "mealkit/editor/Strings.h"
+#include "mealkit/platform/Paths.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <cstdlib>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -52,7 +56,7 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
 void drawReadOnlyStruct(const TypeInfo& type, const void* data) {
     for (const FieldInfo& f : type.fields) {
         ImGui::PushID(f.name);
-        drawReadOnlyValue(trData(f.label), f.name, *f.value, at(data, f.offset));
+        drawReadOnlyValue(trData(splitFieldLabel(f.label).name.c_str()), f.name, *f.value, at(data, f.offset));
         ImGui::PopID();
     }
 }
@@ -122,6 +126,93 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
     }
 }
 
+std::function<std::vector<std::string>()> g_soundEvents;
+
+std::string withUnit(std::string format, const FieldLabel* attributes) {
+    if (!attributes || attributes->unit.empty()) return format;
+    format += ' ';
+    for (char c : attributes->unit) {
+        if (c == '%') format += '%';
+        format += c;
+    }
+    return format;
+}
+
+const char* intFormat(const ValueInfo& v) {
+    if (v.kind == Kind::Int) return v.size == 8 ? "%lld" : "%d";
+    return v.size == 8 ? "%llu" : "%u";
+}
+
+f32 dragSpeed(f32 value, const FieldLabel* attributes) {
+    if (attributes && attributes->step > 0.0f) return attributes->step;
+    return std::max(0.01f, std::fabs(value) * 0.01f);
+}
+
+// Choices for pick=: read at most once a second per source, since a table can draw this in many cells
+const std::vector<std::string>& pickChoices(const std::string& pick) {
+    struct Entry {
+        double time = -1000.0;
+        std::vector<std::string> names;
+    };
+    static std::map<std::string, Entry> cache;
+    Entry& entry = cache[pick];
+    const double now = ImGui::GetTime();
+    if (now - entry.time < 1.0) return entry.names;
+    entry.time = now;
+    entry.names.clear();
+    if (pick == "sound") {
+        if (g_soundEvents) entry.names = g_soundEvents();
+    } else {
+        const size_t colon = pick.find(':');
+        const std::string folder = pick.substr(0, colon), extension = colon == std::string::npos ? std::string() : pick.substr(colon + 1);
+        for (const std::string& file : listFiles(projectRoot() + "\\assets\\" + folder)) {
+            if (extension.empty()) entry.names.push_back(file);
+            else if (file.size() > extension.size() && file.compare(file.size() - extension.size(), extension.size(), extension) == 0)
+                entry.names.push_back(file.substr(0, file.size() - extension.size()));
+        }
+    }
+    std::sort(entry.names.begin(), entry.names.end());
+    return entry.names;
+}
+
+// String chosen from a list, with a search box. A value not in the list is kept and shown in red
+bool drawPicker(const char* label, std::string& value, const std::string& pick) {
+    const std::vector<std::string>& names = pickChoices(pick);
+    if (names.empty()) return inputString(label, value); // nothing to pick from (no audio, no folder)
+    const bool found = value.empty() || std::find(names.begin(), names.end(), value) != names.end();
+    if (!found) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+    const std::string preview = value.empty() ? std::string(tr("(none)")) : value + (found ? "" : " (?)");
+    const bool open = ImGui::BeginCombo(label, preview.c_str());
+    if (!found) ImGui::PopStyleColor();
+    if (!open) return false;
+    static char search[64] = {};
+    if (ImGui::IsWindowAppearing()) {
+        search[0] = 0;
+        ImGui::SetKeyboardFocusHere();
+    }
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##search", tr("Search"), search, sizeof(search));
+    bool changed = false;
+    if (ImGui::Selectable(tr("(none)"), value.empty())) {
+        value.clear();
+        changed = true;
+    }
+    const auto lower = [](std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return s;
+    };
+    const std::string needle = lower(search);
+    for (const std::string& name : names) {
+        if (!needle.empty() && lower(name).find(needle) == std::string::npos) continue;
+        if (ImGui::Selectable(name.c_str(), name == value)) {
+            value = name;
+            changed = true;
+        }
+    }
+    ImGui::EndCombo();
+    return changed;
+}
+
 // Row reference: pick a row id of the referenced table (as text if the table is unknown)
 bool drawRowRef(const char* label, const ValueInfo& v, void* data, const FieldContext* context) {
     const reflect::RowRefView ref = reflect::rowRefOf(data);
@@ -157,7 +248,7 @@ bool drawRowRef(const char* label, const ValueInfo& v, void* data, const FieldCo
 }
 
 bool drawValue(const char* label, const char* name, const ValueInfo& v, void* data, const FieldContext* context,
-               const char* tooltip = nullptr) {
+               const char* tooltip = nullptr, const FieldLabel* attributes = nullptr) {
     bool changed = false;
     // Scalars get a name column; "##" labels are table cells, and structs/arrays/Pools have their own rows
     std::string hidden;
@@ -183,11 +274,29 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
                 ImGui::EndCombo();
             }
         } else {
-            changed = ImGui::DragScalar(label, dataType(v), data, 0.2f);
+            const std::string format = withUnit(intFormat(v), attributes);
+            if (attributes && attributes->hasRange) {
+                // Bounds as raw bytes of the field's own type (little endian: the low bytes)
+                u64 low = static_cast<u64>(static_cast<i64>(attributes->min)), high = static_cast<u64>(static_cast<i64>(attributes->max));
+                changed = ImGui::SliderScalar(label, dataType(v), data, &low, &high, format.c_str());
+            } else {
+                changed = ImGui::DragScalar(label, dataType(v), data, attributes && attributes->step > 0.0f ? attributes->step : 0.2f, nullptr, nullptr, format.c_str());
+            }
         }
         break;
-    case Kind::Float: changed = ImGui::DragFloat(label, static_cast<f32*>(data), 0.01f, 0.0f, 0.0f, "%.3f"); break;
-    case Kind::Vec3: changed = ImGui::DragFloat3(label, &static_cast<Vec3*>(data)->x, 0.01f, 0.0f, 0.0f, "%.3f"); break;
+    case Kind::Float: {
+        f32& value = *static_cast<f32*>(data);
+        const std::string format = withUnit("%.3f", attributes);
+        if (attributes && attributes->hasRange) changed = ImGui::SliderFloat(label, &value, attributes->min, attributes->max, format.c_str());
+        else changed = ImGui::DragFloat(label, &value, dragSpeed(value, attributes), 0.0f, 0.0f, format.c_str());
+        break;
+    }
+    case Kind::Vec3: {
+        Vec3& value = *static_cast<Vec3*>(data);
+        const f32 largest = std::max({std::fabs(value.x), std::fabs(value.y), std::fabs(value.z)});
+        changed = ImGui::DragFloat3(label, &value.x, dragSpeed(largest, attributes), 0.0f, 0.0f, withUnit("%.3f", attributes).c_str());
+        break;
+    }
     case Kind::Quat: {
         Quat& q = *static_cast<Quat*>(data);
         if (ImGui::DragFloat4(label, &q.x, 0.005f, -1.0f, 1.0f, "%.3f")) {
@@ -196,13 +305,17 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
         }
         break;
     }
-    case Kind::String: changed = inputString(label, *static_cast<std::string*>(data)); break;
+    case Kind::String:
+        if (attributes && !attributes->pick.empty()) changed = drawPicker(label, *static_cast<std::string*>(data), attributes->pick);
+        else changed = inputString(label, *static_cast<std::string*>(data));
+        break;
     case Kind::RowRef: changed = drawRowRef(label, v, data, context); break;
     case Kind::Ticks: { // edited in seconds and rounded to ticks
         Ticks& t = *static_cast<Ticks*>(data);
         f32 seconds = t.toSeconds();
         const f32 step = 1.0f / static_cast<f32>(reflect::tickRate());
-        if (ImGui::DragFloat(label, &seconds, step, 0.0f, 3600.0f, "%.3f s")) {
+        const bool ranged = attributes && attributes->hasRange;
+        if (ImGui::DragFloat(label, &seconds, step, ranged ? attributes->min : 0.0f, ranged ? attributes->max : 3600.0f, "%.3f s")) {
             const Ticks next = Ticks::seconds(seconds);
             changed = next.value != t.value;
             t = next;
@@ -276,15 +389,41 @@ bool inputString(const char* label, std::string& text) {
 }
 
 bool drawValueWidget(const char* label, const char* name, const ValueInfo& value, void* data,
-                     const FieldContext* context) {
-    return drawValue(label, name, value, data, context);
+                     const FieldContext* context, const FieldLabel* attributes) {
+    return drawValue(label, name, value, data, context, nullptr, attributes);
 }
 
 FieldLabel splitFieldLabel(const char* label) {
+    FieldLabel out;
     const char* bar = strchr(label, '|');
-    if (!bar) return {label, {}};
-    return {std::string(label, bar), bar + 1};
+    if (!bar) {
+        out.name = label;
+        return out;
+    }
+    out.name.assign(label, bar);
+    while (bar) {
+        const char* start = bar + 1;
+        bar = strchr(start, '|');
+        const std::string part = bar ? std::string(start, bar) : std::string(start);
+        const size_t equals = part.find('=');
+        const std::string key = part.substr(0, equals == std::string::npos ? 0 : equals);
+        const std::string value = equals == std::string::npos ? std::string() : part.substr(equals + 1);
+        if (key == "group") out.group = value;
+        else if (key == "unit") out.unit = value;
+        else if (key == "pick") out.pick = value;
+        else if (key == "step") out.step = std::strtof(value.c_str(), nullptr);
+        else if (key == "range" && value.find("..") != std::string::npos) {
+            out.min = std::strtof(value.c_str(), nullptr);
+            out.max = std::strtof(value.c_str() + value.find("..") + 2, nullptr);
+            out.hasRange = out.max > out.min;
+        } else if (out.tooltip.empty()) {
+            out.tooltip = part; // anything else is the description, which may contain '='
+        }
+    }
+    return out;
 }
+
+void setSoundEventSource(std::function<std::vector<std::string>()> source) { g_soundEvents = std::move(source); }
 
 namespace {
 
@@ -309,16 +448,19 @@ FieldClipboard g_clipboard;
 
 bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
     bool changed = false;
+    bool groupOpen = true;
     for (const FieldInfo& f : type.fields) {
+        const FieldLabel label = splitFieldLabel(f.label);
+        if (!label.group.empty()) groupOpen = sectionHeader(trData(label.group.c_str()), ImGuiTreeNodeFlags_DefaultOpen);
+        if (!groupOpen) continue;
         ImGui::PushID(f.name);
         const bool readOnly = (f.flags & reflect::kFieldReadOnly) != 0;
         ImGui::BeginDisabled(readOnly);
-        const FieldLabel label = splitFieldLabel(f.label);
         // For inner structs/arrays, defaults are moved to the same field position too
         FieldContext inner = context ? *context : FieldContext{};
         if (inner.defaults) inner.defaults = at(inner.defaults, f.offset);
         const char* description = label.tooltip.empty() ? nullptr : trData(label.tooltip.c_str());
-        changed |= drawValue(trData(label.name.c_str()), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr, description);
+        changed |= drawValue(trData(label.name.c_str()), f.name, *f.value, at(data, f.offset), context ? &inner : nullptr, description, &label);
         ImGui::EndDisabled();
         if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", description);

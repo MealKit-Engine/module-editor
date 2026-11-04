@@ -260,6 +260,10 @@ void Editor::update(f64 dt) {
     const bool editing = m_mode == Mode::Edit;
     drawHierarchy(editing);
     drawInspector(editing);
+    if (m_tuningFrontFrames > 0) {
+        --m_tuningFrontFrames;
+        ImGui::SetNextWindowFocus();
+    }
     m_tuningPanel.draw(kInspectorWindow, m_mode == Mode::Play, m_playPlayers > 1, m_tablesPanel.index());
     if (m_tablesOpen && m_tablesFrontFrames > 0) {
         --m_tablesFrontFrames;

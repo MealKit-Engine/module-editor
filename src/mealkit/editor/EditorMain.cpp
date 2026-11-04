@@ -18,6 +18,7 @@
 #include "mealkit/core/Log.h"
 #include "mealkit/core/Profile.h"
 #include "mealkit/editor/Editor.h"
+#include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/GameModuleHost.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/PlaySession.h"
@@ -69,6 +70,7 @@ struct Options {
     bool upgrade = false;    // project upgrade right at start
     bool projectSettings = false; // start with the [Project Settings] window open
     bool tables = false;          // start with the [Tables] window open
+    bool tuning = false;
     bool sounds = false;          // start with the [Sound] window open
     bool bakeProbes = false;      // --bake-probes: bake all reflection probes in the scene (6 frames each, with --frames)
     bool lookThrough = false;     // --look-through: the scene view looks through the selected virtual camera (with --select)
@@ -163,6 +165,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--upgrade") o.upgrade = true;
         else if (a == "--project-settings") o.projectSettings = true;
         else if (a == "--tables") o.tables = true;
+        else if (a == "--tuning") o.tuning = true;
         else if (a == "--sounds") o.sounds = true;
         else if (a == "--lookdev") o.lookdev = true;
         else if (a == "--look-through") o.lookThrough = true;
@@ -316,6 +319,7 @@ int main(int argc, char** argv) {
     const std::string scenePath = opt.scenePath.empty() ? project.startScenePath() : opt.scenePath;
     if (!editor.init(window, renderer, scenePath, models)) MEALKIT_FATAL("Editor initialization failed");
     editor.setAudio(&audio);
+    editor::setSoundEventSource([&audio] { return audio.eventNames(); }); // pick=sound fields
     editor.setFeedback(&feedback);
     editor.setEngineTables(input::engineTables()); // engine tables shown in the [Tables] panel: input bindings (sound events are in MealKit Audio)
     editor.setEngineDirectory(engineDirectory());
@@ -332,6 +336,7 @@ int main(int argc, char** argv) {
     if (opt.upgrade) editor.requestUpgrade();
     if (opt.projectSettings) editor.openProjectSettings();
     if (opt.tables) editor.openTables();
+    if (opt.tuning) editor.openTuning();
     if (opt.sounds) editor.openSounds();
     if (opt.lookdev) editor.openLookdev();
     if (opt.lookThrough) editor.lookThroughSelected(); // with --select <virtual camera id>

@@ -99,6 +99,7 @@ public:
     // When play starts: saves edited tables (the game reads them from files when a match starts)
     void saveTablesForPlay();
     void openTables() { m_tablesOpen = true; m_tablesFrontFrames = 30; } // for automated tests: also brought to the front
+    void openTuning() { m_tuningFrontFrames = 30; }
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
     void setAudio(audio::Engine* audio) { m_audio = audio; }
@@ -271,6 +272,7 @@ private:
     void handleAssetDrop();
     void renameAsset(const std::string& from, const std::string& to);
     int m_tablesFrontFrames = 0;
+    int m_tuningFrontFrames = 0;
     bool m_assetsOpen = true;
     std::string m_assetFolder;   // relative to assets ("models")
     std::string m_assetSelected; // file relative to assets
