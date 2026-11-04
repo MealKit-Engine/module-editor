@@ -180,6 +180,7 @@ void Editor::drawAssetBrowser() {
             ImGui::PushID(relative.c_str());
             const std::string label = std::string(assetIcon(name)) + "  " + name;
             const f32 textHeight = ImGui::GetTextLineHeight();
+            const ImVec2 cellPos = ImGui::GetCursorScreenPos(); // the Selectable's rectangle reaches past this by half the item spacing
             const std::string shownLabel = cell > 0.0f ? "##cell" : label;
             if (ImGui::Selectable(shownLabel.c_str(), m_assetSelected == relative, ImGuiSelectableFlags_AllowDoubleClick,
                                   cell > 0.0f ? ImVec2(cell, cell + textHeight) : ImVec2(0.0f, 0.0f))) {
@@ -196,7 +197,7 @@ void Editor::drawAssetBrowser() {
                 ImGui::EndDragDropSource();
             }
             if (cell > 0.0f) { // picture for models, icon for the rest, then the name cut to the cell
-                const ImVec2 min = ImGui::GetItemRectMin();
+                const ImVec2 min = cellPos;
                 ImDrawList* draw = ImGui::GetWindowDrawList();
                 const unsigned long long picture = isModel(name) ? m_thumbnails.texture(relative, m_renderer) : 0;
                 if (picture) {
@@ -207,7 +208,7 @@ void Editor::drawAssetBrowser() {
                     draw->AddText(ImVec2(min.x + (cell - size.x) * 0.5f, min.y + (cell - size.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), glyph);
                 }
                 draw->PushClipRect(ImVec2(min.x, min.y + cell), ImVec2(min.x + cell, min.y + cell + textHeight), true);
-                draw->AddText(ImVec2(min.x + 2.0f, min.y + cell), ImGui::GetColorU32(ImGuiCol_Text), name.c_str());
+                draw->AddText(ImVec2(min.x, min.y + cell), ImGui::GetColorU32(ImGuiCol_Text), name.c_str());
                 draw->PopClipRect();
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", relative.c_str());
             }

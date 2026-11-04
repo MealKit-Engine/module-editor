@@ -105,6 +105,8 @@ public:
     void revealAsset(const std::string& relative);
     void openAssetGrid() { revealAsset("models/tree.glb"); m_assetThumb = 96.0f; m_assetsFront = 30; }
     void setCompact() { m_prefs.compact = true; } // --compact, not saved
+    // --input "move 500 300; down; wait 2; up; key ctrl+z; type abc; command Save; print": test input, one step per frame
+    void setTestInput(const std::string& script);
     void openProblems() { openDebugPage(DebugPage::Problems); m_debugFrontFrames = 30; }
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
@@ -573,6 +575,11 @@ private:
         u32 entity = 0; // ... or selects this object
     };
     void updateProblems(f64 dt);
+    void runTestInput();
+    std::vector<std::string> m_testInput;
+    size_t m_testStep = 0;
+    int m_testWait = 0;
+    float m_testX = 0.0f, m_testY = 0.0f;
     void drawProblems();
     std::vector<Problem> m_problems;
     f64 m_problemTimer = 1.0; // check on the first frame

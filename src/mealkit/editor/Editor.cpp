@@ -224,7 +224,7 @@ void Editor::update(f64 dt) {
     }
     updateHotReload(dt);
 
-    m_imgui.newFrame();
+    m_imgui.newFrame([this] { runTestInput(); });
     ImGuizmo::BeginFrame();
     if (!m_editActive) m_pending = capture();
     m_changed = false;
@@ -1385,6 +1385,22 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
             m_treeAction = {TreeAction::Reparent, *static_cast<const u32*>(payload->Data), id};
         ImGui::EndDragDropTarget();
     }
+    // Before the toggles below, which become the last item
+    if (ImGui::BeginPopupContextItem()) {
+        if (!isSelected(id)) m_selected = id;
+        if (ImGui::MenuItem(tr("Duplicate"), "Ctrl+D")) m_treeAction = {TreeAction::Duplicate, id, 0};
+        if (ImGui::MenuItem(tr("Save as Prefab..."))) m_treeAction = {TreeAction::SavePrefab, id, 0};
+        if (ImGui::MenuItem(tr("Move to Folder..."))) {
+            m_folderDialogEntity = id;
+            m_folderDialogFrom.clear();
+            m_folderDialogOpen = true;
+            snprintf(m_folderBuffer, sizeof(m_folderBuffer), "%s", e.folder.c_str());
+        }
+        if (ImGui::MenuItem(tr("Delete"), "Delete")) m_treeAction = {TreeAction::Delete, id, 0};
+        if (ImGui::MenuItem(tr("Move to Top Level"), nullptr, false, e.parent != 0))
+            m_treeAction = {TreeAction::Reparent, id, 0};
+        ImGui::EndPopup();
+    }
     // Visibility/lock toggles on the right of the row (shown only on hover or when on)
     {
         const bool hovered = ImGui::IsItemHovered();
@@ -1413,21 +1429,6 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
         }
         ImGui::SetCursorScreenPos(back);
         if (toggled) saveViewState();
-    }
-    if (ImGui::BeginPopupContextItem()) {
-        if (!isSelected(id)) m_selected = id;
-        if (ImGui::MenuItem(tr("Duplicate"), "Ctrl+D")) m_treeAction = {TreeAction::Duplicate, id, 0};
-        if (ImGui::MenuItem(tr("Save as Prefab..."))) m_treeAction = {TreeAction::SavePrefab, id, 0};
-        if (ImGui::MenuItem(tr("Move to Folder..."))) {
-            m_folderDialogEntity = id;
-            m_folderDialogFrom.clear();
-            m_folderDialogOpen = true;
-            snprintf(m_folderBuffer, sizeof(m_folderBuffer), "%s", e.folder.c_str());
-        }
-        if (ImGui::MenuItem(tr("Delete"), "Delete")) m_treeAction = {TreeAction::Delete, id, 0};
-        if (ImGui::MenuItem(tr("Move to Top Level"), nullptr, false, e.parent != 0))
-            m_treeAction = {TreeAction::Reparent, id, 0};
-        ImGui::EndPopup();
     }
     if (open && !leaf) {
         for (size_t child : kids->second) drawEntityNode(child, children);
@@ -2562,23 +2563,36 @@ void Editor::drawObjectFields(Entity& e) {
     for (u32 id : m_multi)
         if (Entity* other = m_scene.find(id); other && other != &e && other->type == e.type) others.push_back(other);
     const auto rootOf = [](const std::string& path) { return path.substr(0, path.find_first_of(".[")); };
+    // Compared as full text: scene files may leave out values equal to the defaults
+    const auto fullText = [type](const reflect::TextFields& fields) {
+        reflect::Instance copy(*type);
+        reflect::fromText(*type, copy.data(), fields);
+        reflect::TextFields out;
+        reflect::toText(*type, copy.data(), out);
+        return out;
+    };
+    const reflect::TextFields before = fullText(e.fields);
     std::set<std::string> mixed;
     for (const Entity* other : others) {
-        for (const auto& field : e.fields)
-            if (std::find(other->fields.begin(), other->fields.end(), field) == other->fields.end()) mixed.insert(rootOf(field.first));
+        const reflect::TextFields text = fullText(other->fields);
+        for (const auto& field : before)
+            if (std::find(text.begin(), text.end(), field) == text.end()) mixed.insert(rootOf(field.first));
     }
     FieldContext context{&m_tablesPanel.index(), defaults.data()};
     context.mixed = &mixed;
     if (drawFields(*type, instance.data(), &context)) {
         reflect::TextFields fields;
         reflect::toText(*type, instance.data(), fields);
-        for (Entity* other : others)
+        for (Entity* other : others) {
+            reflect::TextFields text = fullText(other->fields);
             for (const auto& field : fields) {
-                if (std::find(e.fields.begin(), e.fields.end(), field) != e.fields.end()) continue; // not changed just now
-                auto it = std::find_if(other->fields.begin(), other->fields.end(), [&](const auto& f) { return f.first == field.first; });
-                if (it != other->fields.end()) it->second = field.second;
-                else other->fields.push_back(field);
+                if (std::find(before.begin(), before.end(), field) != before.end()) continue; // not changed just now
+                auto it = std::find_if(text.begin(), text.end(), [&](const auto& f) { return f.first == field.first; });
+                if (it != text.end()) it->second = field.second;
+                else text.push_back(field);
             }
+            other->fields = std::move(text);
+        }
         e.fields = std::move(fields);
         markChanged();
     }

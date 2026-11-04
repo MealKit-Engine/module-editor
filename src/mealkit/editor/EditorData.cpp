@@ -11,6 +11,8 @@
 #include <ImGuizmo.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <set>
 
@@ -119,6 +121,68 @@ void Editor::drawDataHub(f64 dt, bool editing) {
     }
     ImGui::EndChild();
     ImGui::End();
+}
+
+void Editor::setTestInput(const std::string& script) {
+    m_testInput.clear();
+    size_t start = 0;
+    while (start <= script.size()) {
+        const size_t end = std::min(script.find(';', start), script.size());
+        std::string step = script.substr(start, end - start);
+        while (!step.empty() && step.front() == ' ') step.erase(0, 1);
+        if (!step.empty()) m_testInput.push_back(std::move(step));
+        start = end + 1;
+    }
+}
+
+// One step per frame. A mouse move stays for later frames, because the platform layer also reports the real mouse each frame
+void Editor::runTestInput() {
+    if (m_testInput.empty()) return;
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddFocusEvent(true);
+    if (m_testStep > 0 || m_testX != 0.0f) io.AddMousePosEvent(m_testX, m_testY);
+    if (m_testWait > 0) {
+        --m_testWait;
+        return;
+    }
+    if (m_testStep >= m_testInput.size()) return;
+    const std::string step = m_testInput[m_testStep++];
+    const size_t space = step.find(' ');
+    const std::string verb = step.substr(0, space), rest = space == std::string::npos ? std::string() : step.substr(space + 1);
+    if (verb == "wait") {
+        m_testWait = std::atoi(rest.c_str());
+    } else if (verb == "move") {
+        std::sscanf(rest.c_str(), "%f %f", &m_testX, &m_testY);
+        io.AddMousePosEvent(m_testX, m_testY);
+    } else if (verb == "down" || verb == "up") {
+        io.AddMouseButtonEvent(rest == "right" ? ImGuiMouseButton_Right : ImGuiMouseButton_Left, verb == "down");
+    } else if (verb == "key") {
+        const bool ctrl = rest.rfind("ctrl+", 0) == 0;
+        const std::string name = ctrl ? rest.substr(5) : rest;
+        ImGuiKey key = ImGuiKey_None;
+        if (name.size() == 1 && name[0] >= 'a' && name[0] <= 'z') key = static_cast<ImGuiKey>(ImGuiKey_A + (name[0] - 'a'));
+        else if (name == "enter") key = ImGuiKey_Enter;
+        else if (name == "escape") key = ImGuiKey_Escape;
+        else if (name == "delete") key = ImGuiKey_Delete;
+        // Pressed and released in one frame: ImGui's event queue keeps them apart
+        if (ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        io.AddKeyEvent(key, true);
+        io.AddKeyEvent(key, false);
+        if (ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    } else if (verb == "type") {
+        io.AddInputCharactersUTF8(rest.c_str());
+    } else if (verb == "command") {
+        queueCommand(rest);
+    } else if (verb == "print") {
+        const Entity* e = selected();
+        std::printf("INPUT selected=%u multi=%zu sceneDirty=%d undo=%zu tuningDirty=%d folder=%s x=%.3f viewport=%.0f,%.0f,%.0f,%.0f fields=", m_selected, m_multi.size(), m_dirty ? 1 : 0, m_undo.size(),
+                    m_tuningPanel.docDirty(0) ? 1 : 0, e ? e->folder.c_str() : "", e ? static_cast<double>(e->position.x) : 0.0, static_cast<double>(m_viewport.x),
+                    static_cast<double>(m_viewport.y), static_cast<double>(m_viewport.width), static_cast<double>(m_viewport.height));
+        if (e)
+            for (const auto& [key, value] : e->fields) std::printf("%s=%s,", key.c_str(), value.c_str());
+        std::printf("\n");
+        std::fflush(stdout);
+    }
 }
 
 void Editor::openDebugPage(DebugPage page) {
