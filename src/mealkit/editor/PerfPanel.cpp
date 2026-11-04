@@ -23,16 +23,9 @@ bool PerfPanel::overBudget() const {
            (s.hasRenderer && s.drawCalls > kDrawCalls) || (s.hasSession && s.sentBytesPerSec / 1024.0 > kNetKBps);
 }
 
-void PerfPanel::draw() {
-    if (!m_open) return;
-    ImGui::SetNextWindowSize(ImVec2(560, 420), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl(kWindow), &m_open)) {
-        ImGui::End();
-        return;
-    }
+void PerfPanel::drawContent() {
     if (m_samples.empty()) {
         ImGui::TextDisabled("%s", tr("Collecting..."));
-        ImGui::End();
         return;
     }
     const game::FrameSample& last = m_samples.back();
@@ -89,7 +82,6 @@ void PerfPanel::draw() {
     if (last.hasRenderer)
         ImGui::TextDisabled(tr("%u instances, %u culled, worst frame %.1f ms, 1%% low %.1f ms"), last.instances, last.culled,
                             last.worstFrameMs, last.p99FrameMs);
-    ImGui::End();
 }
 
 } // namespace mealkit::editor

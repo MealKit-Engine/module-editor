@@ -10,7 +10,6 @@ namespace mealkit::editor {
 
 class PerfPanel {
 public:
-    static constexpr const char* kWindow = "Performance###Performance";
     static constexpr size_t kHistory = 120; // 0.25 s × 120 = 30 s
 
     // Budget (ROADMAP "Performance budget", min spec 1280×720 60 fps)
@@ -21,14 +20,12 @@ public:
     static constexpr f64 kNetKBps = 10.0; // host send
 
     void push(const game::FrameSample& sample);
-    bool* openFlag() { return &m_open; }
     // Some item is over budget (status bar fps color)
     bool overBudget() const;
-    void draw();
+    void drawContent(); // the Performance page of the [Debug] window
 
 private:
     std::deque<game::FrameSample> m_samples;
-    bool m_open = false;
 };
 
 } // namespace mealkit::editor

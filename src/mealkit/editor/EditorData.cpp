@@ -116,6 +116,61 @@ void Editor::drawDataHub(f64 dt, bool editing) {
     ImGui::End();
 }
 
+void Editor::openDebugPage(DebugPage page) {
+    m_debugOpen = true;
+    m_debugPage = page;
+    m_debugFrontFrames = 3;
+}
+
+void Editor::toggleDebugPage(DebugPage page) {
+    if (m_debugOpen && m_debugPage == page) m_debugOpen = false;
+    else openDebugPage(page);
+}
+
+// [Debug] window: everything for finding out what went wrong, one list on the left. It starts as a tab in the bottom strip
+void Editor::drawDebugHub() {
+    if (!m_debugOpen) return;
+    if (ImGuiWindow* assets = ImGui::FindWindowByName("Assets###Assets"); assets && assets->DockId)
+        ImGui::SetNextWindowDockID(assets->DockId, ImGuiCond_FirstUseEver); // old layout files don't have this window
+    if (m_debugFrontFrames > 0) {
+        --m_debugFrontFrames;
+        ImGui::SetNextWindowFocus();
+    }
+    // The problem count is in the tab, so problems show while another tab is in front
+    const std::string title = (m_problems.empty() ? std::string(tr("Debug")) : trf("Debug (%zu)", m_problems.size())) + "###Debug";
+    if (!ImGui::Begin(title.c_str(), &m_debugOpen)) {
+        ImGui::End();
+        return;
+    }
+    if (ImGui::BeginChild("##debugList", ImVec2(ImGui::GetFontSize() * 9.0f, 0.0f), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders)) {
+        const auto entry = [this](const std::string& label, DebugPage page) {
+            if (ImGui::Selectable((label + "##" + std::to_string(static_cast<int>(page))).c_str(), m_debugPage == page)) openDebugPage(page);
+        };
+        entry(tr("Log"), DebugPage::Log);
+        entry(m_problems.empty() ? std::string(tr("Problems")) : trf("Problems (%zu)", m_problems.size()), DebugPage::Problems);
+        entry(m_buildPanel.running() ? std::string(tr("Build Log")) + " ..." : std::string(tr("Build Log")), DebugPage::Build);
+        entry(tr("Performance"), DebugPage::Performance);
+        entry(tr("State"), DebugPage::State);
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    if (ImGui::BeginChild("##debugPage")) {
+        switch (m_debugPage) {
+        case DebugPage::Log: m_logPanel.drawContent(); break;
+        case DebugPage::Problems: drawProblems(); break;
+        case DebugPage::Build: {
+            BuildKind request = BuildKind::GameCode;
+            if (m_buildPanel.drawContent(m_mode == Mode::Edit, m_project, m_time, &request)) startBuild(request);
+            break;
+        }
+        case DebugPage::Performance: m_perfPanel.drawContent(); break;
+        case DebugPage::State: drawState(); break;
+        }
+    }
+    ImGui::EndChild();
+    ImGui::End();
+}
+
 // Gathers problems twice a second: missing models, models over budget, and row references in tables, tuning and scene objects
 void Editor::updateProblems(f64 dt) {
     m_problemTimer += dt;
@@ -258,15 +313,6 @@ bool Editor::updateFieldHandles() {
 }
 
 void Editor::drawProblems() {
-    if (!m_problemsOpen) return;
-    // The count is in the tab, so problems show without opening it. Old layout files don't have this window: first open docks it by the log
-    if (ImGuiWindow* log = ImGui::FindWindowByName(LogPanel::kWindow); log && log->DockId)
-        ImGui::SetNextWindowDockID(log->DockId, ImGuiCond_FirstUseEver);
-    const std::string title = (m_problems.empty() ? std::string(tr("Problems")) : trf("Problems (%zu)", m_problems.size())) + "###Problems";
-    if (!ImGui::Begin(title.c_str(), &m_problemsOpen)) {
-        ImGui::End();
-        return;
-    }
     if (m_problems.empty()) ImGui::TextDisabled("%s", tr("No problems found."));
     for (size_t i = 0; i < m_problems.size(); ++i) {
         const Problem& p = m_problems[i];
@@ -287,7 +333,6 @@ void Editor::drawProblems() {
         }
         ImGui::PopID();
     }
-    ImGui::End();
 }
 
 } // namespace mealkit::editor

@@ -37,10 +37,9 @@ constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
 constexpr const char* kHierarchyWindow = "Scene Tree###Hierarchy";
 constexpr const char* kInspectorWindow = "Inspector###Inspector";
 constexpr const char* kSceneWindow = "Scene###SceneView";
-constexpr const char* kStateWindow = "State###State";
 // Windows docked as tabs in the bottom row (default layout)
 const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // menu bar during play
-const char* const kBottomWindows[] = {LogPanel::kWindow, "Problems###Problems", "Assets###Assets", BuildPanel::kWindow};
+const char* const kBottomWindows[] = {"Assets###Assets", "Debug###Debug"};
 
 // Case-insensitive substring (scene tree search)
 bool containsNoCase(const std::string& text, const char* needle) {
@@ -279,11 +278,7 @@ void Editor::update(f64 dt) {
     drawHierarchy(editing);
     drawInspector(editing);
     drawDataHub(dt, editing);
-    if (m_problemsFront) {
-        m_problemsFront = false;
-        ImGui::SetNextWindowFocus();
-    }
-    drawProblems();
+    drawDebugHub();
     if (m_uiPanelOpen) m_uiPanel.draw(&m_uiPanelOpen);
     if (m_lookdevOpen && m_renderer) m_lookdev.draw(*m_renderer, &m_lookdevOpen);
     // Editing the sound event table (view-only) saves it so changes are heard immediately (audio rereads the file)
@@ -300,12 +295,9 @@ void Editor::update(f64 dt) {
     m_modulesPanel.draw(m_project, m_engineDirectory, m_mode == Mode::Edit);
     // Module sim/ and view/ are game code: adding or changing them rebuilds the game DLL
     if (m_modulesPanel.takeChanged()) startBuild(BuildKind::GameCode);
-    drawState();
     pollBuild();
     pollLayoutCheck();
     drawBuildLog();
-    m_logPanel.draw();
-    m_perfPanel.draw();
     takePanelStatus();
     drawNotices();
     m_prefsPanel.draw(m_prefs);
@@ -831,7 +823,8 @@ void Editor::setMode(Mode mode) {
     m_window->setCursorCaptured(false);
     if (mode == Mode::Edit) m_playStatus.clear();
     if (mode == Mode::Play) m_sceneFrontFrames = 3; // the game must be seen
-    focusPanel(mode == Mode::Play ? kStateWindow : kInspectorWindow); // during play, bring the [State] tab to front
+    if (mode == Mode::Play) openDebugPage(DebugPage::State); // the [State] page during play
+    else focusPanel(kInspectorWindow);
 }
 
 // Temporarily moves all spawn points to the selected object if it's a spawn, otherwise to the floor under the camera (in the camera's view direction)
@@ -917,10 +910,10 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
         m_lookdevOpen = true;
     }
     ImGui::DockBuilderDockWindow(kInspectorWindow, right);
-    ImGui::DockBuilderDockWindow(kStateWindow, right);
     for (const char* w : kBottomWindows) ImGui::DockBuilderDockWindow(w, bottom);
     ImGui::DockBuilderFinish(dockId);
-    focusPanel(preset == LayoutPreset::Play ? kStateWindow : kInspectorWindow);
+    focusPanel(kInspectorWindow);
+    if (preset == LayoutPreset::Play) openDebugPage(DebugPage::State);
 }
 
 void Editor::drawMenuBar() {
@@ -984,10 +977,7 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         // Every panel in one place
         commandMenuItem("Assets", &m_assetsOpen);
-        commandMenuItem("Log", m_logPanel.openFlag());
-        commandMenuItem("Problems", &m_problemsOpen);
-        commandMenuItem("Build Log", m_buildPanel.openFlag());
-        commandMenuItem("Performance", m_perfPanel.openFlag());
+        commandMenuItem("Debug", &m_debugOpen); // log, problems, build log, performance and state are its pages
         ImGui::Separator();
         commandMenuItem("Data", &m_dataOpen); // tuning, tables, feedback and sounds are its pages (their commands stay in the palette)
         commandMenuItem("UI", &m_uiPanelOpen);
@@ -1141,7 +1131,7 @@ void Editor::drawStatusBar() {
             const ImVec4 fpsColor = m_perfPanel.overBudget() ? color::kDanger
                                                              : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
             ImGui::TextColored(fpsColor, "%.0f fps", m_perf.sample().fps);
-            if (ImGui::IsItemClicked()) *m_perfPanel.openFlag() = true;
+            if (ImGui::IsItemClicked()) openDebugPage(DebugPage::Performance);
             ImGui::EndMenuBar();
         }
     }
@@ -1891,21 +1881,12 @@ void Editor::saveTablesForPlay() {
 
 // Simulation state during play (shows the state field declarations as is)
 void Editor::drawState() {
-    if (ImGuiWindow* inspector = ImGui::FindWindowByName(kInspectorWindow); inspector && inspector->DockId)
-        ImGui::SetNextWindowDockID(inspector->DockId, ImGuiCond_FirstUseEver);
-    if (m_focusPanel == kStateWindow) focusPanelNow();
-    if (!ImGui::Begin(trl(kStateWindow))) {
-        ImGui::End();
-        return;
-    }
     if (m_mode != Mode::Play || !m_stateView.type || !m_stateView.data) {
         ImGui::TextDisabled("%s", tr("The simulation state (values declared with MEALKIT_FIELD) appears during play."));
-        ImGui::End();
         return;
     }
     ImGui::TextDisabled(tr("%s (read-only)"), m_stateView.type->name);
     drawFieldsReadOnly(*m_stateView.type, m_stateView.data);
-    ImGui::End();
 }
 
 void Editor::drawGizmo() {
@@ -3114,8 +3095,7 @@ void Editor::pollBuild() {
 }
 
 void Editor::drawBuildLog() {
-    BuildKind request;
-    if (m_buildPanel.drawLog(m_mode == Mode::Edit, m_project, m_time, &request)) startBuild(request);
+    if (m_buildPanel.takeOpenRequest()) openDebugPage(DebugPage::Build);
 }
 
 void Editor::saveAll() {
@@ -3159,8 +3139,7 @@ void Editor::drawNotices() {
             if (n.open != NoticeOpen::None && ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
             if (n.open != NoticeOpen::None && ImGui::IsItemClicked()) {
                 const bool build = n.open == NoticeOpen::BuildLog;
-                *(build ? m_buildPanel.openFlag() : m_logPanel.openFlag()) = true;
-                focusPanel(build ? BuildPanel::kWindow : LogPanel::kWindow);
+                openDebugPage(build ? DebugPage::Build : DebugPage::Log);
                 n.time = -1.0;
             }
             ImGui::PopID();
@@ -3196,8 +3175,7 @@ void Editor::drawEmptyViewport() {
         ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button(tr("Build Log"))) {
-            *m_buildPanel.openFlag() = true;
-            focusPanel(BuildPanel::kWindow);
+            openDebugPage(DebugPage::Build);
         }
     }
     ImGui::End();

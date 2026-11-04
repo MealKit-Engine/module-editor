@@ -18,7 +18,6 @@ enum class BuildKind {
 
 class BuildPanel {
 public:
-    static constexpr const char* kWindow = "Build Log###BuildLog";
 
     // Starts running (false if already building). now: editor time (for showing elapsed time)
     bool start(BuildKind kind, const ProjectInfo& project, const std::string& engineDirectory, f64 now);
@@ -28,11 +27,11 @@ public:
     BuildKind kind() const { return m_kind; }
     bool succeeded() const { return m_succeeded; }
 
-    bool* openFlag() { return &m_open; }
+    bool takeOpenRequest() { const bool open = m_open; m_open = false; return open; } // a build wants its log seen
     // Status bar "Building... N s" (draws nothing and returns false when not building)
     bool drawStatus(f64 now) const;
     // [Build Log] window. Puts the build chosen by button into request and returns true (the editor starts it after saving)
-    bool drawLog(bool editing, const ProjectInfo& project, f64 now, BuildKind* request);
+    bool drawContent(bool editing, const ProjectInfo& project, f64 now, BuildKind* request);
     std::string takeStatus() { return std::move(m_status); }
     void setCodeEditor(const std::string& editor) { m_codeEditor = editor; } // clicking a "file(line)" in the log opens it
 

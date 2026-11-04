@@ -51,13 +51,7 @@ void LogPanel::sink(log::Level level, double seconds, const char* message) {
     p->m_added = true;
 }
 
-void LogPanel::draw() {
-    if (!m_open) return;
-    ImGui::SetNextWindowSize(ImVec2(720, 300), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl(kWindow), &m_open)) {
-        ImGui::End();
-        return;
-    }
+void LogPanel::drawContent() {
     std::lock_guard<std::mutex> guard(m_lock);
     if (ImGui::Button(tr("Clear"))) {
         m_entries.clear();
@@ -106,7 +100,6 @@ void LogPanel::draw() {
         m_added = false;
     }
     ImGui::EndChild();
-    ImGui::End();
 }
 
 } // namespace mealkit::editor

@@ -97,13 +97,7 @@ bool BuildPanel::drawStatus(f64 now) const {
     return true;
 }
 
-bool BuildPanel::drawLog(bool editing, const ProjectInfo& project, f64 now, BuildKind* request) {
-    if (!m_open) return false;
-    ImGui::SetNextWindowSize(ImVec2(720, 360), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl(kWindow), &m_open)) {
-        ImGui::End();
-        return false;
-    }
+bool BuildPanel::drawContent(bool editing, const ProjectInfo& project, f64 now, BuildKind* request) {
     bool requested = false;
     ImGui::BeginDisabled(m_process.running() || project.directory.empty() || !editing);
     if (ImGui::Button(tr("Build Game Code"))) {
@@ -162,7 +156,6 @@ bool BuildPanel::drawLog(bool editing, const ProjectInfo& project, f64 now, Buil
         }
     }
     ImGui::EndChild();
-    ImGui::End();
     return requested;
 }
 

@@ -105,7 +105,7 @@ public:
     void revealAsset(const std::string& relative);
     void openAssetGrid() { revealAsset("models/tree.glb"); m_assetThumb = 96.0f; m_assetsFront = 30; }
     void setCompact() { m_prefs.compact = true; } // --compact, not saved
-    void openProblems() { m_problemsOpen = true; m_problemsFront = true; }
+    void openProblems() { openDebugPage(DebugPage::Problems); m_debugFrontFrames = 30; }
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
     void setAudio(audio::Engine* audio) { m_audio = audio; }
@@ -577,7 +577,13 @@ private:
     void drawProblems();
     std::vector<Problem> m_problems;
     f64 m_problemTimer = 1.0; // check on the first frame
-    bool m_problemsOpen = true;
+    enum class DebugPage { Log, Problems, Build, Performance, State };
+    void openDebugPage(DebugPage page);
+    void toggleDebugPage(DebugPage page);
+    void drawDebugHub();
+    bool m_debugOpen = true;
+    DebugPage m_debugPage = DebugPage::Log;
+    int m_debugFrontFrames = 0;
     bool m_compactApplied = false;
     bool updateFieldHandles(); // viewport handles of gizmo= fields; true while they own the mouse
     u32 m_handleEntity = 0;
@@ -591,7 +597,6 @@ private:
     std::vector<std::string> allAssetFiles() const;
     std::vector<std::string> m_paletteAssets;
     std::vector<std::string> m_paletteRecent;
-    bool m_problemsFront = false;
     UiPanel m_uiPanel;
     bool m_uiPanelOpen = false;
     ImportServer m_import; // Penpot plugin import (penpot/ service of the live connection server)

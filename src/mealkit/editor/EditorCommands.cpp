@@ -84,7 +84,9 @@ void Editor::buildCommands() {
         {"Keyboard Shortcuts", ImGuiKey_F1, 0, always, [this] { m_shortcutsOpen = !m_shortcutsOpen; }},
         {"Command Palette", ImGuiMod_Ctrl | ImGuiKey_P, 0, always, [this] { m_paletteOpen = true; }},
         {"Data", 0, 0, always, [this] { m_dataOpen = !m_dataOpen; }},
-        {"Problems", 0, 0, always, [this] { m_problemsOpen = !m_problemsOpen; }},
+        {"Debug", 0, 0, always, [this] { m_debugOpen = !m_debugOpen; }},
+        {"Problems", 0, 0, always, [this] { toggleDebugPage(DebugPage::Problems); }},
+        {"State", 0, 0, always, [this] { toggleDebugPage(DebugPage::State); }},
         {"Tuning", 0, 0, always, [this] { toggleDataPage(DataPage::Tuning, 0); }},
         {"Tables", ImGuiMod_Ctrl | ImGuiKey_T, 0, always, [this] { toggleDataPage(DataPage::Table, 0); }},
         {"Sounds", 0, 0, [this] { return m_audio != nullptr; }, [this] { toggleDataPage(DataPage::Sounds, 0); }},
@@ -99,10 +101,10 @@ void Editor::buildCommands() {
          [this] { openInExplorer(m_project.exportDirectory()); }},
         {"Open Project Folder", 0, 0, [this] { return !m_project.directory.empty(); },
          [this] { openInExplorer(m_project.directory); }},
-        {"Build Log", 0, 0, always, [this] { *m_buildPanel.openFlag() = !*m_buildPanel.openFlag(); }},
+        {"Build Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Build); }},
         {"Assets", 0, 0, always, [this] { m_assetsOpen = !m_assetsOpen; }},
-        {"Performance", 0, 0, always, [this] { *m_perfPanel.openFlag() = !*m_perfPanel.openFlag(); }},
-        {"Log", 0, 0, always, [this] { *m_logPanel.openFlag() = !*m_logPanel.openFlag(); }},
+        {"Performance", 0, 0, always, [this] { toggleDebugPage(DebugPage::Performance); }},
+        {"Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Log); }},
     };
 }
 
