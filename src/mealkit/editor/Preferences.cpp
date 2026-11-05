@@ -16,7 +16,7 @@ namespace {
 std::string settingsPath() { return editorUserDirectory() + "\\editor_settings.txt"; }
 
 const char* const kKeys[] = {"cameraSpeed", "uiScale",  "autosaveSeconds", "externalEditor",
-                             "projectLayout", "snapMove", "snapRotate", "snapScale", "compact", "colorPickerSize"};
+                             "projectLayout", "snapMove", "snapRotate", "snapScale", "compact", "colorPickerSize", "window"};
 
 bool ownKey(const std::string& key) {
     for (const char* k : kKeys)
@@ -50,6 +50,10 @@ Preferences loadPreferences() {
         else if (key == "snapRotate") p.snapRotate = std::clamp(static_cast<f32>(atof(value.c_str())), 0.1f, 180.0f);
         else if (key == "snapScale") p.snapScale = std::clamp(static_cast<f32>(atof(value.c_str())), 0.001f, 10.0f);
         else if (key == "colorPickerSize") p.colorPickerSize = std::clamp(static_cast<f32>(atof(value.c_str())), 9.0f, 24.0f);
+        else if (key == "window") {
+            int x = 0, y = 0, w = 0, h = 0, maximized = 0;
+            if (sscanf_s(value.c_str(), "%d %d %d %d %d", &x, &y, &w, &h, &maximized) == 5) p.window = {x, y, w, h, maximized != 0};
+        }
     }
     return p;
 }
@@ -71,8 +75,13 @@ bool savePreferences(const Preferences& p) {
              "snapRotate %g\nsnapScale %g\ncompact %d\ncolorPickerSize %g\n",
              p.cameraSpeed, p.uiScale, p.autosaveSeconds, p.externalEditor.c_str(), p.projectLayout ? 1 : 0, p.snapMove,
              p.snapRotate, p.snapScale, p.compact ? 1 : 0, p.colorPickerSize);
+    out += buf;
+    if (p.window.width > 0) {
+        snprintf(buf, sizeof(buf), "window %d %d %d %d %d\n", p.window.x, p.window.y, p.window.width, p.window.height, p.window.maximized ? 1 : 0);
+        out += buf;
+    }
     createDirectories(editorUserDirectory());
-    return writeTextFile(settingsPath(), out + buf);
+    return writeTextFile(settingsPath(), out);
 }
 
 bool drawSnapSettings(Preferences& p) {

@@ -189,7 +189,50 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     return true;
 }
 
-void Editor::shutdown() { m_imgui.shutdown(); }
+void Editor::shutdown() {
+    if (!m_automated) {
+        if (m_window) {
+            m_prefs.window = m_window->placement();
+            savePreferences(m_prefs);
+        }
+        savePanelState();
+    }
+    m_imgui.shutdown();
+}
+
+// Which panels are open, next to the project's layout.ini. ImGui saves where windows are docked but not these flags: a closed flag removes the tab
+void Editor::loadPanelState() {
+    std::string text;
+    if (m_automated || m_panelStatePath.empty() || !readTextFile(m_panelStatePath, text)) return;
+    const std::pair<const char*, bool*> panels[] = {{"hierarchy", &m_hierarchyOpen}, {"scene", &m_sceneOpen}, {"inspector", &m_inspectorOpen}, {"assets", &m_assetsOpen},
+                                                    {"debug", &m_debugOpen},         {"data", &m_dataOpen},   {"previews", &m_previewOpen}};
+    size_t start = 0;
+    for (size_t end = text.find('\n'); end != std::string::npos; start = end + 1, end = text.find('\n', start)) {
+        const std::string line = text.substr(start, end - start);
+        const size_t space = line.find(' ');
+        if (space == std::string::npos) continue;
+        const std::string key = line.substr(0, space);
+        const int value = std::atoi(line.c_str() + space + 1);
+        for (const auto& [name, flag] : panels)
+            if (key == name) *flag = value != 0;
+        if (key == "previewPage" && value >= 0 && value <= static_cast<int>(PreviewPage::Cutscene)) m_previewPage = static_cast<PreviewPage>(value);
+    }
+}
+
+void Editor::savePanelState() const {
+    if (m_panelStatePath.empty()) return;
+    std::string text;
+    const auto add = [&text](const char* name, int value) { text += std::string(name) + " " + std::to_string(value) + "\n"; };
+    add("hierarchy", m_hierarchyOpen);
+    add("scene", m_sceneOpen);
+    add("inspector", m_inspectorOpen);
+    add("assets", m_assetsOpen);
+    add("debug", m_debugOpen);
+    add("data", m_dataOpen);
+    add("previews", m_previewOpen);
+    add("previewPage", static_cast<int>(m_previewPage));
+    writeTextFile(m_panelStatePath, text);
+}
 
 void Editor::update(f64 dt) {
     m_animTime += dt;
@@ -3051,6 +3094,8 @@ void Editor::setProject(const ProjectInfo& project) {
         const std::string folder = project.directory + "\\build\\editor";
         createDirectories(folder);
         if (!m_imgui.setIniPath(folder + "\\layout.ini")) m_layoutReset = true;
+        m_panelStatePath = folder + "\\panels.txt";
+        loadPanelState();
     }
     m_tablesPanel.setProjectDirectory(project.directory);
     m_tuningPanel.setProjectDirectory(project.directory);

@@ -586,6 +586,9 @@ private:
     void runTestInput();
     char m_fieldSearch[64] = {};
     std::string m_layoutLoad; // saved layout to read before the next frame
+    std::string m_panelStatePath; // build\editor\panels.txt (empty = not kept)
+    void loadPanelState();
+    void savePanelState() const;
     char m_layoutName[48] = {};
     // [Assets] > Find Uses
     void findAssetUses(const std::string& relative);

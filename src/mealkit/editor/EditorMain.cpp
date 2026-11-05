@@ -289,6 +289,7 @@ int main(int argc, char** argv) {
 
     Window window;
     if (!window.create({"MealKit Editor", opt.windowWidth, opt.windowHeight, editor::kEditorCaptionColor})) return 1;
+    if (!opt.projectDir.empty() && !opt.frames && opt.goldenShots.empty()) window.setPlacement(editor::loadPreferences().window); // automated runs keep a fixed size
     render::Renderer renderer;
     if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer, opt.gpuCapture,
                         userDataDirectory() + "/MealKit Editor/cache"}))

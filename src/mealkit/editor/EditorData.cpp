@@ -166,6 +166,7 @@ void Editor::runTestInput() {
         else if (name == "enter") key = ImGuiKey_Enter;
         else if (name == "escape") key = ImGuiKey_Escape;
         else if (name == "delete") key = ImGuiKey_Delete;
+        else if (name == "f5") key = ImGuiKey_F5;
         // Pressed and released in one frame: ImGui's event queue keeps them apart
         if (ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, true);
         io.AddKeyEvent(key, true);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mealkit/core/Types.h"
+#include "mealkit/platform/Window.h"
 
 #include <string>
 
@@ -19,6 +20,7 @@ struct Preferences {
     f32 snapRotate = 15.0f;           // rotate (degrees)
     f32 snapScale = 0.1f;             // scale
     f32 colorPickerSize = 10.0f;      // color picker width in font heights
+    WindowPlacement window;           // editor window when it was last closed
 };
 
 Preferences loadPreferences();
