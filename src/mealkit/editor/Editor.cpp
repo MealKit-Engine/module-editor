@@ -438,7 +438,7 @@ void Editor::drawSceneWindow(unsigned int dockId) {
         ImGui::SetNextWindowFocus();
     }
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    m_sceneVisible = ImGui::Begin(iconTitle(icon::kCube, kSceneWindow).c_str(), m_mode == Mode::Edit ? &m_sceneOpen : nullptr, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
+    m_sceneVisible = ImGui::Begin(iconTitle(icon::kCube, kSceneWindow).c_str(), m_mode == Mode::Edit ? &m_sceneOpen : nullptr, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoNavInputs); // with nav inputs, focus here would make ImGui claim the keyboard from the game
     ImGui::PopStyleVar();
     m_sceneHovered = m_sceneVisible && ImGui::IsWindowHovered();
     if (m_sceneVisible) { // behind another tab it keeps its last size, so a playing game doesn't resize
@@ -840,10 +840,10 @@ void Editor::setMode(Mode mode) {
     if (mode == Mode::Edit) m_playStatus.clear();
     if (mode == Mode::Play) {
         m_sceneOpen = true; // the game must be seen
-        m_sceneFrontFrames = 3;
-    }
-    if (mode == Mode::Play) openDebugPage(DebugPage::State); // the [State] page during play
-    else focusPanel(kInspectorWindow);
+        openDebugPage(DebugPage::State); // the [State] page during play
+        m_sceneFrontFrames = m_debugFrontFrames + 2; // outlasts the [Debug] request so the game view ends up with the keyboard
+    } else
+        focusPanel(kInspectorWindow);
 }
 
 // Temporarily moves all spawn points to the selected object if it's a spawn, otherwise to the floor under the camera (in the camera's view direction)
