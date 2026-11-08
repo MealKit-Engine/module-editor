@@ -261,6 +261,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         m_viewTuningTimer = 0.0;
     }
     game::GameContext ctx = m_front.context(window, renderer, models, *m_match);
+    const game::ContextServices contextServices{ctx}; // services::get<T>() while the game code runs (core/Services.h)
     ctx.viewport = editor.viewport();
     ctx.keyboardAllowed = editor.gameKeyboardAllowed();
     ctx.mouseAllowed = editor.gameMouseAllowed();
@@ -307,6 +308,7 @@ void PlaySession::buildFrame(f64 now, Editor& editor, Window& window, render::Re
                              asset::ModelCache& models, render::FrameParams& frame, render::DrawList& out) {
     if (!m_game || !m_match || !m_frontReady) return;
     game::GameContext ctx = m_front.context(window, renderer, models, *m_match);
+    const game::ContextServices contextServices{ctx}; // services::get<T>() while the game code runs (core/Services.h)
     ctx.viewport = editor.viewport();
     ctx.viewTuningData = editor.viewTuning();
     ctx.scene = &editor.scene();
