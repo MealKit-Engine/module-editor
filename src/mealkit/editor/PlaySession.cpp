@@ -64,7 +64,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
     m_feedback = &feedback;
     m_frontReady = false; // the renderer is received in update
     m_config = config;
-    m_config.players = std::clamp(config.players, 1u, net::kMaxPlayers);
+    m_config.players = std::clamp(config.players, 1u, session::kMaxPlayers);
     m_host = &host;
     m_failure.clear();
     m_startTime = now;
@@ -228,16 +228,16 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         m_game->debug()->setPaused(true);
         m_replayStopped = true;
     }
-    if (!m_game->started() && session.state() == net::SessionState::Lobby)
+    if (!m_game->started() && session.state() == session::SessionState::Lobby)
         m_game->lobby(session, m_options, game::userFolder(editor.project().settings));
 
     // Host: the first match starts when everyone is in (later matches are started by the game's lobby screen)
-    if (!m_firstMatch && session.isHost() && session.state() == net::SessionState::Lobby &&
+    if (!m_firstMatch && session.isHost() && session.state() == session::SessionState::Lobby &&
         session.lobbyPlayerCount() >= m_config.players) {
         m_match->start(m_config.bodies);
         m_firstMatch = true;
     }
-    if (session.state() == net::SessionState::Ended) {
+    if (session.state() == session::SessionState::Ended) {
         m_failure = trf("The session ended: %s", session.endReason());
         return;
     }
@@ -269,14 +269,14 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     ctx.userFolder = game::userFolder(editor.project().settings);
     ctx.scene = &editor.scene();
     // Match start (after drawing the loading screen once) and end (back to the lobby)
-    if (!m_game->started() && session.state() == net::SessionState::Running) {
+    if (!m_game->started() && session.state() == session::SessionState::Running) {
         if (m_loadingShown) {
             m_game->start(ctx, editor.scene(), m_options);
             if (m_audio) m_audio->setReverbZones(editor.scene());
             MEALKIT_INFO("Play mode: %u player(s), match data %u", session.playerCount(), session.matchData());
         }
         m_loadingShown = !m_loadingShown;
-    } else if (m_game->started() && session.state() != net::SessionState::Running) {
+    } else if (m_game->started() && session.state() != session::SessionState::Running) {
         m_game->stop(ctx);
         mem::endMatch();
         m_loadingShown = false;

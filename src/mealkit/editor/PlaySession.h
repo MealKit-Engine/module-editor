@@ -53,7 +53,7 @@ struct PlayConfig {
 };
 
 // Content hash computed with the same values by host and join windows (scene + models + tuning files + saved project settings)
-// parts: per-component hashes (net::ContentPart order, rejection reasons), nullptr if not needed
+// parts: per-component hashes (session::ContentPart order, rejection reasons), nullptr if not needed
 u64 playContentHash(const scene::Scene& scene, asset::ModelCache& models, const game::GameModule& module,
                     const std::string& tuningPath, const game::ProjectFile& project, u64* parts = nullptr);
 
