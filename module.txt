@@ -1,11 +1,12 @@
-# Engine module manifest (docs/ENGINE_MODULES.md "Manifest"). Checked by tools\check_modules.ps1.
+# MealKit module manifest, engine module (docs/ENGINE_MODULES.md "Manifest"; source modules: docs/MODULES.md). Checked by tools\check_modules.ps1.
 # requires: modules this folder may include besides the kernel (core, platform, jobs), as name minVersion.
-@format engine-module 1
+@format module 1
+type engine
 name editor
-version 0.1.1
-kernel 0.9
+version 0.1.2
+engine 0.9
 kind tool
 layer app
 requires asset 0.1 audio 0.1 camera 0.1 data 0.1 debug 0.1 feedback 0.1 game 0.1 input 0.1 live 0.1 loc 0.1 render 0.1 rhi 0.1 scene 0.1 session 0.1 ui 0.1
-tag editor
+tags editor
 summary The general-purpose editor
