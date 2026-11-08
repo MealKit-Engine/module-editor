@@ -28,7 +28,7 @@ std::string ProjectInfo::buildRoot() const {
     if (fileExists(directory + "/build.bat")) return directory;
     const std::string samples = parentDirectory(directory);
     const std::string engine = parentDirectory(samples);
-    if (fileName(samples) == "samples" && fileExists(engine + "/build.bat") && directoryExists(engine + "/engine/src/mealkit"))
+    if (fileName(samples) == "samples" && fileExists(engine + "/build.bat") && directoryExists(engine + "/engine/core"))
         return engine;
     return directory;
 }
