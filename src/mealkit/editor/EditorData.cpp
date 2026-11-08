@@ -376,7 +376,6 @@ void Editor::drawSettingsHub() {
         };
         entry(std::string(tr("Project Settings")) + (m_projectPanel.dirty() ? " *" : ""), SettingsPage::Project);
         entry(tr("Preferences"), SettingsPage::Preferences);
-        entry(tr("Modules"), SettingsPage::Modules);
         entry(tr("Tools"), SettingsPage::Tools);
         entry(tr("Keyboard Shortcuts"), SettingsPage::Shortcuts);
     }
@@ -390,7 +389,6 @@ void Editor::drawSettingsHub() {
             ImGui::EndDisabled();
             break;
         case SettingsPage::Preferences: m_prefsPanel.drawContent(m_prefs); break;
-        case SettingsPage::Modules: m_modulesPanel.drawContent(m_project, m_engineDirectory, m_mode == Mode::Edit); break;
         case SettingsPage::Tools:
             if (m_tools.empty()) ImGui::TextDisabled("%s", tr("No tools installed"));
             for (const ToolInfo& t : m_tools) {

@@ -206,7 +206,8 @@ void Editor::loadPanelState() {
     std::string text;
     if (m_automated || m_panelStatePath.empty() || !readTextFile(m_panelStatePath, text)) return;
     const std::pair<const char*, bool*> panels[] = {{"hierarchy", &m_hierarchyOpen}, {"scene", &m_sceneOpen}, {"inspector", &m_inspectorOpen}, {"assets", &m_assetsOpen},
-                                                    {"debug", &m_debugOpen},         {"data", &m_dataOpen},   {"previews", &m_previewOpen}};
+                                                    {"debug", &m_debugOpen},         {"data", &m_dataOpen},   {"previews", &m_previewOpen},
+                                                    {"modules", &m_modulesOpen}};
     size_t start = 0;
     for (size_t end = text.find('\n'); end != std::string::npos; start = end + 1, end = text.find('\n', start)) {
         const std::string line = text.substr(start, end - start);
@@ -231,6 +232,7 @@ void Editor::savePanelState() const {
     add("debug", m_debugOpen);
     add("data", m_dataOpen);
     add("previews", m_previewOpen);
+    add("modules", m_modulesOpen);
     add("previewPage", static_cast<int>(m_previewPage));
     writeTextFile(m_panelStatePath, text);
 }
@@ -345,6 +347,7 @@ void Editor::update(f64 dt) {
     updateStateGraphs();
     m_modulesPanel.update();
     drawSettingsHub();
+    m_modulesPanel.draw(m_project, m_engineDirectory, m_mode == Mode::Edit, &m_modulesOpen);
     // Module sim/ and view/ are game code: adding or changing them rebuilds the game DLL
     if (m_modulesPanel.takeChanged()) startBuild(BuildKind::GameCode);
     pollBuild();
@@ -990,7 +993,7 @@ void Editor::drawMenuBar() {
 
     // Enabled during play too: each item decides for itself
     if (ImGui::BeginMenu(tr("Project"))) {
-        commandMenuItem("Settings..."); // project settings, preferences, modules, tools and shortcuts are its pages
+        commandMenuItem("Settings..."); // project settings, preferences, tools and shortcuts are its pages
         ImGui::Separator();
         commandMenuItem("Open Project Folder");
         commandMenuItem("Open Release Folder");
@@ -1045,6 +1048,7 @@ void Editor::drawMenuBar() {
         commandMenuItem("Debug", &m_debugOpen); // log with problems, build log, performance and state are its pages
         commandMenuItem("Data", &m_dataOpen); // tuning, tables, feedback and sounds are its pages (their commands stay in the palette)
         commandMenuItem("Previews", &m_previewOpen); // UI, look dev and cutscenes are its pages
+        commandMenuItem("Modules", &m_modulesOpen); // engine and source modules of the project, and the registry
         ImGui::Separator();
         if (ImGui::BeginMenu(tr("Layout"))) {
             const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev")};

@@ -541,6 +541,7 @@ private:
     ProjectInfo m_project;              // project settings saved on disk
     ProjectSettingsPanel m_projectPanel; // [Project Settings] window
     ModulesPanel m_modulesPanel;         // [Modules] window (tools\module.ps1)
+    bool m_modulesOpen = false;
     std::string m_engineDirectory;
     bool m_upgradeOffer = false;     // the project template differs from the engine version (asked once)
     bool m_upgradeRequested = false; // start the upgrade when the build finishes
@@ -616,7 +617,7 @@ private:
     f64 m_problemTimer = 1.0; // check on the first frame
     enum class DebugPage { Log, Build, Performance, Memory, Sound, State, Tests, Balance };
     // [Settings] and [Previews] windows (EditorData.cpp)
-    enum class SettingsPage { Project, Preferences, Modules, Tools, Shortcuts };
+    enum class SettingsPage { Project, Preferences, Tools, Shortcuts };
     enum class PreviewPage { Ui, LookDev, Cutscene };
     void openSettingsPage(SettingsPage page);
     void openPreviewPage(PreviewPage page);

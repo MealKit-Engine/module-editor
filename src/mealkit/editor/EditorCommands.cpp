@@ -39,7 +39,7 @@ void Editor::buildCommands() {
         {"Settings...", 0, 0, always, [this] { m_settingsOpen = !m_settingsOpen; }},
         {"Project Settings...", 0, 0, [this] { return m_mode == Mode::Edit && !m_project.directory.empty(); },
          [this] { openSettingsPage(SettingsPage::Project); }},
-        {"Modules...", 0, 0, [this] { return !m_project.directory.empty(); }, [this] { openSettingsPage(SettingsPage::Modules); }},
+        {"Modules", 0, 0, [this] { return !m_project.directory.empty(); }, [this] { m_modulesOpen = !m_modulesOpen; }},
         {"Undo", ImGuiMod_Ctrl | ImGuiKey_Z, 0,
          [this] { return m_dataFocused ? dataCanStep(true) : m_mode == Mode::Edit && (uiEditing() ? m_uiPanel.canUndo() : !m_undo.empty()); },
          [this] { m_dataFocused ? dataStep(true) : uiEditing() ? m_uiPanel.undo() : undo(); }},
