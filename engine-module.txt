@@ -2,9 +2,10 @@
 # requires: modules this folder may include besides the kernel (core, platform, jobs), as name minVersion.
 @format engine-module 1
 name editor
-version 0.1.0
+version 0.1.1
 kernel 0.9
 kind tool
-requires asset 0.1 audio 0.1 camera 0.1 data 0.1 debug 0.1 feedback 0.1 game 0.1 input 0.1 live 0.1 loc 0.1 net 0.1 render 0.1 rhi 0.1 scene 0.1 session 0.1 ui 0.1
+layer app
+requires asset 0.1 audio 0.1 camera 0.1 data 0.1 debug 0.1 feedback 0.1 game 0.1 input 0.1 live 0.1 loc 0.1 render 0.1 rhi 0.1 scene 0.1 session 0.1 ui 0.1
 tag editor
 summary The general-purpose editor
