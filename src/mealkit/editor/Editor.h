@@ -614,7 +614,7 @@ private:
     std::vector<Problem> m_problems;
     bool m_problemsShown = true; // the list above the log lines
     f64 m_problemTimer = 1.0; // check on the first frame
-    enum class DebugPage { Log, Build, Performance, Sound, State, Tests, Balance };
+    enum class DebugPage { Log, Build, Performance, Memory, Sound, State, Tests, Balance };
     // [Settings] and [Previews] windows (EditorData.cpp)
     enum class SettingsPage { Project, Preferences, Modules, Tools, Shortcuts };
     enum class PreviewPage { Ui, LookDev, Cutscene };
@@ -634,6 +634,7 @@ private:
     void openDebugPage(DebugPage page);
     void toggleDebugPage(DebugPage page);
     void drawDebugHub();
+    void drawMemoryPage();
     bool m_debugOpen = true;
     DebugPage m_debugPage = DebugPage::Log;
     int m_debugFrontFrames = 0;

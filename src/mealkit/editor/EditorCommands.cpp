@@ -139,6 +139,7 @@ void Editor::buildCommands() {
         {"Scene", 0, 0, editing, [this] { m_sceneOpen = !m_sceneOpen; }},
         {"Inspector", 0, 0, always, [this] { m_inspectorOpen = !m_inspectorOpen; }},
         {"Performance", 0, 0, always, [this] { toggleDebugPage(DebugPage::Performance); }},
+        {"Memory", 0, 0, always, [this] { toggleDebugPage(DebugPage::Memory); }},
         {"Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Log); }},
     };
 }

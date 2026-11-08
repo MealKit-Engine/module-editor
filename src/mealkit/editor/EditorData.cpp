@@ -2,6 +2,7 @@
 #include "mealkit/editor/EditorColors.h"
 
 #include "mealkit/asset/ModelCache.h"
+#include "mealkit/core/Memory.h"
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
@@ -266,6 +267,7 @@ void Editor::drawDebugHub() {
         entry(icon::kLog, tr("Log"), DebugPage::Log);
         entry(icon::kBuild, m_buildPanel.running() ? std::string(tr("Build Log")) + " ..." : std::string(tr("Build Log")), DebugPage::Build);
         entry(icon::kPerformance, tr("Performance"), DebugPage::Performance);
+        entry(icon::kPerformance, tr("Memory"), DebugPage::Memory);
         if (m_audio) entry(icon::kSound, tr("Sounds"), DebugPage::Sound);
         entry(icon::kState, tr("State"), DebugPage::State);
         const u32 failedTests = m_testsPanel.failedCount();
@@ -294,6 +296,7 @@ void Editor::drawDebugHub() {
             m_perfPanel.drawContent();
             break;
         }
+        case DebugPage::Memory: drawMemoryPage(); break;
         case DebugPage::Sound:
             if (m_audio) m_soundPanel.drawMonitor(*m_audio);
             break;
@@ -304,6 +307,42 @@ void Editor::drawDebugHub() {
     }
     ImGui::EndChild();
     ImGui::End();
+}
+
+// Memory tags (core/Memory.h): bytes now and peak per engine module, allocation calls since start
+void Editor::drawMemoryPage() {
+    ImGui::TextDisabled("%s", tr("Memory counted by engine module tags. Process total is on the Performance page."));
+    if (!ImGui::BeginTable("##memTags", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) return;
+    ImGui::TableSetupColumn(tr("Tag"));
+    ImGui::TableSetupColumn(tr("Now"));
+    ImGui::TableSetupColumn(tr("Peak"));
+    ImGui::TableSetupColumn(tr("Allocations"));
+    ImGui::TableHeadersRow();
+    const auto mb = [](u64 bytes) { return static_cast<double>(bytes) / 1048576.0; };
+    u64 total = 0, totalPeak = 0;
+    for (u32 i = 0; i < mem::tagCount(); ++i) {
+        const mem::Tag tag{static_cast<u16>(i)};
+        const mem::TagStats s = mem::stats(tag);
+        total += s.bytes;
+        totalPeak += s.peak;
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(mem::tagName(tag)); // tag names are code identifiers, not translated
+        ImGui::TableNextColumn();
+        ImGui::Text("%.2f MB", mb(s.bytes));
+        ImGui::TableNextColumn();
+        ImGui::Text("%.2f MB", mb(s.peak));
+        ImGui::TableNextColumn();
+        ImGui::Text("%llu", static_cast<unsigned long long>(s.allocations));
+    }
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted(tr("Total"));
+    ImGui::TableNextColumn();
+    ImGui::Text("%.2f MB", mb(total));
+    ImGui::TableNextColumn();
+    ImGui::Text("%.2f MB", mb(totalPeak));
+    ImGui::EndTable();
 }
 
 void Editor::openSettingsPage(SettingsPage page) {

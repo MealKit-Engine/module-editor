@@ -3,6 +3,7 @@
 #include "mealkit/editor/EditorColors.h"
 
 #include "mealkit/core/Log.h"
+#include "mealkit/core/Memory.h"
 #include "mealkit/core/Profile.h"
 #include "mealkit/core/Version.h"
 #include "mealkit/editor/CodeLink.h"
@@ -237,6 +238,7 @@ void Editor::savePanelState() const {
 void Editor::update(f64 dt) {
     m_animTime += dt;
     MEALKIT_ZONE("Editor UI");
+    mem::endFrame(); // the previous frame is drawn, so its frame arena allocations are done
     m_time += dt;
     if (m_perf.update(dt, {m_renderer})) {
         if (m_live.listening("stats")) m_live.publish("stats", m_perf.json());

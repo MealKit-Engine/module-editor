@@ -7,6 +7,7 @@
 #include "mealkit/feedback/Feedback.h"
 #include "mealkit/core/Clock.h"
 #include "mealkit/core/Log.h"
+#include "mealkit/core/Memory.h"
 #include "mealkit/editor/Editor.h"
 #include "mealkit/editor/GameModuleHost.h"
 #include "mealkit/editor/ImGuiLayer.h"
@@ -276,6 +277,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         m_loadingShown = !m_loadingShown;
     } else if (m_game->started() && session.state() != net::SessionState::Running) {
         m_game->stop(ctx);
+        mem::endMatch();
         m_loadingShown = false;
     }
     // Gamepads only when the game view has the keyboard (so the character doesn't move while editing other panels)
