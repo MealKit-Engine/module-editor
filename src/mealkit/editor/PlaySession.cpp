@@ -209,7 +209,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         m_front.init(c); // view tuning is passed by the editor (values edited in the panel)
         m_frontReady = true;
     }
-    net::LockstepSession& session = m_match->session();
+    session::Session& session = m_match->session();
     m_match->update(now);
     if (m_match->phase() == game::MatchPhase::Menu) { // the game pressed [Leave] (replay after the results screen)
         m_left = true;
