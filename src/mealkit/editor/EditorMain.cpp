@@ -29,7 +29,7 @@
 #include "mealkit/editor/Tools.h"
 #include "mealkit/editor/UiCheck.h"
 #include "mealkit/game/GameInstance.h"
-#include "mealkit/net/Lockstep.h"
+#include "mealkit/session/Session.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/platform/System.h"
