@@ -119,6 +119,38 @@ constexpr const char* kPuzzle = "\xEE\xAA\x86"; // U+EA86 puzzle piece
 
 ImU32 textColor(bool disabled) { return ImGui::GetColorU32(disabled ? ImGuiCol_TextDisabled : ImGuiCol_Text); }
 
+std::vector<std::string> splitLines(const std::string& text) {
+    std::vector<std::string> lines;
+    size_t start = 0;
+    while (start < text.size()) {
+        size_t end = text.find('\n', start);
+        if (end == std::string::npos) end = text.size();
+        std::string line = text.substr(start, end - start);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        lines.push_back(std::move(line));
+        start = end + 1;
+    }
+    return lines;
+}
+
+std::vector<std::string> splitTabs(const std::string& line) {
+    std::vector<std::string> f;
+    size_t from = 0;
+    for (size_t tab = line.find('\t'); tab != std::string::npos; tab = line.find('\t', from)) {
+        f.push_back(line.substr(from, tab - from));
+        from = tab + 1;
+    }
+    f.push_back(line.substr(from));
+    return f;
+}
+
+// module.ps1 ends a failure with one "error: <message>" line
+std::string errorLine(const std::string& output) {
+    for (const std::string& line : splitLines(output))
+        if (line.rfind("error: ", 0) == 0) return line.substr(7);
+    return {};
+}
+
 std::string joined(const std::vector<std::string>& words) {
     std::string out;
     for (const std::string& w : words) out += (out.empty() ? "" : ", ") + w;
@@ -166,25 +198,8 @@ void ModulesPanel::poll() {
     case Job::Versions:
         m_versions.clear();
         m_pickedVersion = 0;
-        for (const std::string& line : [&] {
-                 std::vector<std::string> lines;
-                 size_t start = 0;
-                 while (start < m_output.size()) {
-                     size_t end = m_output.find('\n', start);
-                     if (end == std::string::npos) end = m_output.size();
-                     lines.push_back(m_output.substr(start, end - start));
-                     start = end + 1;
-                 }
-                 return lines;
-             }()) {
-            std::vector<std::string> f;
-            size_t from = 0;
-            for (size_t tab = line.find('\t'); tab != std::string::npos; tab = line.find('\t', from)) {
-                f.push_back(line.substr(from, tab - from));
-                from = tab + 1;
-            }
-            f.push_back(line.substr(from));
-            if (!f.back().empty() && f.back().back() == '\r') f.back().pop_back();
+        for (const std::string& line : splitLines(m_output)) {
+            const std::vector<std::string> f = splitTabs(line);
             if (f.size() >= 4 && f[0] == "version") m_versions.push_back({f[1], f[2], f[3] != "no"});
         }
         if (m_versions.empty()) m_status = ok ? trf("%s: no versions found", m_label.c_str()) : trf("%s: failed - see the Modules window", m_label.c_str());
@@ -197,14 +212,33 @@ void ModulesPanel::poll() {
         m_log = m_output;
         m_logFailed = !ok;
         return;
-    case Job::Change:
+    case Job::RemoveCheck:
+        m_removeCheck.done = true;
+        for (const std::string& line : splitLines(m_output)) {
+            const std::vector<std::string> f = splitTabs(line);
+            if (f[0] == "needed-by" && f.size() >= 2) m_removeCheck.neededBy.push_back(f[1]);
+            else if (f[0] == "chain" && f.size() >= 2) m_removeCheck.chain.push_back(f[1]);
+            else if (f[0] == "code" && f.size() >= 4) m_removeCheck.uses.push_back({f[1], f[3], std::atoi(f[2].c_str())});
+            else if (f[0] == "last-engine") m_removeCheck.lastEngine = true;
+            else if (f[0] == "ok") m_removeCheck.ok = true;
+        }
+        if (!ok) { // the check itself failed: show why; removing is still offered (the remove refuses on its own)
+            m_log = m_output;
+            m_logFailed = true;
+        }
+        return;
+    case Job::Change: {
         m_log = m_output;
         m_logFailed = !ok;
-        m_status = ok ? trf("%s: done", m_label.c_str()) : trf("%s: failed - see the Modules window", m_label.c_str());
+        const std::string error = ok ? std::string() : errorLine(m_output);
+        m_status = ok             ? trf("%s: done", m_label.c_str())
+                   : error.empty() ? trf("%s: failed - see the Modules window", m_label.c_str())
+                                   : trf("%s: %s", m_label.c_str(), error.c_str());
         if (ok) m_changed = true;
         m_needList = true; // recheck the current state whether it succeeded or not
         m_versionsFor.clear();
         return;
+    }
     }
 }
 
@@ -341,6 +375,49 @@ bool ModulesPanel::tagChips(const std::string& tags) {
     }
     ImGui::PopStyleVar(2);
     return clicked;
+}
+
+bool ModulesPanel::moduleChips(const char* label, const std::vector<std::string>& names, const std::vector<std::string>& missing) {
+    if (names.empty()) return false;
+    bool clicked = false;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    if (label[0]) ImGui::TextDisabled("%s", label);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFontSize());
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetFontSize() * 0.5f, 0.0f));
+    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    bool first = true;
+    for (const std::string& name : names) {
+        const bool absent = std::find(missing.begin(), missing.end(), name) != missing.end();
+        const auto found = std::find_if(m_items.begin(), m_items.end(), [&](const Item& i) { return i.name == name; });
+        const char* glyph = found != m_items.end() ? moduleGlyph(found->icon, found->tags, name) : moduleGlyph("", "", name);
+        const std::string text = std::string(glyph) + " " + name;
+        const float width = ImGui::CalcTextSize(text.c_str()).x + ImGui::GetFontSize();
+        if (!first) {
+            ImGui::SameLine(0.0f, style.ItemSpacing.x * 0.5f);
+            if (ImGui::GetCursorScreenPos().x + width > right) ImGui::NewLine();
+        }
+        first = false;
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetColorU32(ImGuiCol_FrameBg));
+        ImGui::PushStyleColor(ImGuiCol_Text, absent ? color::kWarning : ImGui::GetStyleColorVec4(ImGuiCol_Text));
+        ImGui::PushID(name.c_str());
+        if (ImGui::SmallButton(text.c_str()) && found != m_items.end()) {
+            m_selected = name;
+            clicked = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", absent ? trf("%s is not in the build - add it", name.c_str()).c_str() : trf("Show %s", name.c_str()).c_str());
+        ImGui::PopID();
+        ImGui::PopStyleColor(2);
+    }
+    ImGui::PopStyleVar(2);
+    return clicked;
+}
+
+void ModulesPanel::askRemove(const std::string& name) {
+    m_confirmRemove = name;
+    m_removeCheck = {};
+    m_removeCheck.name = name;
+    run(trf("Check %s", name.c_str()), "remove " + name + " -DryRun -Tsv", Job::RemoveCheck);
 }
 
 void ModulesPanel::drawToolbar(bool busy, bool editing) {
@@ -516,11 +593,13 @@ void ModulesPanel::drawDetails(bool canChange) {
     }
 
     // Dependencies
+    // Chips that pick that module; requires missing from the build are yellow
     if (!m_details.needs.empty() || !m_details.neededBy.empty()) ImGui::Spacing();
-    if (!m_details.needs.empty()) ImGui::TextUnformatted(trf("Requires: %s", joined(m_details.needs).c_str()).c_str());
+    bool pickedModule = moduleChips(tr("Requires"), m_details.needs, m_details.missing);
     if (!m_details.missing.empty())
         ImGui::TextColored(color::kWarning, "%s", trf("Not in the build: %s", joined(m_details.missing).c_str()).c_str());
-    if (!m_details.neededBy.empty()) ImGui::TextDisabled("%s", trf("Required by: %s", joined(m_details.neededBy).c_str()).c_str());
+    if (!pickedModule) pickedModule = moduleChips(tr("Required by"), m_details.neededBy, {});
+    if (pickedModule) return; // the details are for the module just picked: drawn next frame
 
     // State of the copy in the project
     if (item.installed) {
@@ -579,7 +658,8 @@ void ModulesPanel::drawDetails(bool canChange) {
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", tr("Files you changed are kept; the new version is written next to them as .new"));
         next();
-        if (ImGui::Button(tr("Remove"))) m_confirmRemove = item.name;
+        if (ImGui::Button(tr("Remove"))) askRemove(item.name);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tr("Checks first what still uses it"));
     } else if (item.registry && !item.registry->version.empty()) {
         next();
         if (ImGui::Button((std::string(icon::kAdd) + "  " + tr("Add")).c_str())) add(item, item.name, false);
@@ -651,15 +731,67 @@ void ModulesPanel::drawDetails(bool canChange) {
 void ModulesPanel::drawPopups() {
     if (!m_confirmRemove.empty()) ImGui::OpenPopup("##remove");
     if (ImGui::BeginPopupModal("##remove", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
-        ImGui::TextUnformatted(trf("Remove modules/%s from the project?", m_confirmRemove.c_str()).c_str());
-        ImGui::TextDisabled("%s", tr("It is refused while game code includes it. Undo with version control."));
-        if (ImGui::Button(tr("Remove"))) {
-            run(trf("Remove %s", m_confirmRemove.c_str()), "remove " + m_confirmRemove, Job::Change);
-            m_confirmRemove.clear();
-            ImGui::CloseCurrentPopup();
+        const RemoveCheck& check = m_removeCheck;
+        const std::string name = m_confirmRemove;
+        const bool blocked = check.done && !check.ok && (!check.neededBy.empty() || !check.uses.empty() || check.lastEngine);
+        bool close = false;
+        ImGui::TextUnformatted(trf("Remove modules/%s from the project?", name.c_str()).c_str());
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        if (!check.done) {
+            ImGui::TextDisabled("%s", tr("Checking what still uses it..."));
+        } else if (check.ok) {
+            ImGui::TextColored(color::kGood, "%s", tr("Nothing uses it: no other module requires it and game code doesn't include it."));
+        } else if (!blocked) {
+            ImGui::TextColored(color::kDanger, "%s", tr("The check failed - see the log in the Modules window."));
+        } else {
+            ImGui::TextColored(color::kWarning, "%s", tr("It is still in use:"));
+            if (!check.neededBy.empty()) {
+                ImGui::Spacing();
+                ImGui::TextUnformatted(trf("Required by %d module(s). To remove it, remove these first, in this order:", static_cast<int>(check.neededBy.size())).c_str());
+                if (moduleChips("", check.chain, {})) close = true; // picked one: shown behind the dialog
+            }
+            if (!check.uses.empty()) {
+                ImGui::Spacing();
+                ImGui::TextUnformatted(trf("Included by game code (%d line(s)). Delete those includes, or keep the code inside #if MEALKIT_HAS_<NAME>:", static_cast<int>(check.uses.size())).c_str());
+                const size_t shown = std::min<size_t>(check.uses.size(), 8);
+                for (size_t i = 0; i < shown; ++i) {
+                    const RemoveCheck::Use& use = check.uses[i];
+                    ImGui::PushID(static_cast<int>(i));
+                    if (ImGui::SmallButton((use.file + ":" + std::to_string(use.line)).c_str())) openInExplorer(m_projectDir + "\\" + use.file);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Open the file"));
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%s", use.text.c_str());
+                    ImGui::PopID();
+                }
+                if (check.uses.size() > shown) ImGui::TextDisabled("%s", trf("and %d more", static_cast<int>(check.uses.size() - shown)).c_str());
+            }
+            if (check.lastEngine) {
+                ImGui::Spacing();
+                ImGui::TextUnformatted(tr("It is the last engine module in modules/. With none there, the game builds with every engine module of the engine - not with none."));
+            }
         }
+        ImGui::TextDisabled("%s", tr("Undo with version control."));
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        ImGui::BeginDisabled(!check.done || m_process.running());
+        if (!blocked) {
+            if (ImGui::Button(tr("Remove"))) {
+                run(trf("Remove %s", name.c_str()), "remove " + name, Job::Change);
+                close = true;
+            }
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, color::kDanger);
+            if (ImGui::Button(tr("Remove Anyway"))) {
+                run(trf("Remove %s", name.c_str()), "remove " + name + " -Force", Job::Change);
+                close = true;
+            }
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("The game build breaks until those uses are gone"));
+        }
+        ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button(tr("Cancel"))) {
+        if (ImGui::Button(tr("Cancel"))) close = true;
+        if (close) {
             m_confirmRemove.clear();
             ImGui::CloseCurrentPopup();
         }
