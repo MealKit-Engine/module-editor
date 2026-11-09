@@ -565,6 +565,11 @@ void Editor::drawUiWorkspace() {
     if (visible && m_mode == Mode::Edit) {
         m_uiPanelOpen = true;
         m_uiPanel.drawWorkspace();
+    } else if (visible && m_gameUi) { // playing: the game's screens with their live values (kept as preview values from here)
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg)); // the tab has no background (the game draws under it)
+        if (ImGui::BeginChild("##playValues")) m_uiPanel.drawPlayValues(*m_gameUi);
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
     } else if (visible) {
         ImGui::SetCursorPos(ImVec2(16.0f, 16.0f));
         ImGui::TextDisabled("%s", tr("Game screens are edited while not playing."));
@@ -950,6 +955,7 @@ void Editor::captureGpuFrame() {
 }
 
 void Editor::setMode(Mode mode) {
+    m_gameUi = nullptr; // set again by the play session's first update
     if (mode == Mode::Play && m_playFromHere && m_playPlayers == 1) moveSpawnsHere();
     m_playFromHere = false;
     if (mode == Mode::Edit && !m_spawnBackup.empty()) { // play from here: restore spawn points (scene file unchanged)
@@ -3304,6 +3310,7 @@ void Editor::setProject(const ProjectInfo& project) {
     m_tuningPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);
     m_uiPanel.setCodeEditor(&m_prefs.externalEditor);
+    if (m_window) m_uiPanel.setInput(&m_window->input());
     m_uiPanel.setProject(project.settings.language);
     applyRenderStyle(project.settings);
     live::ServerConfig lc;

@@ -283,6 +283,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     }
     // Gamepads only when the game view has the keyboard (so the character doesn't move while editing other panels)
     m_front.update(now, dt, window.input(), editor.gameKeyboardAllowed(), ctx);
+    editor.setGameUi(&m_front.ui()); // the [UI] workspace shows the game's screens and values while playing
     // Solo play: tuning changes apply immediately. With multiple players they'd differ per peer and desync, so they aren't applied.
     if (editor.takeTuningChanged() && !multiplayer()) m_game->setTuning(editor.tuningData());
     m_game->update(ctx, dt);

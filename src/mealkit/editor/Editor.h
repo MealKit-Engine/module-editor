@@ -130,6 +130,7 @@ public:
         if (!file.empty()) m_uiPanel.select(file);
     }
     bool selectUiNode(const std::string& name) { return m_uiPanel.selectNode(name); } // --ui-select (after --ui)
+    void setGameUi(ui::System* gameUi) { m_gameUi = gameUi; } // PlaySession while playing, nullptr when it stops
     void setUiPreviewState(int state) { m_uiPanel.setPreviewState(state); } // --ui-state
     void dragUiNode(const std::string& name, f32 dx, f32 dy) { m_uiPanel.queueTestDrag(name, dx, dy); } // --ui-drag
     // [UI] workspace in front while editing: undo/save/delete and canvas clicks go to the screen being edited
@@ -669,6 +670,7 @@ private:
     std::vector<std::string> m_paletteAssets;
     std::vector<std::string> m_paletteRecent;
     UiPanel m_uiPanel;
+    ui::System* m_gameUi = nullptr; // the play session's game UI (set every play frame, read only while playing)
     bool m_uiPanelOpen = false;     // the [UI] workspace is the visible tab this frame
     bool m_uiWorkspaceOpen = true;  // [Window] > [UI] (a tab beside the Viewport)
     int m_uiFrontFrames = 0;
