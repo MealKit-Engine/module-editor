@@ -1,7 +1,7 @@
 #include "mealkit/editor/Editor.h"
 #include "mealkit/editor/EditorColors.h"
 
-#include "mealkit/asset/ModelCache.h"
+#include "mealkit/render/ModelDraw.h" // asset::ModelCache + its drawing
 #include "mealkit/core/Memory.h"
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/ImGuiLayer.h"

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "mealkit/asset/Cutscene.h"
-#include "mealkit/asset/ModelCache.h"
+#include "mealkit/render/ModelDraw.h" // asset::ModelCache + its drawing
 #include "mealkit/camera/Brain.h"
 #include "mealkit/editor/BuildPanel.h"
 #include "mealkit/editor/TestsPanel.h"

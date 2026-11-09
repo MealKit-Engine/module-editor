@@ -16,6 +16,8 @@
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Process.h"
 #include "mealkit/platform/Window.h"
+#include "mealkit/render/Environment.h"
+#include "mealkit/render/ModelDraw.h"
 #include "mealkit/render/SceneLights.h"
 #include "mealkit/rhi/GpuCapture.h"
 
@@ -656,7 +658,7 @@ void Editor::fillEnvironment(render::FrameParams& frame) const {
     frame.environment = m_models->environment(env.hdri);
     frame.environmentIntensity = env.hdriIntensity;
     frame.environmentRotation = env.hdriRotation * (3.14159265f / 180.0f);
-    frame.post = m_models->postParams(env.post);
+    frame.post = render::postParams(*m_models, env.post);
     m_lightList.clear();
     render::addSceneLights(m_scene, m_lightList);
     frame.lights = m_lightList.data();
@@ -670,7 +672,7 @@ void Editor::buildSceneView(render::FrameParams& frame, render::DrawList& out) c
     frame.viewProj = m_view * m_proj;
     frame.cameraPos = previewing() ? m_previewPose.position : m_cameraPos;
     fillEnvironment(frame);
-    m_models->probes(m_scene, m_probeList);
+    render::probes(*m_models, m_scene, m_probeList);
     frame.probes = m_probeList.data();
     frame.probeCount = static_cast<u32>(m_probeList.size());
     frame.debugView = m_debugView;
@@ -700,12 +702,12 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
             continue;
         }
         if (e.is(scene::kTypeScatter)) { // instances only (the layer object itself has no shape)
-            m_models->addScatter(out, e, eye, !gameView && isSelected(e.id) ? render::kInstanceHighlight : 0u);
+            render::addScatter(out, *m_models, e, eye, !gameView && isSelected(e.id) ? render::kInstanceHighlight : 0u);
             continue;
         }
         if (e.is(scene::kTypeTerrain)) { // axis-aligned, rotation ignored (like the collision)
             if (asset::Terrain* terrain = terrainOf(e))
-                m_models->addTerrain(out, *terrain, world.position, world.scale, e.color,
+                render::addTerrain(out, *m_models, *terrain, world.position, world.scale, e.color,
                                      !gameView && isSelected(e.id) ? render::kInstanceHighlight : 0u, eye);
             continue;
         }
@@ -727,7 +729,7 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
                 if (model->lods[lod] == mesh) inst.flags |= lod << render::kInstanceLodShift;
             if (!model->budgetProblems.empty()) inst.flags |= render::kInstanceOverBudget;
         }
-        if (model) asset::addModel(out, *model, mesh, inst, scene::animField(e), m_animTime); // skinned models use the clip from the anim field
+        if (model) render::addModel(out, *model, mesh, inst, scene::animField(e), m_animTime); // skinned models use the clip from the anim field
         else out.add(mesh, inst);
     }
 }
@@ -767,12 +769,12 @@ void Editor::renderProbeBake(render::Renderer& renderer) {
             const u32 id = m_probeQueue.front();
             m_probeQueue.erase(m_probeQueue.begin());
             if (Entity* e = m_scene.find(id)) {
-                asset::ProbeMap probe;
-                asset::bakeProbe(m_probeFaces.data(), size, probe);
+                render::ProbeMap probe;
+                render::bakeProbe(m_probeFaces.data(), size, probe);
                 std::string stem = m_scenePath.empty() ? std::string("untitled") : fileName(m_scenePath);
                 if (const size_t dot = stem.find_last_of('.'); dot != std::string::npos) stem.resize(dot);
                 const std::string path = scene::probeFileFor(stem, *e);
-                if (asset::saveProbe(asset::ModelCache::assetsRoot() + "/" + path, probe)) {
+                if (render::saveProbe(asset::ModelCache::assetsRoot() + "/" + path, probe)) {
                     if (scene::probeFile(*e) != path) {
                         std::erase_if(e->fields, [](const auto& f) { return f.first == scene::kProbeFileField; });
                         e->fields.emplace_back(scene::kProbeFileField, path);
@@ -794,7 +796,7 @@ void Editor::renderProbeBake(render::Renderer& renderer) {
         m_probeFace = 0;
         return;
     }
-    // Cube face orientations (same layout as asset::cubeDirection: right of a left-handed lookAt = cross(up, forward))
+    // Cube face orientations (same layout as render::cubeDirection: right of a left-handed lookAt = cross(up, forward))
     static const Vec3 kForward[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     static const Vec3 kUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
     const Vec3 eye = scene::worldTransform(m_scene, *e).position;
@@ -820,7 +822,7 @@ void Editor::renderGradeCapture(render::Renderer& renderer) {
         const std::string folder = projectRoot() + "/art/grading";
         const std::string png = folder + "/" + stem + ".png", cube = folder + "/neutral.cube";
         createDirectories(folder);
-        if (!fileExists(cube)) asset::saveNeutralCubeLut(cube);
+        if (!fileExists(cube)) render::saveNeutralCubeLut(cube);
         if (m_gradeCapture.width && savePng(png, m_gradeCapture)) {
             MEALKIT_INFO("Grading capture saved: %s", png.c_str());
             setStatus(trf("Grading capture saved: %s", png.c_str()));
@@ -843,7 +845,7 @@ void Editor::renderGradeCapture(render::Renderer& renderer) {
     frame.cameraPos = m_cameraPos;
     frame.cameraForward = cameraForward();
     fillEnvironment(frame);
-    m_models->probes(m_scene, m_probeList);
+    render::probes(*m_models, m_scene, m_probeList);
     frame.probes = m_probeList.data();
     frame.probeCount = static_cast<u32>(m_probeList.size());
     frame.post.lut = 0; // image before grading (up to tone mapping)
@@ -1936,7 +1938,7 @@ void Editor::drawEnvironment() {
     // Sky HDRI: one .hdr under assets/textures/ (none = the color gradient above). First selection pauses briefly to bake
     if (beginCombo(propertyRow(tr("Sky HDRI")).c_str(), env.hdri.empty() ? tr("None (sky colors)") : env.hdri.c_str())) {
         if (ImGui::Selectable(tr("None (sky colors)"), env.hdri.empty())) env.hdri.clear(), c = true;
-        for (const std::string& h : asset::listHdris(asset::ModelCache::assetsRoot()))
+        for (const std::string& h : render::listHdris(asset::ModelCache::assetsRoot()))
             if (ImGui::Selectable(h.c_str(), env.hdri == h)) env.hdri = h, c = true;
         ImGui::EndCombo();
     }
@@ -1954,7 +1956,7 @@ void Editor::drawEnvironment() {
     c |= ImGui::DragFloat(propertyRow(tr("Exposure (EV)")).c_str(), &post.exposure, 0.02f, -6.0f, 6.0f, "%.2f");
     if (beginCombo(propertyRow(tr("Color LUT")).c_str(), post.lut.empty() ? tr("None") : post.lut.c_str())) {
         if (ImGui::Selectable(tr("None"), post.lut.empty())) post.lut.clear(), c = true;
-        for (const std::string& l : asset::listLuts(asset::ModelCache::assetsRoot()))
+        for (const std::string& l : render::listLuts(asset::ModelCache::assetsRoot()))
             if (ImGui::Selectable(l.c_str(), post.lut == l)) post.lut = l, c = true;
         ImGui::EndCombo();
     }

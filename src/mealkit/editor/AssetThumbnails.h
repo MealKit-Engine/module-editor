@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mealkit/asset/ModelCache.h"
+#include "mealkit/render/ModelDraw.h" // asset::ModelCache + its drawing
 #include "mealkit/render/Renderer.h"
 
 #include <string>

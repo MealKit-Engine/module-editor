@@ -2,7 +2,7 @@
 
 #include "mealkit/debug/DebugDrawRender.h"
 
-#include "mealkit/asset/ModelCache.h"
+#include "mealkit/render/ModelDraw.h" // asset::ModelCache + its drawing
 #include "mealkit/audio/Audio.h"
 #include "mealkit/feedback/Feedback.h"
 #include "mealkit/core/Clock.h"

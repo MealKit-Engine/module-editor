@@ -11,6 +11,7 @@
 //              Ctrl+R game code build, Ctrl+B shipping build
 
 #include "mealkit/asset/ModelCache.h"
+#include "mealkit/render/ModelDraw.h"
 #include "mealkit/audio/Audio.h"
 #include "mealkit/input/Actions.h"
 #include "mealkit/feedback/Feedback.h"
@@ -312,7 +313,8 @@ int main(int argc, char** argv) {
     MEALKIT_INFO("Project '%s': %s", project.name().c_str(), project.directory.c_str());
 
     asset::ModelCache models;
-    models.setRenderer(&renderer);
+    render::ModelUploader modelUploader(renderer);
+    models.setGpu(&modelUploader);
     {
         asset::ModelBudget budgets[asset::kModelKindCount]; // when changed in the project settings window, Editor::setProject passes them again
         game::modelBudgets(project.settings, budgets);
