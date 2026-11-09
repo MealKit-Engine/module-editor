@@ -52,7 +52,7 @@ enum class Mode { Edit, Play };
 
 // Path relative to root ('/' separated) if the file is inside the root folder, empty string if outside
 std::string relativeTo(const std::string& root, const std::string& path);
-enum class LayoutPreset { Edit, Play, LookDev }; // [View] > [Layout]
+enum class LayoutPreset { Edit, Play, LookDev, Ui }; // [Window] > [Layout]
 
 class Editor {
 public:
@@ -119,22 +119,23 @@ public:
     void setFeedback(feedback::Player* player) { m_feedback = player; }
     void setEventType(const reflect::TypeInfo* type) { m_feedbackPanel.setEventType(type); }
     void openFeedback() { openDataPage(DataPage::Feedback, 0); } // for automated tests
-    // Game screen UI preview ([UI] panel): the game's view model list, drawn over the scene view in edit mode
+    // Game screen UI ([UI] workspace tab beside the Viewport): the game's view model list for its preview values
     void setViewModels(const std::vector<const reflect::TypeInfo*>* types) {
         m_uiPanel.setViewModels(types);
         m_import.setViewModels(types);
     }
     void openUiPanel(const std::string& file = {}) {
-        openPreviewPage(PreviewPage::Ui);
+        m_uiWorkspaceOpen = true;
+        m_uiFrontFrames = 30;
         if (!file.empty()) m_uiPanel.select(file);
     }
     bool selectUiNode(const std::string& name) { return m_uiPanel.selectNode(name); } // --ui-select (after --ui)
     void setUiPreviewState(int state) { m_uiPanel.setPreviewState(state); } // --ui-state
     void dragUiNode(const std::string& name, f32 dx, f32 dy) { m_uiPanel.queueTestDrag(name, dx, dy); } // --ui-drag
-    // [UI] panel in edit mode: undo/save/delete and scene view clicks go to the screen being edited
+    // [UI] workspace in front while editing: undo/save/delete and canvas clicks go to the screen being edited
     bool uiEditing() const { return m_uiPanelOpen && m_mode == Mode::Edit && m_uiPanel.editing(); }
     void renderUiPreview(render::Renderer& renderer, f64 dt) {
-        if (m_uiPanelOpen && m_mode == Mode::Edit) m_uiPanel.render(renderer, m_viewport, dt);
+        if (m_uiPanelOpen && m_mode == Mode::Edit) m_uiPanel.render(renderer, dt);
     }
     // Offscreen image for the [Lookdev] window: after the main screen 3D, before UI (only when the window is open)
     void renderLookdev(render::Renderer& renderer, f64 dt);
@@ -639,7 +640,7 @@ private:
     SettingsPage m_settingsPage = SettingsPage::Project;
     int m_settingsFrontFrames = 0;
     bool m_previewOpen = true;
-    PreviewPage m_previewPage = PreviewPage::Ui;
+    PreviewPage m_previewPage = PreviewPage::LookDev; // Ui is not a page any more (the [UI] workspace); kept so saved numbers stay the same
     int m_previewFrontFrames = 0;
     bool m_revertSceneArmed = false; // a second click reverts: the scene's undo steps don't survive it
 
@@ -664,7 +665,10 @@ private:
     std::vector<std::string> m_paletteAssets;
     std::vector<std::string> m_paletteRecent;
     UiPanel m_uiPanel;
-    bool m_uiPanelOpen = false;
+    bool m_uiPanelOpen = false;     // the [UI] workspace is the visible tab this frame
+    bool m_uiWorkspaceOpen = true;  // [Window] > [UI] (a tab beside the Viewport)
+    int m_uiFrontFrames = 0;
+    void drawUiWorkspace();
     ImportServer m_import; // Penpot plugin import (penpot/ service of the live connection server)
     live::Server m_live;   // live connection (contract between tools, starts when a project opens. Closed before m_import)
     std::vector<ToolInfo> m_tools; // [Tools] menu (searched when a project opens and on [Rescan])

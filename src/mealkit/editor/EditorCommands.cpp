@@ -110,11 +110,12 @@ void Editor::buildCommands() {
         {"Sounds", 0, 0, [this] { return m_audio != nullptr; }, [this] { toggleDataPage(DataPage::Sounds, 0); }},
         {"Feedback", 0, 0, always, [this] { toggleDataPage(DataPage::Feedback, 0); }},
         {"Previews", 0, 0, always, [this] { m_previewOpen = !m_previewOpen; }},
-        {"UI", 0, 0, always, [this] { openPreviewPage(PreviewPage::Ui); }},
+        {"UI", 0, 0, always, [this] { if (m_uiWorkspaceOpen && m_uiPanelOpen) m_uiWorkspaceOpen = false; else openUiPanel(); }},
         {"Look Dev", 0, 0, always, [this] { openPreviewPage(PreviewPage::LookDev); }},
         {"Preview Cutscene", 0, 0, always, [this] { openPreviewPage(PreviewPage::Cutscene); }},
         {"Effects", 0, 0, always, [this] { toggleDataPage(DataPage::Effects, 0); }},
         {"Reset Layout", 0, 0, always, [this] { m_layoutReset = true; }},
+        {"UI Layout", 0, 0, always, [this] { m_layoutPreset = LayoutPreset::Ui; m_layoutReset = true; }}, // the [UI] workspace in front, given most of the window
         {"Build Game Code (Hot Reload)", ImGuiMod_Ctrl | ImGuiKey_R, 0,
          [this, canBuild] { return canBuild() && m_mode == Mode::Edit; }, [this] { startBuild(BuildKind::GameCode); }},
         {"Publish Game Code", 0, 0, canBuild, [this] {

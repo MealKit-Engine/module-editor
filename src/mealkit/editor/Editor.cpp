@@ -42,6 +42,7 @@ constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
 constexpr const char* kHierarchyWindow = "Hierarchy###Hierarchy";
 constexpr const char* kInspectorWindow = "Inspector###Inspector";
 constexpr const char* kSceneWindow = "Viewport###SceneView";
+constexpr const char* kUiWindow = "UI###UiWorkspace";
 // Windows docked as tabs in the bottom row (default layout)
 const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // menu bar during play
 const char* const kBottomWindows[] = {"Assets###Assets", "Debug###Debug"};
@@ -210,7 +211,7 @@ void Editor::loadPanelState() {
     if (m_automated || m_panelStatePath.empty() || !readTextFile(m_panelStatePath, text)) return;
     const std::pair<const char*, bool*> panels[] = {{"hierarchy", &m_hierarchyOpen}, {"scene", &m_sceneOpen}, {"inspector", &m_inspectorOpen}, {"assets", &m_assetsOpen},
                                                     {"debug", &m_debugOpen},         {"data", &m_dataOpen},   {"previews", &m_previewOpen},
-                                                    {"modules", &m_modulesOpen}};
+                                                    {"modules", &m_modulesOpen}, {"ui", &m_uiWorkspaceOpen}};
     size_t start = 0;
     for (size_t end = text.find('\n'); end != std::string::npos; start = end + 1, end = text.find('\n', start)) {
         const std::string line = text.substr(start, end - start);
@@ -236,6 +237,7 @@ void Editor::savePanelState() const {
     add("data", m_dataOpen);
     add("previews", m_previewOpen);
     add("modules", m_modulesOpen);
+    add("ui", m_uiWorkspaceOpen);
     add("previewPage", static_cast<int>(m_previewPage));
     writeTextFile(m_panelStatePath, text);
 }
@@ -322,6 +324,7 @@ void Editor::update(f64 dt) {
         ImGui::End();
     }
     drawSceneWindow(dockId);
+    drawUiWorkspace();
 
     if (m_sceneOpen) updateCamera(dt);
     const f32 aspect = m_viewport.width / std::max(m_viewport.height, 1.0f);
@@ -371,6 +374,10 @@ void Editor::update(f64 dt) {
 
     runShortcuts();
     drawCommandPalette();
+    // [UI] workspace in front: the mouse on its canvas selects, moves and resizes boxes of the screen
+    if (editing && m_uiPanelOpen)
+        m_uiPanel.pointer(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                          ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::GetIO().KeyCtrl, !m_uiPanel.canvasHovered());
     if (editing && !m_sceneVisible) {
         // Another tab covers the scene view: no gizmo, toolbar or picking
     } else if (editing) {
@@ -513,6 +520,33 @@ void Editor::drawSceneWindow(unsigned int dockId) {
         }
         m_viewport = {pos.x, pos.y, std::max(size.x, 1.0f), std::max(size.y, 1.0f)};
         ImGuizmo::SetAlternativeWindow(ImGui::FindWindowByName(kSceneWindow)); // GetCurrentWindow reads DLL data
+    }
+    ImGui::End();
+}
+
+// [UI] workspace: a tab beside the viewport (default layout), drawn without a background so the screen rendered on the back buffer
+// shows on its canvas (UiPanel::render). Only while it is the visible tab does it render, take the mouse and own undo/save
+void Editor::drawUiWorkspace() {
+    m_uiPanelOpen = false;
+    if (!m_uiWorkspaceOpen) return;
+    if (const ImGuiWindow* scene = ImGui::FindWindowByName(kSceneWindow); scene && scene->DockId)
+        ImGui::SetNextWindowDockID(scene->DockId, ImGuiCond_FirstUseEver); // layouts saved before the workspace existed
+    if (m_uiFrontFrames > 0) { // asked to come to the front: keep asking until the tab shows (the dock node may not exist yet)
+        --m_uiFrontFrames;
+        m_sceneFrontFrames = 0;
+        ImGui::SetNextWindowFocus();
+    }
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    const bool visible = ImGui::Begin(iconTitle(icon::kPreview, kUiWindow).c_str(), &m_uiWorkspaceOpen,
+                                      ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
+    ImGui::PopStyleVar();
+    if (const ImGuiWindow* w = ImGui::FindWindowByName(kUiWindow); visible && m_uiFrontFrames > 0 && w && w->DockTabIsVisible) m_uiFrontFrames = 0; // GetCurrentWindow reads DLL data
+    if (visible && m_mode == Mode::Edit) {
+        m_uiPanelOpen = true;
+        m_uiPanel.drawWorkspace();
+    } else if (visible) {
+        ImGui::SetCursorPos(ImVec2(16.0f, 16.0f));
+        ImGui::TextDisabled("%s", tr("Game screens are edited while not playing."));
     }
     ImGui::End();
 }
@@ -984,12 +1018,17 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockId, viewport->WorkSize);
     ImGuiID center = dockId;
-    const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.17f, nullptr, &center);
-    const f32 rightShare = preset == LayoutPreset::LookDev ? 0.42f : 0.27f;
+    // UI: the workspace gets most of the window (narrow side columns, a short bottom row)
+    const bool uiLayout = preset == LayoutPreset::Ui;
+    const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, uiLayout ? 0.12f : 0.17f, nullptr, &center);
+    const f32 rightShare = preset == LayoutPreset::LookDev ? 0.42f : uiLayout ? 0.18f : 0.27f;
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, rightShare, nullptr, &center);
-    const f32 bottomShare = preset == LayoutPreset::Play ? 0.18f : 0.26f;
+    const f32 bottomShare = preset == LayoutPreset::Play || uiLayout ? 0.16f : 0.26f;
     const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, bottomShare, nullptr, &center);
+    ImGui::DockBuilderDockWindow(kUiWindow, center); // a tab behind the viewport (in front in the UI layout)
     ImGui::DockBuilderDockWindow(kSceneWindow, center);
+    if (uiLayout) openUiPanel();
+    else m_sceneFrontFrames = 2;
     ImGui::DockBuilderDockWindow(kHierarchyWindow, left);
     if (preset == LayoutPreset::LookDev) {
         const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
@@ -1072,6 +1111,7 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("Window"))) {
         commandMenuItem("Hierarchy", &m_hierarchyOpen);
         commandMenuItem("Viewport", &m_sceneOpen);
+        if (projectHas("ui")) commandMenuItem("UI", &m_uiWorkspaceOpen);
         commandMenuItem("Inspector", &m_inspectorOpen);
         ImGui::Separator();
         commandMenuItem("Assets", &m_assetsOpen);
@@ -1081,8 +1121,8 @@ void Editor::drawMenuBar() {
         commandMenuItem("Modules", &m_modulesOpen); // engine and source modules of the project, and the registry
         ImGui::Separator();
         if (ImGui::BeginMenu(tr("Layout"))) {
-            const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev")};
-            for (int i = 0; i < 3; ++i)
+            const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev"), tr("UI")};
+            for (int i = 0; i < 4; ++i)
                 if (ImGui::MenuItem(names[i], nullptr, static_cast<int>(m_layoutPreset) == i)) {
                     m_layoutPreset = static_cast<LayoutPreset>(i);
                     m_layoutReset = true;
@@ -2364,12 +2404,6 @@ void Editor::handlePicking() {
             return;
         }
     } else {
-        // [UI] panel editing: the mouse selects, moves and resizes boxes of the screen instead of scene objects
-        if (uiEditing()) {
-            m_uiPanel.pointer(io.MousePos.x, io.MousePos.y, ImGui::IsMouseClicked(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Left),
-                              io.KeyCtrl, sceneMouseBlocked());
-            return;
-        }
         if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || sceneMouseBlocked() || io.KeyAlt || ImGuizmo::IsOver() ||
             ImGuizmo::IsUsing() || ImGuizmo::IsViewManipulateHovered() || ImGuizmo::IsUsingViewManipulate())
             return;
@@ -3199,6 +3233,7 @@ void Editor::closePanelsOfMissingModules() {
     if (!projectHas("asset")) m_assetsOpen = false;
     if (!projectHas("data")) m_dataOpen = false;
     if (!projectHas("render")) m_previewOpen = false;
+    if (!projectHas("ui")) m_uiWorkspaceOpen = false;
 }
 
 // ---------------------------------------------------------------- Project builds

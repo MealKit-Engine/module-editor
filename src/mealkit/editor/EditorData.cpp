@@ -354,6 +354,10 @@ void Editor::openSettingsPage(SettingsPage page) {
 }
 
 void Editor::openPreviewPage(PreviewPage page) {
+    if (page == PreviewPage::Ui) { // game screens have their own [UI] workspace now
+        openUiPanel();
+        return;
+    }
     m_previewOpen = true;
     m_previewPage = page;
     m_previewFrontFrames = 3;
@@ -421,9 +425,9 @@ void Editor::drawSettingsHub() {
     ImGui::End();
 }
 
-// [Previews] window: game screens, models and cutscenes. The UI overlay and look dev rendering run only while their page is chosen
+// [Previews] window: models and cutscenes (game screens are the [UI] workspace). Look dev renders only while its page is chosen
 void Editor::drawPreviewHub() {
-    m_uiPanelOpen = m_previewOpen && m_previewPage == PreviewPage::Ui;
+    if (m_previewPage == PreviewPage::Ui) m_previewPage = PreviewPage::LookDev; // saved by an older editor
     m_lookdevOpen = m_previewOpen && m_previewPage == PreviewPage::LookDev;
     if (!m_previewOpen) return;
     ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 40.0f, ImGui::GetFontSize() * 34.0f), ImGuiCond_FirstUseEver);
@@ -432,8 +436,8 @@ void Editor::drawPreviewHub() {
         ImGui::SetNextWindowFocus();
     }
     if (!ImGui::Begin(iconTitle(icon::kPreview, "Previews###Previews").c_str(), &m_previewOpen)) {
-        // Behind another tab (it's open by default, docked with the inspector): no UI overlay on the scene view, no look dev rendering
-        m_uiPanelOpen = m_lookdevOpen = false;
+        // Behind another tab (it's open by default, docked with the inspector): no look dev rendering
+        m_lookdevOpen = false;
         ImGui::End();
         return;
     }
@@ -446,14 +450,13 @@ void Editor::drawPreviewHub() {
                 ImGui::EndTabItem();
             }
         };
-        flagged(tr("UI"), PreviewPage::Ui);
         flagged(tr("Look Dev"), PreviewPage::LookDev);
         flagged(tr("Preview Cutscene"), PreviewPage::Cutscene);
         ImGui::EndTabBar();
     }
     if (ImGui::BeginChild("##previewPage")) {
         switch (m_previewPage) {
-        case PreviewPage::Ui: m_uiPanel.drawContent(); break;
+        case PreviewPage::Ui: break;
         case PreviewPage::LookDev:
             if (m_renderer) m_lookdev.drawContent(*m_renderer);
             break;
