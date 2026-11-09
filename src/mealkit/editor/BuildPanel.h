@@ -26,6 +26,8 @@ public:
     bool running() const { return m_process.running(); }
     BuildKind kind() const { return m_kind; }
     bool succeeded() const { return m_succeeded; }
+    // The last build stopped because the engine editor build failed (tools\build.ps1's message): usually this editor holds mealkit.dll
+    bool engineBuildFailed() const { return !m_succeeded && m_log.find("Engine editor build failed") != std::string::npos; }
 
     bool takeOpenRequest() { const bool open = m_open; m_open = false; return open; } // a build wants its log seen
     // Status bar "Building... N s" (draws nothing and returns false when not building)

@@ -567,6 +567,9 @@ private:
     bool m_gameCodeBuilt = false;
     bool m_gameCodeFailed = false;
     bool m_gameLoaded = false;
+    bool m_engineRestartPrompt = false; // a build failed because the engine needs rebuilding under this editor
+    void drawEngineRestartPrompt();
+    bool restartAndRebuild(); // tools\rebuild_editor.ps1: waits for this editor to exit, builds the engine, reopens the project
     bool m_noGameHintClosed = false; // the "not built yet" card over the scene view was closed (until the project opens again)
     std::string m_gameStatus;
     ChildProcess m_layoutCheck; // tools\check_layout.ps1 (when opening a project)

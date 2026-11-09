@@ -15,6 +15,7 @@
 #include "mealkit/platform/FileDialog.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/Process.h"
+#include "mealkit/platform/System.h"
 #include "mealkit/platform/Window.h"
 #include "mealkit/render/Environment.h"
 #include "mealkit/render/ModelDraw.h"
@@ -401,6 +402,7 @@ void Editor::update(f64 dt) {
     if (m_editActive && !ImGui::IsAnyItemActive() && !ImGuizmo::IsUsing()) m_editActive = false;
 
     drawPopups();
+    drawEngineRestartPrompt();
     updateAutosave(dt);
     updateTitle();
 }
@@ -1019,16 +1021,30 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     ImGui::DockBuilderSetNodeSize(dockId, viewport->WorkSize);
     ImGuiID center = dockId;
     // UI: the workspace gets most of the window (narrow side columns, a short bottom row)
+    // UI: the workspace has its own layers and inspector, so only the bottom row stays beside it
     const bool uiLayout = preset == LayoutPreset::Ui;
-    const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, uiLayout ? 0.12f : 0.17f, nullptr, &center);
-    const f32 rightShare = preset == LayoutPreset::LookDev ? 0.42f : uiLayout ? 0.18f : 0.27f;
+    if (uiLayout) {
+        const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.16f, nullptr, &center);
+        ImGui::DockBuilderDockWindow(kUiWindow, center);
+        ImGui::DockBuilderDockWindow(kSceneWindow, center);
+        for (const char* w : kBottomWindows) ImGui::DockBuilderDockWindow(w, bottom);
+        ImGui::DockBuilderDockWindow("Data###Data", bottom);
+        // Closed here, but docked in the bottom row so [Window] reopens them as tabs there instead of floating over the workspace
+        for (const char* w : {kHierarchyWindow, kInspectorWindow, "Previews###Previews"}) ImGui::DockBuilderDockWindow(w, bottom);
+        ImGui::DockBuilderFinish(dockId);
+        m_hierarchyOpen = m_inspectorOpen = m_previewOpen = false; // the other layouts bring them back
+        openUiPanel();
+        return;
+    }
+    m_previewOpen = true;
+    const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.17f, nullptr, &center);
+    const f32 rightShare = preset == LayoutPreset::LookDev ? 0.42f : 0.27f;
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, rightShare, nullptr, &center);
-    const f32 bottomShare = preset == LayoutPreset::Play || uiLayout ? 0.16f : 0.26f;
+    const f32 bottomShare = preset == LayoutPreset::Play ? 0.18f : 0.26f;
     const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, bottomShare, nullptr, &center);
-    ImGui::DockBuilderDockWindow(kUiWindow, center); // a tab behind the viewport (in front in the UI layout)
+    ImGui::DockBuilderDockWindow(kUiWindow, center); // a tab behind the viewport
     ImGui::DockBuilderDockWindow(kSceneWindow, center);
-    if (uiLayout) openUiPanel();
-    else m_sceneFrontFrames = 2;
+    m_sceneFrontFrames = 2;
     ImGui::DockBuilderDockWindow(kHierarchyWindow, left);
     if (preset == LayoutPreset::LookDev) {
         const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
@@ -3253,8 +3269,12 @@ void Editor::setProject(const ProjectInfo& project) {
                 if (end > start) m_paletteRecent.push_back(text.substr(start, end - start));
         }
     }
-    // Window layout per project (build\editor\layout.ini). A project opened for the first time gets the default layout
-    if (m_prefs.projectLayout && !project.directory.empty()) {
+    // Window layout per project (build\editor\layout.ini). A project opened for the first time gets the default layout.
+    // Automated runs (--frames, captures) always start from the default layout and save none, so they never change the user's
+    if (m_automated) {
+        ImGui::GetIO().IniFilename = nullptr;
+        m_layoutReset = true;
+    } else if (m_prefs.projectLayout && !project.directory.empty()) {
         const std::string folder = project.directory + "\\build\\editor";
         createDirectories(folder);
         if (!m_imgui.setIniPath(folder + "\\layout.ini")) m_layoutReset = true;
@@ -3367,6 +3387,7 @@ void Editor::pollBuild() {
     if (!m_buildPanel.poll(m_project, m_time)) return;
     const BuildKind kind = m_buildPanel.kind();
     if (!m_buildPanel.succeeded()) {
+        if (m_buildPanel.engineBuildFailed()) m_engineRestartPrompt = true; // the engine changed under this editor
         if (kind == BuildKind::GameCode) {
             m_gameCodeFailed = true;
             if (!m_gameLoaded) m_gameStatus = tr("Game code build failed - fix it and press Ctrl+R");
@@ -3384,6 +3405,48 @@ void Editor::pollBuild() {
     } else if (kind == BuildKind::GameCode) {
         m_gameCodeBuilt = true;
     }
+}
+
+// The engine changed while this editor runs: its mealkit.dll is in use, so the build can't relink it. Offer to close, rebuild and reopen
+void Editor::drawEngineRestartPrompt() {
+    if (m_engineRestartPrompt) {
+        ImGui::OpenPopup("##engineRestart");
+        m_engineRestartPrompt = false;
+    }
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("##engineRestart", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) return;
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+    ImGui::TextUnformatted(tr("The engine changed, but this editor is still using the old engine (mealkit.dll), so the engine can't be rebuilt while it is open."));
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", tr("Restart saves your changes, closes the editor, builds the engine in a console window and opens this project again. The game code is built when it opens."));
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    if (ImGui::Button(tr("Save, Restart and Rebuild"))) {
+        restartAndRebuild();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Later"))) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+bool Editor::restartAndRebuild() {
+    const std::string script = m_engineDirectory + "\\tools\\rebuild_editor.ps1";
+    if (!fileExists(script)) {
+        setStatus(tr("This engine has no tools\\rebuild_editor.ps1: close the editor and rebuild the engine's editor"), true);
+        return false;
+    }
+    saveAll();
+    const std::string args = "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Project \"" + m_project.directory + "\" -WaitPid " +
+                             std::to_string(processId());
+    if (!launchDetached("powershell.exe", args, m_engineDirectory)) {
+        setStatus(tr("Could not start the engine rebuild"), true);
+        return false;
+    }
+    MEALKIT_INFO("Restarting to rebuild the engine: %s", script.c_str());
+    m_quit = true;
+    return true;
 }
 
 void Editor::drawBuildLog() {
