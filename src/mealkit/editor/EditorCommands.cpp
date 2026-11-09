@@ -48,6 +48,7 @@ void Editor::buildCommands() {
          [this] { m_dataFocused ? dataStep(false) : uiEditing() ? m_uiPanel.redo() : redo(); }},
         {"History", ImGuiMod_Ctrl | ImGuiKey_H, 0, always, [this] { m_historyOpen = !m_historyOpen; }},
         {"Select All", ImGuiMod_Ctrl | ImGuiKey_A, 0, editing, [this] {
+             if (uiEditing()) return m_uiPanel.selectAll(); // the [UI] tab: the selected node's siblings
              std::vector<u32> ids;
              for (const scene::Entity& e : m_scene.entities)
                  if (!isHidden(e) && !isLocked(e)) ids.push_back(e.id);
@@ -131,6 +132,15 @@ void Editor::buildCommands() {
         {"UI Interact Mode", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("interact"); }},
         {"Save UI Screen as PNG", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.capturePng(); }},
         {"Add UI Frame", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.addNew("frame"); }},
+        {"UI Wrap in Frame", ImGuiMod_Ctrl | ImGuiKey_G, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.wrapSelected(); }},
+        {"UI Align Left", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(0); }},
+        {"UI Align Center", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(1); }},
+        {"UI Align Right", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(2); }},
+        {"UI Align Top", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(3); }},
+        {"UI Align Middle", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(4); }},
+        {"UI Align Bottom", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(5); }},
+        {"UI Distribute Horizontally", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.distributeSelected(false); }},
+        {"UI Distribute Vertically", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.distributeSelected(true); }},
         {"UI Layout", 0, 0, always, [this] { m_layoutPreset = LayoutPreset::Ui; m_layoutReset = true; }}, // the [UI] workspace in front, given most of the window
         {"Build Game Code (Hot Reload)", ImGuiMod_Ctrl | ImGuiKey_R, 0,
          [this, canBuild] { return canBuild() && m_mode == Mode::Edit; }, [this] { startBuild(BuildKind::GameCode); }},
