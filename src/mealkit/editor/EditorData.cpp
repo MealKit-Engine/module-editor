@@ -432,6 +432,8 @@ void Editor::drawPreviewHub() {
         ImGui::SetNextWindowFocus();
     }
     if (!ImGui::Begin(iconTitle(icon::kPreview, "Previews###Previews").c_str(), &m_previewOpen)) {
+        // Behind another tab (it's open by default, docked with the inspector): no UI overlay on the scene view, no look dev rendering
+        m_uiPanelOpen = m_lookdevOpen = false;
         ImGui::End();
         return;
     }

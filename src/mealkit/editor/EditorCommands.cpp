@@ -60,7 +60,7 @@ void Editor::buildCommands() {
         {"Save as Prefab...", 0, 0, hasSelection, [this] { saveSelectionAsPrefab(); }},
         {"Delete", ImGuiKey_Delete, 0, [this, hasSelection] { return uiEditing() || hasSelection(); },
          [this] { uiEditing() ? (void)m_uiPanel.deleteSelected() : deleteSelected(); }},
-        {"Find in Scene Tree", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] {
+        {"Find in Hierarchy", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] {
              m_hierarchyOpen = true;
              m_treeSearchFocus = true;
          }},
@@ -135,8 +135,8 @@ void Editor::buildCommands() {
          [this] { openInExplorer(m_project.directory); }},
         {"Build Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Build); }},
         {"Assets", 0, 0, always, [this] { m_assetsOpen = !m_assetsOpen; }},
-        {"Scene Tree", 0, 0, always, [this] { m_hierarchyOpen = !m_hierarchyOpen; }},
-        {"Scene", 0, 0, editing, [this] { m_sceneOpen = !m_sceneOpen; }},
+        {"Hierarchy", 0, 0, always, [this] { m_hierarchyOpen = !m_hierarchyOpen; }},
+        {"Viewport", 0, 0, editing, [this] { m_sceneOpen = !m_sceneOpen; }},
         {"Inspector", 0, 0, always, [this] { m_inspectorOpen = !m_inspectorOpen; }},
         {"Performance", 0, 0, always, [this] { toggleDebugPage(DebugPage::Performance); }},
         {"Memory", 0, 0, always, [this] { toggleDebugPage(DebugPage::Memory); }},

@@ -1,4 +1,4 @@
-﻿#include "mealkit/editor/Editor.h"
+#include "mealkit/editor/Editor.h"
 #include "mealkit/editor/SharedBuild.h"
 #include "mealkit/editor/EditorColors.h"
 
@@ -39,9 +39,9 @@ namespace {
 using scene::Entity;
 
 constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
-constexpr const char* kHierarchyWindow = "Scene Tree###Hierarchy";
+constexpr const char* kHierarchyWindow = "Hierarchy###Hierarchy";
 constexpr const char* kInspectorWindow = "Inspector###Inspector";
-constexpr const char* kSceneWindow = "Scene###SceneView";
+constexpr const char* kSceneWindow = "Viewport###SceneView";
 // Windows docked as tabs in the bottom row (default layout)
 const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // menu bar during play
 const char* const kBottomWindows[] = {"Assets###Assets", "Debug###Debug"};
@@ -497,7 +497,20 @@ void Editor::drawSceneWindow(unsigned int dockId) {
     ImGui::PopStyleVar();
     m_sceneHovered = m_sceneVisible && ImGui::IsWindowHovered();
     if (m_sceneVisible) { // behind another tab it keeps its last size, so a playing game doesn't resize
-        const ImVec2 pos = ImGui::GetCursorScreenPos(), size = ImGui::GetContentRegionAvail();
+        ImVec2 pos = ImGui::GetCursorScreenPos(), size = ImGui::GetContentRegionAvail();
+        // The tool bar is one row along the top of the tab and the 3D picture starts below it. The row stays during play
+        // (holding the play status) so starting and stopping don't resize the picture
+        m_toolbarHeight = 0.0f;
+        if (size.y > ImGui::GetFrameHeight() * 6.0f) {
+            m_toolbarHeight = std::floor(ImGui::GetFrameHeight() + 8.0f);
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            draw->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + m_toolbarHeight), ImGui::GetColorU32(ImGuiCol_WindowBg));
+            if (m_mode == Mode::Play)
+                draw->AddText(ImVec2(pos.x + 10.0f, pos.y + (m_toolbarHeight - ImGui::GetFontSize()) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                              m_playStatus.empty() ? tr("Playing") : m_playStatus.c_str());
+            pos.y += m_toolbarHeight;
+            size.y -= m_toolbarHeight;
+        }
         m_viewport = {pos.x, pos.y, std::max(size.x, 1.0f), std::max(size.y, 1.0f)};
         ImGuizmo::SetAlternativeWindow(ImGui::FindWindowByName(kSceneWindow)); // GetCurrentWindow reads DLL data
     }
@@ -983,9 +996,12 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
         ImGui::DockBuilderDockWindow("Previews###Previews", right);
         right = rightBottom;
         openPreviewPage(PreviewPage::LookDev);
+    } else {
+        ImGui::DockBuilderDockWindow("Previews###Previews", right); // a tab behind the inspector
     }
     ImGui::DockBuilderDockWindow(kInspectorWindow, right);
     for (const char* w : kBottomWindows) ImGui::DockBuilderDockWindow(w, bottom);
+    ImGui::DockBuilderDockWindow("Data###Data", bottom);
     ImGui::DockBuilderFinish(dockId);
     focusPanel(kInspectorWindow);
     if (preset == LayoutPreset::Play) openDebugPage(DebugPage::State);
@@ -1002,6 +1018,13 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("Project"))) {
         commandMenuItem("Settings..."); // project settings, preferences, tools and shortcuts are its pages
         ImGui::Separator();
+        // Back to the project list: the installed MealKit Manager, else this editor's own project manager. The editor stays open
+        if (ImGui::MenuItem(tr("Project Manager"))) {
+            const std::string manager = editorUserDirectory() + "\\manager\\MealKitManager.exe";
+            const bool started = fileExists(manager) ? launchDetached(manager, "--engine \"" + m_engineDirectory + "\"", m_engineDirectory)
+                                                     : launchDetached(executableDirectory() + "\\MealKitEditor.exe", "--builtin-manager", m_engineDirectory);
+            if (!started) setStatus(tr("Could not start the project manager"), true);
+        }
         commandMenuItem("Open Project Folder");
         commandMenuItem("Open Release Folder");
         ImGui::Separator();
@@ -1047,8 +1070,8 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Window"))) {
-        commandMenuItem("Scene Tree", &m_hierarchyOpen);
-        commandMenuItem("Scene", &m_sceneOpen);
+        commandMenuItem("Hierarchy", &m_hierarchyOpen);
+        commandMenuItem("Viewport", &m_sceneOpen);
         commandMenuItem("Inspector", &m_inspectorOpen);
         ImGui::Separator();
         commandMenuItem("Assets", &m_assetsOpen);
@@ -1133,19 +1156,8 @@ void Editor::drawMenuBar() {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("%s", editing && !m_gameLoaded ? m_gameStatus.c_str() : editing ? tr("Play (F5)") : tr("Stop (F5)"));
 
-    // The bar's controls sit directly on it until hovered
+    // The bar's controls sit directly on it until hovered. Switching scenes is in the Scene menu and the status bar's scene name
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-    // Scene switcher: open another scene without leaving the play button. The one place the scene's name and unsaved mark show while editing
-    if (editing && !m_project.directory.empty()) {
-        const std::string current = m_scenePath.empty() ? std::string(tr("Untitled")) : fileName(m_scenePath);
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
-        if (beginCombo("##sceneSwitch", (current + (m_dirty ? " *" : "")).c_str())) {
-            const std::string folder = m_project.directory + "\\assets\\scenes";
-            for (const std::string& f : listFiles(folder, ".scene"))
-                if (ImGui::Selectable(f.c_str(), f == current) && f != current) openSceneFile(folder + "\\" + f);
-            ImGui::EndCombo();
-        }
-    }
 
     // Play options (only before play, so the play controls have the room): player count, with several more join windows open
     if (editing) {
@@ -1186,10 +1198,23 @@ void Editor::drawStatusBar() {
         if (ImGui::BeginMenuBar()) {
             // Space between groups instead of divider characters
             const auto gap = [] { ImGui::Dummy(ImVec2(ImGui::GetFontSize() * 0.75f, 0.0f)); };
-            // While editing the scene's name is in the switcher on the menu bar
-            if (m_mode != Mode::Edit || m_project.directory.empty()) {
+            // The open scene and its unsaved mark; clicking it while editing lists the project's scenes to switch to
+            {
                 const std::string name = m_scenePath.empty() ? tr("Untitled") : fileName(m_scenePath);
                 ImGui::TextDisabled("%s%s", name.c_str(), m_dirty ? " *" : "");
+                if (m_mode == Mode::Edit && !m_project.directory.empty()) {
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                        ImGui::SetTooltip("%s", tr("Open another scene"));
+                    }
+                    if (ImGui::IsItemClicked()) ImGui::OpenPopup("##sceneSwitch");
+                    if (ImGui::BeginPopup("##sceneSwitch")) {
+                        const std::string folder = m_project.directory + "\\assets\\scenes";
+                        for (const std::string& f : listFiles(folder, ".scene"))
+                            if (ImGui::Selectable(f.c_str(), f == name) && f != name) openSceneFile(folder + "\\" + f);
+                        ImGui::EndPopup();
+                    }
+                }
                 gap();
             }
             ImGui::TextDisabled(tr("%zu objects"), m_scene.entities.size());
@@ -1514,7 +1539,7 @@ void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vec
                                                     ImGui::GetColorU32(on ? ImGuiCol_Text : ImGuiCol_TextDisabled), glyph);
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", lockSet ? tr("Lock (cannot be picked in the scene view)") : tr("Hide in the scene view"));
+                ImGui::SetTooltip("%s", lockSet ? tr("Lock (cannot be picked in the viewport)") : tr("Hide in the viewport"));
             ImGui::PopID();
         }
         ImGui::SetCursorScreenPos(back);
@@ -1564,7 +1589,7 @@ void Editor::drawInspector(bool editing) {
         drawEnvironment();
     } else if (!e) {
         ImGui::TextDisabled("%s", tr("Nothing selected."));
-        ImGui::TextDisabled("%s", tr("Click in the viewport or pick from the scene tree."));
+        ImGui::TextDisabled("%s", tr("Click in the viewport or pick from the hierarchy."));
     } else {
         if (m_nameBufferId != e->id) {
             strncpy_s(m_nameBuffer, e->name.c_str(), _TRUNCATE);
@@ -1962,7 +1987,7 @@ void Editor::drawEnvironment() {
     }
     if (ImGui::Button(tr("Grading capture"))) m_gradeRequested = true;
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", tr("Saves the scene view without the LUT to art/grading/ with a neutral .cube. Grade it in DaVinci "
+        ImGui::SetTooltip("%s", tr("Saves the viewport without the LUT to art/grading/ with a neutral .cube. Grade it in DaVinci "
                                    "Resolve or Photoshop, export a 32-point .cube into assets/lut/ and pick it above."));
     c |= ImGui::DragFloat(propertyRow(tr("Bloom intensity")).c_str(), &post.bloomIntensity, 0.01f, 0.0f, 2.0f, "%.2f");
     c |= ImGui::DragFloat(propertyRow(tr("Bloom threshold")).c_str(), &post.bloomThreshold, 0.02f, 0.0f, 16.0f, "%.2f");
@@ -2003,6 +2028,27 @@ void Editor::drawGizmo() {
 
     ImGuizmo::SetOrthographic(m_ortho);
     ImGuizmo::SetRect(m_viewport.x, m_viewport.y, m_viewport.width, m_viewport.height);
+    {
+        // Rounder, thicker handles that read at a glance (softer axis colors, big round ends and centre), scaled with the UI
+        ImGuizmo::Style& style = ImGuizmo::GetStyle();
+        const f32 k = std::max(1.0f, ImGui::GetFontSize() / 16.0f);
+        style.TranslationLineThickness = 5.0f * k;
+        style.TranslationLineArrowSize = 9.0f * k;
+        style.RotationLineThickness = 5.0f * k;
+        style.RotationOuterLineThickness = 4.0f * k;
+        style.ScaleLineThickness = 5.0f * k;
+        style.ScaleLineCircleSize = 9.0f * k;
+        style.CenterCircleSize = 8.0f * k;
+        style.HatchedAxisLineThickness = 0.0f; // no dashed negative axes
+        style.Colors[ImGuizmo::DIRECTION_X] = ImVec4(0.95f, 0.36f, 0.38f, 1.0f);
+        style.Colors[ImGuizmo::DIRECTION_Y] = ImVec4(0.45f, 0.85f, 0.40f, 1.0f);
+        style.Colors[ImGuizmo::DIRECTION_Z] = ImVec4(0.36f, 0.58f, 1.00f, 1.0f);
+        style.Colors[ImGuizmo::PLANE_X] = ImVec4(0.95f, 0.36f, 0.38f, 0.45f);
+        style.Colors[ImGuizmo::PLANE_Y] = ImVec4(0.45f, 0.85f, 0.40f, 0.45f);
+        style.Colors[ImGuizmo::PLANE_Z] = ImVec4(0.36f, 0.58f, 1.00f, 0.45f);
+        style.Colors[ImGuizmo::SELECTION] = ImVec4(1.00f, 0.80f, 0.25f, 1.0f);
+        ImGuizmo::SetGizmoSizeClipSpace(0.13f);
+    }
     f32 matrix[16];
     compose(scene::worldTransform(m_scene, *e), matrix); // the gizmo is in world space; the result is converted back to parent-relative
 
@@ -2026,39 +2072,34 @@ void Editor::drawGizmo() {
 
 // Toolbar overlaid on the viewport (top left) and axis gizmo (top right; clicking an axis views from that side)
 void Editor::drawViewportToolbar() {
-    if (m_viewport.width < 200.0f || m_viewport.height < 120.0f) return;
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
-                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-    const f32 cubeSize = std::floor(ImGui::GetFrameHeight() * 3.0f); // axis gizmo in the top right corner
-    ImGui::SetNextWindowPos(ImVec2(m_viewport.x + 8.0f, m_viewport.y + 8.0f));
-    ImGui::SetNextWindowBgAlpha(0.82f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
+    if (m_viewport.width < 200.0f || m_viewport.height < 120.0f || m_toolbarHeight <= 0.0f) return;
+    // One row docked along the top of the scene tab (drawSceneWindow reserves it), the 3D picture below. A narrow tab clips the end of the row
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                   ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+    const f32 cubeSize = std::floor(ImGui::GetFrameHeight() * 3.0f); // axis gizmo in the picture's top right corner
+    ImGui::SetNextWindowPos(ImVec2(m_viewport.x, m_viewport.y - m_toolbarHeight));
+    ImGui::SetNextWindowSize(ImVec2(m_viewport.width, m_toolbarHeight));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 4.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     if (ImGui::Begin("##ViewportToolbar", nullptr, flags)) {
         auto tip = [](const char* text) {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", text);
         };
-        // Groups stay on one row while they fit beside the axis gizmo and flow onto the next row in a narrow viewport,
-        // so the toolbar never covers the panels. Group widths come from the previous frame.
-        static f32 groupWidths[3] = {};
-        const f32 rowLimit = m_viewport.width - cubeSize - 32.0f;
         const f32 gap = ImGui::GetFontSize();
-        f32 rowUsed = 0.0f;
         const auto beginGroup = [&](int g) {
-            if (g > 0 && rowUsed + gap + groupWidths[g] <= rowLimit) {
-                ImGui::SameLine(0.0f, gap);
-                rowUsed += gap;
-            } else {
-                rowUsed = 0.0f;
+            if (g > 0) {
+                ImGui::SameLine(0.0f, gap * 0.5f);
+                // Thin divider between groups
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const f32 h = ImGui::GetFrameHeight();
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + h * 0.2f), ImVec2(p.x, p.y + h * 0.8f), ImGui::GetColorU32(ImGuiCol_Separator));
+                ImGui::Dummy(ImVec2(1.0f, h));
+                ImGui::SameLine(0.0f, gap * 0.5f);
             }
             ImGui::BeginGroup();
         };
-        const auto endGroup = [&](int g) {
-            ImGui::EndGroup();
-            groupWidths[g] = ImGui::GetItemRectSize().x;
-            rowUsed += groupWidths[g];
-        };
+        const auto endGroup = [](int) { ImGui::EndGroup(); };
 
         beginGroup(0);
         if (iconButton(icon::kMove, tr("Move W"), m_gizmoOp == 0)) m_gizmoOp = 0;
@@ -3134,7 +3175,7 @@ void Editor::tagCommandModules() {
         const char* module;
     };
     static constexpr ModuleOf kModuleOf[] = {
-        {"Scene Tree", "scene"}, {"Scene", "scene"},       {"Inspector", "scene"}, {"Find in Scene Tree", "scene"},
+        {"Hierarchy", "scene"}, {"Viewport", "scene"},     {"Inspector", "scene"}, {"Find in Hierarchy", "scene"},
         {"Assets", "asset"},     {"Data", "data"},         {"Tuning", "data"},     {"Tables", "data"},
         {"Feedback", "feedback"}, {"Effects", "feedback"}, {"Sounds", "audio"},    {"State", "sim"},
         {"Previews", "render"},
@@ -3379,14 +3420,23 @@ void Editor::drawPlayFrame() {
 }
 
 void Editor::drawEmptyViewport() {
-    if (m_mode != Mode::Edit || m_gameLoaded || m_project.directory.empty()) return;
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove;
-    ImGui::SetNextWindowPos(ImVec2(m_viewport.x + m_viewport.width * 0.5f, m_viewport.y + m_viewport.height * 0.5f),
-                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    // A small card at the top of the picture, under every other window, that the user can close (the status bar keeps the game code status)
+    if (m_mode != Mode::Edit || m_gameLoaded || m_project.directory.empty() || m_noGameHintClosed || !m_sceneVisible) return;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                   ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+    ImGui::SetNextWindowPos(ImVec2(m_viewport.x + m_viewport.width * 0.5f, m_viewport.y + 12.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.9f);
     if (ImGui::Begin("##NoGameCode", nullptr, flags)) {
+        // Close at the right end of the first row; it stays closed until the project is opened again
+        const auto closeButton = [this] {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("x")) m_noGameHintClosed = true;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", tr("Hide"));
+        };
         if (!projectHas("game")) { // kernel-only or without the game module: there is no game for the editor to load
             ImGui::TextUnformatted(tr("This project has no game module, so there is nothing to play here."));
+            closeButton();
             ImGui::TextDisabled("%s", tr("Add engine modules in Window > Modules."));
             if (ImGui::Button(tr("Modules"))) m_modulesOpen = true;
             ImGui::End();
@@ -3394,10 +3444,12 @@ void Editor::drawEmptyViewport() {
         }
         if (!hasCompiler()) {
             ImGui::TextUnformatted(m_gameStatus.c_str());
+            closeButton();
             ImGui::End();
             return;
         }
         ImGui::TextUnformatted(tr("The game code is not built yet. Build it to play."));
+        closeButton();
         ImGui::BeginDisabled(m_buildPanel.running());
         if (ImGui::Button(tr("Build Game Code"))) startBuild(BuildKind::GameCode);
         ImGui::EndDisabled();

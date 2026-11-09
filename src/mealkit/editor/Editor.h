@@ -440,6 +440,7 @@ private:
     Mat4 m_view;
     Mat4 m_proj;
     render::Viewport m_viewport;
+    f32 m_toolbarHeight = 0.0f; // scene tab's tool bar row above m_viewport (0 during play)
 
     int m_gizmoOp = 0; // 0 move, 1 rotate, 2 scale
     bool m_gizmoLocal = false;
@@ -565,6 +566,7 @@ private:
     bool m_gameCodeBuilt = false;
     bool m_gameCodeFailed = false;
     bool m_gameLoaded = false;
+    bool m_noGameHintClosed = false; // the "not built yet" card over the scene view was closed (until the project opens again)
     std::string m_gameStatus;
     ChildProcess m_layoutCheck; // tools\check_layout.ps1 (when opening a project)
     TablesPanel m_tablesPanel;
@@ -579,7 +581,7 @@ private:
     void drawDataHub(f64 dt, bool editing);
     bool dataCanStep(bool back) const;
     void dataStep(bool back);
-    bool m_dataOpen = false;
+    bool m_dataOpen = true; // new projects start with every panel open (docked by setupDefaultLayout)
     bool m_dataFocused = false; // Ctrl+Z goes to the open document instead of the scene
     DataPage m_dataPage = DataPage::Tuning;
     int m_dataIndex = 0;
@@ -636,7 +638,7 @@ private:
     bool m_settingsOpen = false;
     SettingsPage m_settingsPage = SettingsPage::Project;
     int m_settingsFrontFrames = 0;
-    bool m_previewOpen = false;
+    bool m_previewOpen = true;
     PreviewPage m_previewPage = PreviewPage::Ui;
     int m_previewFrontFrames = 0;
     bool m_revertSceneArmed = false; // a second click reverts: the scene's undo steps don't survive it

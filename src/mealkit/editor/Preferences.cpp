@@ -100,7 +100,7 @@ bool drawSnapSettings(Preferences& p) {
 
 bool PreferencesPanel::drawContent(Preferences& p) {
     bool changed = false;
-    ImGui::SeparatorText(tr("Scene view"));
+    ImGui::SeparatorText(tr("Viewport"));
     changed |= ImGui::SliderFloat(tr("Camera speed"), &p.cameraSpeed, 1.0f, 100.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
     changed |= drawSnapSettings(p);
     ImGui::SeparatorText(tr("Interface"));

@@ -6,7 +6,7 @@
 // Code uses the English source text and that is the key. Other languages are "source = translation" lines in engine/res/strings/<language>.txt; if missing, the source shows.
 //
 //   ImGui::TextUnformatted(tr("Recent projects"));
-//   ImGui::Begin(trl("Scene Tree"));              // "<translation>###Scene Tree": the window ID (docking) stays the same when the language changes
+//   ImGui::Begin(trl("Hierarchy"));               // "<translation>###Hierarchy": the window ID (docking) stays the same when the language changes
 //   message = trf("Saved %s", path.c_str());
 //
 // If the source has "##id" attached, only the part before it is translated and the rest is left as is.
