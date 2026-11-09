@@ -3,7 +3,7 @@
 @format module 1
 type engine
 name editor
-version 0.1.7
+version 0.1.8
 engine 0.9
 kind tool
 layer app
