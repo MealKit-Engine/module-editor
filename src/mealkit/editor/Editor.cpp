@@ -320,11 +320,13 @@ void Editor::update(f64 dt) {
         ImGui::PopStyleVar(2);
         // The gaps between docked panels are painted in WindowBg: make them the dark gutter so panels read as separate without lines
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
-        ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f));
+        // [UI] maximized (Shift+Space): the dock tree stays as it is but shows nothing; drawUiWorkspace covers the whole area
+        ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f), uiMaximized() ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
         ImGui::PopStyleColor();
         ImGui::End();
     }
     drawSceneWindow(dockId);
+    if (uiMaximized()) m_sceneVisible = m_sceneHovered = false; // hidden under the workspace: no gizmo, toolbar or picking
     drawUiWorkspace();
 
     if (m_sceneOpen) updateCamera(dt);
@@ -531,6 +533,21 @@ void Editor::drawSceneWindow(unsigned int dockId) {
 void Editor::drawUiWorkspace() {
     m_uiPanelOpen = false;
     if (!m_uiWorkspaceOpen) return;
+    if (uiMaximized()) { // over the whole dock area (menu and status bar stay), outside the dock tree so its tab stays where it was
+        const ImGuiViewport* main = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(main->WorkPos);
+        ImGui::SetNextWindowSize(main->WorkSize);
+        ImGui::SetNextWindowViewport(main->ID);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::Begin("##UiMaximized", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBackground |
+                                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar(2);
+        m_uiPanelOpen = true;
+        m_uiPanel.drawWorkspace();
+        ImGui::End();
+        return;
+    }
     if (const ImGuiWindow* scene = ImGui::FindWindowByName(kSceneWindow); scene && scene->DockId)
         ImGui::SetNextWindowDockID(scene->DockId, ImGuiCond_FirstUseEver); // layouts saved before the workspace existed
     if (m_uiFrontFrames > 0) { // asked to come to the front: keep asking until the tab shows (the dock node may not exist yet)

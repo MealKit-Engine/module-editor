@@ -134,6 +134,7 @@ public:
     void dragUiNode(const std::string& name, f32 dx, f32 dy) { m_uiPanel.queueTestDrag(name, dx, dy); } // --ui-drag
     // [UI] workspace in front while editing: undo/save/delete and canvas clicks go to the screen being edited
     bool uiEditing() const { return m_uiPanelOpen && m_mode == Mode::Edit && m_uiPanel.editing(); }
+    bool uiMaximized() const { return m_uiWorkspaceOpen && m_mode == Mode::Edit && m_uiPanel.maximized(); } // [UI] covers the dock area
     void renderUiPreview(render::Renderer& renderer, f64 dt) {
         if (m_uiPanelOpen && m_mode == Mode::Edit) m_uiPanel.render(renderer, dt);
     }
