@@ -70,7 +70,8 @@ void Editor::buildCommands() {
         {"Align Z", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(2); }},
         {"Distribute Evenly", 0, 0, [this] { return m_mode == Mode::Edit && m_multi.size() >= 2; },
          [this] { distributeSelection(); }},
-        {"Focus Selected", ImGuiKey_F, 0, hasSelection, [this] { focusSelected(); }},
+        {"Focus Selected", ImGuiKey_F, 0, [this, hasSelection] { return uiEditing() || hasSelection(); },
+         [this] { uiEditing() ? m_uiPanel.frameSelection() : focusSelected(); }},
         {"Move W", ImGuiKey_W, 0, editing, [this] { m_gizmoOp = 0; }},
         {"Rotate E", ImGuiKey_E, 0, editing, [this] { m_gizmoOp = 1; }},
         {"Scale R", ImGuiKey_R, 0, editing, [this] { m_gizmoOp = 2; }},
@@ -118,6 +119,9 @@ void Editor::buildCommands() {
         // [UI] workspace view (also its toolbar buttons): the canvas over the whole dock area, the side columns hidden
         {"Maximize UI Canvas", ImGuiMod_Shift | ImGuiKey_Space, 0, [this] { return m_uiPanelOpen || uiMaximized(); }, [this] { m_uiPanel.toggleMaximized(); }},
         {"Hide UI Side Columns", ImGuiMod_Ctrl | ImGuiKey_Backslash, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleColumns(); }},
+        {"Zoom UI to 100%", ImGuiMod_Shift | ImGuiKey_0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.zoomActual(); }},
+        {"Fit UI Screen", ImGuiMod_Shift | ImGuiKey_1, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.zoomFit(); }},
+        {"Zoom UI to Selection", ImGuiMod_Shift | ImGuiKey_2, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.frameSelection(); }},
         {"UI Layout", 0, 0, always, [this] { m_layoutPreset = LayoutPreset::Ui; m_layoutReset = true; }}, // the [UI] workspace in front, given most of the window
         {"Build Game Code (Hot Reload)", ImGuiMod_Ctrl | ImGuiKey_R, 0,
          [this, canBuild] { return canBuild() && m_mode == Mode::Edit; }, [this] { startBuild(BuildKind::GameCode); }},

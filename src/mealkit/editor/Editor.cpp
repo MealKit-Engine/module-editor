@@ -219,6 +219,7 @@ void Editor::loadPanelState() {
         const size_t space = line.find(' ');
         if (space == std::string::npos) continue;
         const std::string key = line.substr(0, space);
+        if (m_uiPanel.loadState(key, line.substr(space + 1))) continue; // ui.* lines: the [UI] workspace's screen and view
         const int value = std::atoi(line.c_str() + space + 1);
         for (const auto& [name, flag] : panels)
             if (key == name) *flag = value != 0;
@@ -240,6 +241,7 @@ void Editor::savePanelState() const {
     add("modules", m_modulesOpen);
     add("ui", m_uiWorkspaceOpen);
     add("previewPage", static_cast<int>(m_previewPage));
+    m_uiPanel.saveState(text);
     writeTextFile(m_panelStatePath, text);
 }
 
@@ -3301,6 +3303,7 @@ void Editor::setProject(const ProjectInfo& project) {
     m_tablesPanel.setProjectDirectory(project.directory);
     m_tuningPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);
+    m_uiPanel.setCodeEditor(&m_prefs.externalEditor);
     m_uiPanel.setProject(project.settings.language);
     applyRenderStyle(project.settings);
     live::ServerConfig lc;
