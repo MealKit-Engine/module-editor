@@ -130,6 +130,7 @@ void Editor::buildCommands() {
         {"UI Pseudo-Localize", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("pseudo"); }},
         {"UI Interact Mode", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("interact"); }},
         {"Save UI Screen as PNG", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.capturePng(); }},
+        {"Add UI Frame", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.addNew("frame"); }},
         {"UI Layout", 0, 0, always, [this] { m_layoutPreset = LayoutPreset::Ui; m_layoutReset = true; }}, // the [UI] workspace in front, given most of the window
         {"Build Game Code (Hot Reload)", ImGuiMod_Ctrl | ImGuiKey_R, 0,
          [this, canBuild] { return canBuild() && m_mode == Mode::Edit; }, [this] { startBuild(BuildKind::GameCode); }},
@@ -158,6 +159,8 @@ void Editor::buildCommands() {
         {"Memory", 0, 0, always, [this] { toggleDebugPage(DebugPage::Memory); }},
         {"Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Log); }},
     };
+    for (int i = 0; i < UiPanel::widgetCount(); ++i) // the [UI] workspace's library widgets, for the palette
+        m_commands.push_back({UiPanel::widgetCommand(i), 0, 0, [this] { return uiEditing(); }, [this, i] { m_uiPanel.insertWidget(i, nullptr, nullptr); }});
     tagCommandModules();
 }
 
@@ -183,13 +186,18 @@ void Editor::commandMenuItem(const char* name, const bool* selected) {
 }
 
 void Editor::runShortcuts() {
-    if (!m_queuedCommands.empty() && ImGui::GetFrameCount() > 2) { // --command: after scenes/models are fully loaded
-        for (const std::string& name : m_queuedCommands) {
-            const Command* c = findCommand(name.c_str());
-            if (c && c->enabled()) c->run();
-            else MEALKIT_WARN("--command %s: unknown or not available now", name.c_str());
+    // --command: after scenes/models are fully loaded, one per frame (like a person pressing keys: panels draw in between)
+    if (!m_queuedCommands.empty() && ImGui::GetFrameCount() > 2 + static_cast<int>(m_commandsRun)) {
+        const std::string name = m_queuedCommands.front();
+        m_queuedCommands.erase(m_queuedCommands.begin());
+        ++m_commandsRun;
+        const Command* c = findCommand(name.c_str());
+        if (c && c->enabled()) {
+            MEALKIT_INFO("--command %s", name.c_str());
+            c->run();
+        } else {
+            MEALKIT_WARN("--command %s: unknown or not available now", name.c_str());
         }
-        m_queuedCommands.clear();
     }
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput || m_looking) return;

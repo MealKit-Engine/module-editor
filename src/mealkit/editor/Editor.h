@@ -134,6 +134,9 @@ public:
     void setUiPreviewState(int state) { m_uiPanel.setPreviewState(state); } // --ui-state
     void dragUiNode(const std::string& name, f32 dx, f32 dy) { m_uiPanel.queueTestDrag(name, dx, dy); } // --ui-drag
     // [UI] workspace in front while editing: undo/save/delete and canvas clicks go to the screen being edited
+    // The [UI] tab is in front (edit mode): the scene's hierarchy and inspector have nothing to show for it, so they step aside and give
+    // the workspace their room (they come back with the Viewport tab). The UI layout closes them anyway
+    bool scenePanelsHidden() const { return m_uiPanelOpen && m_mode == Mode::Edit && !uiMaximized(); }
     bool uiEditing() const { return m_uiPanelOpen && m_mode == Mode::Edit && m_uiPanel.editing(); }
     bool uiMaximized() const { return m_uiWorkspaceOpen && m_mode == Mode::Edit && m_uiPanel.maximized(); } // [UI] covers the dock area
     void renderUiPreview(render::Renderer& renderer, f64 dt) {
@@ -374,6 +377,7 @@ private:
     int m_paletteCursor = 0;
     std::string m_paletteInitial;
     std::vector<std::string> m_queuedCommands;
+    u32 m_commandsRun = 0; // --command: one per frame
     void setStatus(const std::string& text, bool failed = false, NoticeOpen open = NoticeOpen::Log);
     void drawNotices();
     void drawPlayFrame();     // viewport border during play

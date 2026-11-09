@@ -428,8 +428,8 @@ void Editor::drawSettingsHub() {
 // [Previews] window: models and cutscenes (game screens are the [UI] workspace). Look dev renders only while its page is chosen
 void Editor::drawPreviewHub() {
     if (m_previewPage == PreviewPage::Ui) m_previewPage = PreviewPage::LookDev; // saved by an older editor
-    m_lookdevOpen = m_previewOpen && m_previewPage == PreviewPage::LookDev;
-    if (!m_previewOpen) return;
+    m_lookdevOpen = m_previewOpen && !scenePanelsHidden() && m_previewPage == PreviewPage::LookDev;
+    if (!m_previewOpen || scenePanelsHidden()) return; // look dev and cutscenes step aside for the [UI] tab like the inspector
     ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 40.0f, ImGui::GetFontSize() * 34.0f), ImGuiCond_FirstUseEver);
     if (m_previewFrontFrames > 0) {
         --m_previewFrontFrames;

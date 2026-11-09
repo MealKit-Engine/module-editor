@@ -1326,7 +1326,7 @@ void Editor::drawStatusBar() {
 }
 
 void Editor::drawHierarchy(bool editing) {
-    if (!m_hierarchyOpen) return;
+    if (!m_hierarchyOpen || scenePanelsHidden()) return;
     if (!ImGui::Begin(iconTitle(icon::kTree, kHierarchyWindow).c_str(), &m_hierarchyOpen)) {
         ImGui::End();
         return;
@@ -1649,7 +1649,7 @@ void Editor::reparent(u32 entityId, u32 parentId) {
 }
 
 void Editor::drawInspector(bool editing) {
-    if (!m_inspectorOpen) return;
+    if (!m_inspectorOpen || scenePanelsHidden()) return;
     if (m_focusPanel == kInspectorWindow) focusPanelNow();
     if (!ImGui::Begin(iconTitle(icon::kInspector, kInspectorWindow).c_str(), &m_inspectorOpen)) {
         ImGui::End();
