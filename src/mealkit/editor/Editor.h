@@ -348,8 +348,17 @@ private:
         int chord2; // second shortcut doing the same thing
         std::function<bool()> enabled;
         std::function<void()> run;
+        const char* module = nullptr; // engine module the command belongs to: hidden while the project doesn't have it
     };
     void buildCommands();
+    // Engine modules of the open project (docs/ENGINE_MODULES.md "Module selection"): its modules/ folders with "type engine"; the engine's
+    // samples and no project have every module. mealkit.dll always has all of them; the editor hides menus, commands and pages of the others
+    void readProjectModules();
+    void tagCommandModules(); // sets Command::module for windows and pages of engine modules (after buildCommands)
+    bool projectHas(const char* module) const;
+    void closePanelsOfMissingModules();
+    bool m_projectAllModules = true;
+    std::vector<std::string> m_projectModules;
     const Command* findCommand(const char* name) const;
     std::string shortcutText(const Command& c) const;
     void commandMenuItem(const char* name, const bool* selected = nullptr);

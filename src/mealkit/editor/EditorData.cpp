@@ -93,10 +93,12 @@ void Editor::drawDataHub(f64 dt, bool editing) {
         ImGui::SeparatorText(tr("Tables"));
         for (int i = 0; i < m_tablesPanel.docCount(); ++i) entry(m_tablesPanel.docName(i), DataPage::Table, i, m_tablesPanel.docDirty(i));
         if (m_tablesPanel.docCount() == 0) ImGui::TextDisabled("%s", tr("Tables appear when the game code is loaded (MEALKIT_TABLE)."));
-        ImGui::SeparatorText(tr("Reactions"));
-        entry(tr("Feedback"), DataPage::Feedback, 0, false);
-        entry(tr("Effects"), DataPage::Effects, 0, false);
-        if (m_audio) entry(tr("Sounds"), DataPage::Sounds, 0, false);
+        if (projectHas("feedback") || (m_audio && projectHas("audio"))) ImGui::SeparatorText(tr("Reactions"));
+        if (projectHas("feedback")) {
+            entry(tr("Feedback"), DataPage::Feedback, 0, false);
+            entry(tr("Effects"), DataPage::Effects, 0, false);
+        }
+        if (m_audio && projectHas("audio")) entry(tr("Sounds"), DataPage::Sounds, 0, false);
     }
     ImGui::EndChild();
     ImGui::SameLine();
@@ -268,8 +270,8 @@ void Editor::drawDebugHub() {
         entry(icon::kBuild, m_buildPanel.running() ? std::string(tr("Build Log")) + " ..." : std::string(tr("Build Log")), DebugPage::Build);
         entry(icon::kPerformance, tr("Performance"), DebugPage::Performance);
         entry(icon::kPerformance, tr("Memory"), DebugPage::Memory);
-        if (m_audio) entry(icon::kSound, tr("Sounds"), DebugPage::Sound);
-        entry(icon::kState, tr("State"), DebugPage::State);
+        if (m_audio && projectHas("audio")) entry(icon::kSound, tr("Sounds"), DebugPage::Sound);
+        if (projectHas("sim")) entry(icon::kState, tr("State"), DebugPage::State);
         const u32 failedTests = m_testsPanel.failedCount();
         entry(icon::kTests, failedTests ? trf("Tests (%u failed)", failedTests) : std::string(tr("Tests")), DebugPage::Tests);
         entry(icon::kBalance, tr("Balance"), DebugPage::Balance);

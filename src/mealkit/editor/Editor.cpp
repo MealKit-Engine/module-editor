@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <cmath>
 #include <cstring>
 #include <unordered_map>
@@ -349,7 +350,11 @@ void Editor::update(f64 dt) {
     drawSettingsHub();
     m_modulesPanel.draw(m_project, m_engineDirectory, m_mode == Mode::Edit, &m_modulesOpen);
     // Module sim/ and view/ are game code: adding or changing them rebuilds the game DLL
-    if (m_modulesPanel.takeChanged()) startBuild(BuildKind::GameCode);
+    if (m_modulesPanel.takeChanged()) {
+        readProjectModules(); // menus and pages follow the new selection
+        startBuild(BuildKind::GameCode);
+    }
+    closePanelsOfMissingModules();
     pollBuild();
     pollLayoutCheck();
     drawBuildLog();
@@ -1001,7 +1006,7 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem(tr("Exit"))) m_quit = true;
         ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu(tr("Scene"), editing)) {
+    if (projectHas("scene") && ImGui::BeginMenu(tr("Scene"), editing)) {
         commandMenuItem("New Scene");
         commandMenuItem("Open...");
         if (ImGui::BeginMenu(tr("Recent Scenes"), !m_recentScenes.empty())) {
@@ -1105,6 +1110,11 @@ void Editor::drawMenuBar() {
     }
 
 
+    // No game module: nothing to play, so no play button, scene switcher or player options
+    if (!projectHas("game")) {
+        ImGui::EndMainMenuBar();
+        return;
+    }
     const f32 width = ImGui::GetFrameHeight() * 2.2f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX() + 8.0f, (ImGui::GetWindowWidth() - width) * 0.5f));
     const ImVec4 color = editing ? ImVec4(0.18f, 0.48f, 0.26f, 1.0f) : ImVec4(0.62f, 0.20f, 0.18f, 1.0f);
@@ -3079,10 +3089,80 @@ void Editor::updateTitle() {
     }
 }
 
+// ---------------------------------------------------------------- Project modules
+
+void Editor::readProjectModules() {
+    m_projectModules.clear();
+    m_projectAllModules = true;
+    if (m_project.directory.empty()) return;
+    std::string dir = m_project.directory;
+    std::replace(dir.begin(), dir.end(), '/', '\\');
+    std::string samples = m_engineDirectory + "\\samples\\";
+    std::replace(samples.begin(), samples.end(), '/', '\\');
+    const auto lower = [](std::string s) {
+        for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+    if (!m_engineDirectory.empty() && lower(dir + "\\").rfind(lower(samples), 0) == 0) return; // the engine's samples: every module
+    m_projectAllModules = false;
+    std::error_code ec;
+    const std::string root = m_project.directory + "/modules";
+    const std::filesystem::path modules(std::u8string(reinterpret_cast<const char8_t*>(root.data()), root.size()));
+    for (std::filesystem::directory_iterator it(modules, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::u8string name8 = it->path().filename().u8string();
+        const std::string name(reinterpret_cast<const char*>(name8.data()), name8.size());
+        std::string text;
+        const std::string manifest = root + "/" + name + "/module.txt";
+        if (!readTextFile(manifest, text)) continue;
+        if (text.find("\ntype engine") == std::string::npos && text.rfind("type engine", 0) != 0) continue;
+        m_projectModules.push_back(name);
+    }
+    MEALKIT_INFO("Project engine modules: %s", m_projectModules.empty() ? "none (kernel only)" : [&] {
+        std::string all;
+        for (const std::string& m : m_projectModules) all += (all.empty() ? "" : " ") + m;
+        return all;
+    }().c_str());
+}
+
+// Table here, not in EditorCommands.cpp: tools\check_strings.ps1 reads that file's {"..."} pairs as UI text
+void Editor::tagCommandModules() {
+    // Commands of a window or page that belongs to an engine module: hidden and refused while the project doesn't have that module
+    struct ModuleOf {
+        const char* command;
+        const char* module;
+    };
+    static constexpr ModuleOf kModuleOf[] = {
+        {"Scene Tree", "scene"}, {"Scene", "scene"},       {"Inspector", "scene"}, {"Find in Scene Tree", "scene"},
+        {"Assets", "asset"},     {"Data", "data"},         {"Tuning", "data"},     {"Tables", "data"},
+        {"Feedback", "feedback"}, {"Effects", "feedback"}, {"Sounds", "audio"},    {"State", "sim"},
+        {"Previews", "render"},
+    };
+    for (Command& c : m_commands)
+        for (const ModuleOf& m : kModuleOf)
+            if (std::strcmp(c.name, m.command) == 0) {
+                c.module = m.module;
+                c.enabled = [this, module = m.module, enabled = std::move(c.enabled)] { return projectHas(module) && enabled(); };
+            }
+}
+
+bool Editor::projectHas(const char* module) const {
+    if (m_projectAllModules) return true;
+    return std::find(m_projectModules.begin(), m_projectModules.end(), module) != m_projectModules.end();
+}
+
+void Editor::closePanelsOfMissingModules() {
+    if (m_projectAllModules) return;
+    if (!projectHas("scene")) m_hierarchyOpen = m_sceneOpen = m_inspectorOpen = false;
+    if (!projectHas("asset")) m_assetsOpen = false;
+    if (!projectHas("data")) m_dataOpen = false;
+    if (!projectHas("render")) m_previewOpen = false;
+}
+
 // ---------------------------------------------------------------- Project builds
 
 void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
+    readProjectModules();
     loadViewState(); // the scene opens before the project
     loadRecentScenes();
     if (!m_scenePath.empty()) rememberRecentScene(m_scenePath);
@@ -3303,6 +3383,13 @@ void Editor::drawEmptyViewport() {
     ImGui::SetNextWindowPos(ImVec2(m_viewport.x + m_viewport.width * 0.5f, m_viewport.y + m_viewport.height * 0.5f),
                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     if (ImGui::Begin("##NoGameCode", nullptr, flags)) {
+        if (!projectHas("game")) { // kernel-only or without the game module: there is no game for the editor to load
+            ImGui::TextUnformatted(tr("This project has no game module, so there is nothing to play here."));
+            ImGui::TextDisabled("%s", tr("Add engine modules in Window > Modules."));
+            if (ImGui::Button(tr("Modules"))) m_modulesOpen = true;
+            ImGui::End();
+            return;
+        }
         if (!hasCompiler()) {
             ImGui::TextUnformatted(m_gameStatus.c_str());
             ImGui::End();

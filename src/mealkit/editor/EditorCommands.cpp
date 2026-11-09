@@ -142,6 +142,7 @@ void Editor::buildCommands() {
         {"Memory", 0, 0, always, [this] { toggleDebugPage(DebugPage::Memory); }},
         {"Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Log); }},
     };
+    tagCommandModules();
 }
 
 const Editor::Command* Editor::findCommand(const char* name) const {
@@ -159,6 +160,7 @@ void Editor::commandMenuItem(const char* name, const bool* selected) {
     const Command* c = findCommand(name);
     MEALKIT_ASSERT(c); // names used in menus must be in the command table
     if (!c) return;
+    if (c->module && !projectHas(c->module)) return; // the project doesn't have that module: no menu item
     const std::string keys = shortcutText(*c);
     if (ImGui::MenuItem(tr(name), keys.empty() ? nullptr : keys.c_str(), selected ? *selected : false, c->enabled()))
         c->run();
