@@ -47,7 +47,6 @@ private:
         const RegistryModule* registry = nullptr;
         bool engine = false; // engine module (MealKit's own, "engine" first in its tags)
         bool update = false; // a newer version for this engine than the installed one
-        bool inUse = false;  // an engine module the game builds with although it isn't in modules/ (the project has no engine modules)
     };
     // What the details pane shows for the picked module, read from files when the pick or the list changes
     struct Details {
@@ -62,7 +61,7 @@ private:
             int line = 0;
         };
         std::string name;
-        bool done = false, ok = false, lastEngine = false;
+        bool done = false, ok = false;
         std::vector<std::string> neededBy, chain; // modules requiring it; everything to remove first, in order
         std::vector<Use> uses;                    // game code including it
     };
@@ -111,8 +110,6 @@ private:
     bool m_compact = false; // one line per row
     std::string m_confirmRemove;
     RemoveCheck m_removeCheck;
-    std::string m_confirmEngine; // engine module to add while the project has none (it changes what the game builds with)
-    bool m_confirmEngineRequires = false;
     bool m_confirmUpdateAll = false;
     bool m_changed = false;
     std::string m_status;

@@ -219,7 +219,6 @@ void ModulesPanel::poll() {
             if (f[0] == "needed-by" && f.size() >= 2) m_removeCheck.neededBy.push_back(f[1]);
             else if (f[0] == "chain" && f.size() >= 2) m_removeCheck.chain.push_back(f[1]);
             else if (f[0] == "code" && f.size() >= 4) m_removeCheck.uses.push_back({f[1], f[3], std::atoi(f[2].c_str())});
-            else if (f[0] == "last-engine") m_removeCheck.lastEngine = true;
             else if (f[0] == "ok") m_removeCheck.ok = true;
         }
         if (!ok) { // the check itself failed: show why; removing is still offered (the remove refuses on its own)
@@ -288,9 +287,6 @@ void ModulesPanel::rebuildItems() {
         item.engine = mkcontract::hasTag(r.tags, "engine");
         m_items.push_back(std::move(item));
     }
-    // No engine modules in modules/: the game builds with every engine module of its engine
-    if (!anyEngineInstalled())
-        for (Item& item : m_items) item.inUse = item.engine && !item.installed;
     if (m_selected.empty() && !m_items.empty()) m_selected = m_items.front().name;
     m_details.name.clear(); // reread for the new state
 }
@@ -303,10 +299,9 @@ void ModulesPanel::readDetails(const std::string& name) {
     const std::string projectModules = m_projectDir + "\\modules\\";
     const std::string dir = found->installed ? projectModules + name : found->engine ? m_engineDir + "\\modules\\" + name : std::string();
     if (!dir.empty()) m_details.needs = readRequires(dir);
-    const bool engineAll = !anyEngineInstalled(); // engine modules are all in the build
     for (const std::string& need : m_details.needs) {
         const auto have = std::find_if(m_items.begin(), m_items.end(), [&](const Item& i) { return i.name == need; });
-        const bool inBuild = have != m_items.end() && (have->installed || (have->engine && engineAll));
+        const bool inBuild = have != m_items.end() && have->installed;
         if (!inBuild) m_details.missing.push_back(need);
     }
     for (const Item& other : m_items)
@@ -328,7 +323,7 @@ bool ModulesPanel::visible(const Item& item) const {
     switch (m_filter) {
     case Filter::All: break;
     case Filter::Installed:
-        if (!item.installed && !item.inUse) return false;
+        if (!item.installed) return false;
         break;
     case Filter::Engine:
         if (!item.engine) return false;
@@ -484,10 +479,6 @@ void ModulesPanel::drawRow(const Item& item) {
             version = trf("%s (engine %s)", item.registry->latest.c_str(), item.registry->latestEngine.c_str());
             versionColor = ImGui::GetColorU32(color::kWarning);
         } else version = item.registry->version;
-        if (item.inUse) {
-            version = std::string(tr("in use")) + "  " + version;
-            versionColor = ImGui::GetColorU32(color::kGood);
-        }
     }
     const float pad = ImGui::GetFontSize() * 0.4f;
     const float versionWidth = ImGui::CalcTextSize(version.c_str()).x;
@@ -521,8 +512,12 @@ void ModulesPanel::drawList() {
             if (item.installed && visible(item)) drawRow(item);
         if (!anyEngineInstalled()) {
             ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextDisabled("%s", tr("No engine modules here: the game builds with every engine module of its engine (marked in use below). Adding one makes it build with only those in modules/."));
+            ImGui::TextDisabled("%s", tr("No engine modules here: the game has only the kernel (core, platform, jobs)."));
             ImGui::PopTextWrapPos();
+            ImGui::BeginDisabled(m_process.running());
+            if (ImGui::SmallButton(tr("Add the Standard Set"))) run(tr("Add the standard engine modules"), "add -Preset standard", Job::Change);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Every engine module but the editor, like a new project"));
         }
     }
     if (ImGui::CollapsingHeader((trf("Available (%d)", availableCount) + "###available").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -538,12 +533,7 @@ void ModulesPanel::drawList() {
 }
 
 void ModulesPanel::add(const Item& item, const std::string& spec, bool withRequires) {
-    // The first engine module changes the game from every engine module to only those in modules/: ask first
-    if (item.engine && !anyEngineInstalled()) {
-        m_confirmEngine = spec;
-        m_confirmEngineRequires = withRequires;
-        return;
-    }
+    (void)item;
     run(trf("Add %s", spec.c_str()), "add " + spec + (withRequires ? " -WithRequires" : ""), Job::Change);
 }
 
@@ -574,8 +564,6 @@ void ModulesPanel::drawDetails(bool canChange) {
     if (item.installed) {
         if (item.update) ImGui::TextColored(color::kWarning, "%s", trf("Version %s, %s available", item.installed->version.c_str(), item.registry->version.c_str()).c_str());
         else ImGui::TextColored(color::kGood, "%s", trf("Version %s, in this project", item.installed->version.c_str()).c_str());
-    } else if (item.inUse) {
-        ImGui::TextColored(color::kGood, "%s", trf("Version %s, in use from the engine", item.registry->version.c_str()).c_str());
     } else if (item.registry) {
         if (item.registry->version.empty())
             ImGui::TextColored(color::kWarning, "%s", trf("Newest %s needs engine %s; none for this engine", item.registry->latest.c_str(), item.registry->latestEngine.c_str()).c_str());
@@ -733,7 +721,7 @@ void ModulesPanel::drawPopups() {
     if (ImGui::BeginPopupModal("##remove", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
         const RemoveCheck& check = m_removeCheck;
         const std::string name = m_confirmRemove;
-        const bool blocked = check.done && !check.ok && (!check.neededBy.empty() || !check.uses.empty() || check.lastEngine);
+        const bool blocked = check.done && !check.ok && (!check.neededBy.empty() || !check.uses.empty());
         bool close = false;
         ImGui::TextUnformatted(trf("Remove modules/%s from the project?", name.c_str()).c_str());
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
@@ -765,10 +753,6 @@ void ModulesPanel::drawPopups() {
                 }
                 if (check.uses.size() > shown) ImGui::TextDisabled("%s", trf("and %d more", static_cast<int>(check.uses.size() - shown)).c_str());
             }
-            if (check.lastEngine) {
-                ImGui::Spacing();
-                ImGui::TextUnformatted(tr("It is the last engine module in modules/. With none there, the game builds with every engine module of the engine - not with none."));
-            }
         }
         ImGui::TextDisabled("%s", tr("Undo with version control."));
         ImGui::PopTextWrapPos();
@@ -793,32 +777,6 @@ void ModulesPanel::drawPopups() {
         if (ImGui::Button(tr("Cancel"))) close = true;
         if (close) {
             m_confirmRemove.clear();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
-    if (!m_confirmEngine.empty()) ImGui::OpenPopup("##engineFirst");
-    if (ImGui::BeginPopupModal("##engineFirst", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
-        ImGui::TextUnformatted(trf("Add %s, the first engine module in modules/?", m_confirmEngine.c_str()).c_str());
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
-        ImGui::TextDisabled("%s", tr("Now the game builds with every engine module of its engine. From the first one in modules/, it builds with only those, so add the others it uses too."));
-        ImGui::PopTextWrapPos();
-        if (ImGui::Button(tr("Add the Standard Set"))) {
-            run(tr("Add the standard engine modules"), "add -Preset standard", Job::Change);
-            m_confirmEngine.clear();
-            ImGui::CloseCurrentPopup();
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Every engine module but the editor: the game keeps building as now, and you can remove what it doesn't use"));
-        ImGui::SameLine();
-        if (ImGui::Button(trf("Only %s", m_confirmEngine.c_str()).c_str())) {
-            run(trf("Add %s", m_confirmEngine.c_str()), "add " + m_confirmEngine + (m_confirmEngineRequires ? " -WithRequires" : ""), Job::Change);
-            m_confirmEngine.clear();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(tr("Cancel"))) {
-            m_confirmEngine.clear();
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
