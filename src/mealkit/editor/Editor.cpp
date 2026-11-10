@@ -2303,6 +2303,14 @@ void Editor::updateCamera(f64 dt) {
     const bool inViewport = mouse.x >= m_viewport.x && mouse.y >= m_viewport.y &&
                             mouse.x < m_viewport.x + m_viewport.width && mouse.y < m_viewport.y + m_viewport.height;
 
+    // 2D projects (mealkit.project view2d): always orthographic, looking along +z at the XY plane; no turning
+    const bool flat = m_project.settings.view2d;
+    if (flat) {
+        m_ortho = true;
+        m_cameraYaw = 0.0f;
+        m_cameraPitch = 0.0f;
+        m_orbiting = false;
+    }
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && inViewport && !sceneMouseBlocked()) m_looking = true;
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) m_looking = false;
     m_window->setCursorCaptured(m_looking);
@@ -2314,13 +2322,16 @@ void Editor::updateCamera(f64 dt) {
 
     if (m_looking) {
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
-        m_cameraYaw += input.mouseDeltaX() * 0.0035f;
-        m_cameraPitch = std::clamp(m_cameraPitch - input.mouseDeltaY() * 0.0035f, -1.55f, 1.55f);
+        if (!flat) {
+            m_cameraYaw += input.mouseDeltaX() * 0.0035f;
+            m_cameraPitch = std::clamp(m_cameraPitch - input.mouseDeltaY() * 0.0035f, -1.55f, 1.55f);
+        }
         if (io.MouseWheel != 0.0f)
             m_cameraSpeed = std::clamp(m_cameraSpeed * std::pow(1.25f, io.MouseWheel), 1.0f, 400.0f);
         Vec3 move{};
-        if (ImGui::IsKeyDown(ImGuiKey_W)) move += forward;
-        if (ImGui::IsKeyDown(ImGuiKey_S)) move -= forward;
+        const Vec3 ahead = flat ? Vec3{0, 1, 0} : forward; // 2D: W/S move up and down on the plane
+        if (ImGui::IsKeyDown(ImGuiKey_W)) move += ahead;
+        if (ImGui::IsKeyDown(ImGuiKey_S)) move -= ahead;
         if (ImGui::IsKeyDown(ImGuiKey_D)) move += right;
         if (ImGui::IsKeyDown(ImGuiKey_A)) move -= right;
         if (ImGui::IsKeyDown(ImGuiKey_E)) move += Vec3{0, 1, 0};
@@ -2330,7 +2341,7 @@ void Editor::updateCamera(f64 dt) {
     } else {
         io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
         // Alt + left drag: orbit around the selected object (or 10 m ahead if none)
-        if (io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && inViewport && !sceneMouseBlocked()) {
+        if (!flat && io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && inViewport && !sceneMouseBlocked()) {
             const Entity* e = selected();
             m_orbitPivot = e ? scene::worldTransform(m_scene, *e).position : m_cameraPos + forward * 10.0f;
             m_orbiting = true;
@@ -2363,15 +2374,8 @@ void Editor::updateCamera(f64 dt) {
 
 Mat4 Editor::projection(f32 aspect) const {
     if (!m_ortho) return perspectiveReversedZ(kFovY, aspect, 0.1f, 2000.0f);
-    // Reversed-Z orthographic (row vectors, left-handed): near plane = 1, far plane = 0
-    constexpr f32 zNear = -500.0f, zFar = 2000.0f; // so objects behind the camera are visible too
-    Mat4 r;
-    r.m[0][0] = 1.0f / (m_orthoHalfHeight * aspect);
-    r.m[1][1] = 1.0f / m_orthoHalfHeight;
-    r.m[2][2] = -1.0f / (zFar - zNear);
-    r.m[3][2] = zFar / (zFar - zNear);
-    r.m[3][3] = 1.0f;
-    return r;
+    // zNear -500 so objects behind the camera are visible too
+    return orthographicReversedZ(m_orthoHalfHeight, aspect, -500.0f, 2000.0f);
 }
 
 void Editor::mouseRay(f32 mouseX, f32 mouseY, Vec3* origin, Vec3* dir) const {
@@ -3283,6 +3287,14 @@ void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
     readProjectModules();
     loadViewState(); // the scene opens before the project
+    // 2D project still on a 3D view (first open, or a view saved before view2d was set): face the XY plane around the origin
+    if (m_project.settings.view2d && (!m_ortho || m_cameraPitch != 0.0f || m_cameraYaw != 0.0f)) {
+        m_ortho = true;
+        m_cameraYaw = 0.0f;
+        m_cameraPitch = 0.0f;
+        m_orthoHalfHeight = 8.0f;
+        m_cameraPos = {0.0f, 3.0f, -20.0f};
+    }
     loadRecentScenes();
     if (!m_scenePath.empty()) rememberRecentScene(m_scenePath);
     { // recent palette items, per project

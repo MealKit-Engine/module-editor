@@ -32,6 +32,22 @@ namespace fs = std::filesystem;
 
 constexpr int kDefaultIconResource = 2; // RCDATA in MealKitEditor.rc (MealKit icon)
 constexpr u32 kIconPixels = 128;
+constexpr u32 kPreviewPixels = 640; // template preview images (longest side)
+
+// New project templates (tools\new_project.ps1 -Template): script name, label, description. Previews: templates\previews\<script>.png
+struct ProjectTemplate {
+    const char* script;
+    const char* label;
+    const char* description;
+};
+constexpr ProjectTemplate kTemplates[] = {
+    {"empty", "3D empty project", "One character per player on a floor, with the title, lobby and results screens. Start your own 3D game here."},
+    {"empty2d", "2D empty project",
+     "A side view on the XY plane with an orthographic camera: characters run and jump on platforms. The editor opens it in 2D."},
+    {"arena", "Arena versus (sample game)", "A copy of the sample game: physics party versus with AI, boxes, jump pads and cutscenes."},
+    {"coop", "Co-op adventure (sample game)", "A copy of the co-op sample: heroes cross the hills to the goal, chasers knock them down and teammates revive them."},
+};
+constexpr int kTemplateCount = static_cast<int>(sizeof(kTemplates) / sizeof(kTemplates[0]));
 constexpr FileFilter kImageFilter{"Image", "*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.ico;*.tif;*.tiff"};
 
 fs::path fromUtf8(const std::string& s) { return fs::path(std::u8string(s.begin(), s.end())); }
@@ -163,6 +179,13 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
     window.setTitle(tr("MealKit Engine - Project Manager"));
 
     ImTextureData* defaultIcon = nullptr;
+    // Template previews: <engine>\templates\previews\<script>.png (missing = blank card)
+    ImTextureData* previews[kTemplateCount] = {};
+    for (int i = 0; i < kTemplateCount; ++i) {
+        Image image;
+        if (loadImage(engineDir + "\\templates\\previews\\" + kTemplates[i].script + ".png", kPreviewPixels, image))
+            previews[i] = imgui.createTexture(image.rgba.data(), image.width, image.height);
+    }
     {
         Image image;
         if (loadImageResource(kDefaultIconResource, kIconPixels, image))
@@ -212,7 +235,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
 
     // New project window
     char newName[64] = "MyGame";
-    int newTemplate = 0; // project template: 0 arena, 1 empty (tools\new_project.ps1 -Template)
+    int newTemplate = 0; // index into kTemplates
     char newLocation[512] = {};
     {
         // Default location: folder of the most recent project, or Documents\MealKitProjects if none
@@ -591,26 +614,57 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             openCreate = false;
         }
         ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(560 * dpi, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(880 * dpi, 0), ImGuiCond_Appearing);
         if (ImGui::BeginPopupModal(trl("Create New Project"), nullptr)) {
             ImGui::BeginDisabled(busy);
-            // Project templates (tools\new_project.ps1 -Template): script name, label, description
-            const char* const templates[][3] = {
-                {"arena", tr("Arena versus (sample game)"),
-                 tr("A copy of the sample game: physics party versus with AI, boxes, jump pads and cutscenes.")},
-                {"empty", tr("Empty"),
-                 tr("One character per player on a floor, with the title, lobby and results screens. Start your own game here.")},
-            };
-            ImGui::TextUnformatted(tr("Template"));
-            ImGui::SetNextItemWidth(-1);
-            if (beginCombo("##template", templates[newTemplate][1])) {
-                for (int i = 0; i < 2; ++i)
-                    if (ImGui::Selectable(templates[i][1], newTemplate == i)) newTemplate = i;
-                ImGui::EndCombo();
+            // Template cards (preview + name) in a row, the chosen one's description below
+            {
+                const f32 gap = style.ItemSpacing.x;
+                const f32 cardWidth = (ImGui::GetContentRegionAvail().x - gap * (kTemplateCount - 1)) / kTemplateCount;
+                const f32 imageHeight = cardWidth * 0.5625f; // 16:9
+                const f32 cardHeight = imageHeight + ImGui::GetTextLineHeight() * 2.0f;
+                const f32 rounding = 6.0f * dpi;
+                ImDrawList* draw = ImGui::GetWindowDrawList();
+                for (int i = 0; i < kTemplateCount; ++i) {
+                    if (i > 0) ImGui::SameLine(0, gap);
+                    ImGui::PushID(i);
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    if (ImGui::InvisibleButton("##card", ImVec2(cardWidth, cardHeight))) newTemplate = i;
+                    const bool hovered = ImGui::IsItemHovered();
+                    const ImVec2 end(at.x + cardWidth, at.y + cardHeight);
+                    const ImVec2 imageEnd(end.x, at.y + imageHeight);
+                    draw->AddRectFilled(at, end, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), rounding);
+                    if (ImTextureData* tex = previews[i]) { // fill 16:9, center cropped
+                        const f32 aspect = static_cast<f32>(tex->Width) / static_cast<f32>(std::max(tex->Height, 1));
+                        const f32 want = cardWidth / imageHeight;
+                        ImVec2 uv0(0, 0), uv1(1, 1);
+                        if (aspect > want) {
+                            uv0.x = 0.5f - 0.5f * want / aspect;
+                            uv1.x = 1.0f - uv0.x;
+                        } else {
+                            uv0.y = 0.5f - 0.5f * aspect / want;
+                            uv1.y = 1.0f - uv0.y;
+                        }
+                        draw->AddImageRounded(tex->GetTexRef(), at, imageEnd, uv0, uv1, IM_COL32_WHITE, rounding,
+                                              ImDrawFlags_RoundCornersTop);
+                    } else {
+                        draw->AddRectFilled(at, imageEnd, ImGui::GetColorU32(ImGuiCol_WindowBg), rounding, ImDrawFlags_RoundCornersTop);
+                    }
+                    const char* label = tr(kTemplates[i].label);
+                    ImGui::PushClipRect(at, end, true);
+                    draw->AddText(ImVec2(at.x + style.FramePadding.x, imageEnd.y + ImGui::GetTextLineHeight() * 0.5f),
+                                  ImGui::GetColorU32(ImGuiCol_Text), label);
+                    ImGui::PopClipRect();
+                    if (newTemplate == i) draw->AddRect(at, end, ImGui::GetColorU32(ImGuiCol_CheckMark), rounding, 0, 2.0f * dpi);
+                    if (hovered) ImGui::SetTooltip("%s", label);
+                    ImGui::PopID();
+                }
             }
+            ImGui::Spacing();
             ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextDisabled("%s", templates[newTemplate][2]);
+            ImGui::TextDisabled("%s", tr(kTemplates[newTemplate].description));
             ImGui::PopTextWrapPos();
+            ImGui::Spacing();
             ImGui::TextUnformatted(tr("Name (exe name)"));
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##name", newName, sizeof(newName));
@@ -632,7 +686,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             ImGui::BeginDisabled(!nameOk || newLocation[0] == '\0');
             if (ImGui::Button(tr("Create"), ImVec2(120 * dpi, 0))) {
                 startTask(Task::Create, "new_project.ps1",
-                          std::string("-Name ") + newName + " -Path \"" + newLocation + "\" -Template " + templates[newTemplate][0],
+                          std::string("-Name ") + newName + " -Path \"" + newLocation + "\" -Template " + kTemplates[newTemplate].script,
                           std::string(newLocation) + "\\" + newName);
             }
             ImGui::EndDisabled();
@@ -664,6 +718,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
         if (last) break;
     }
 
+    for (ImTextureData* tex : previews) imgui.releaseTexture(tex);
     imgui.shutdown();
     if (!chosen.empty()) addRecentProject(chosen);
     return chosen;
