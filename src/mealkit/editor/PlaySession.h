@@ -47,6 +47,7 @@ struct PlayConfig {
     bool clientBots = true; // join windows are driven by bot input
     bool bot = false;       // bot input for the editor window too (automated tests)
     bool shadow = true;     // shadow simulation (determinism check every tick)
+    bool menus = false;     // solo, game with menus: start at its first screen (like the exe), the game's menus start matches
     u32 bodies = 0;         // match data (decided by the game. sandbox: 0 = number of boxes in the scene, otherwise that number)
     std::string projectDir;
     std::string replayPath; // if not empty, plays this replay (solo, input from the recording. game/InputRecord.h)

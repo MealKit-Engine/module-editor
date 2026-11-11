@@ -127,6 +127,11 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
             else if (!text.empty()) editor.showMessage(trf("Bug report: %s", text.c_str()));
         }
         MEALKIT_INFO("Editor play: replaying %s", m_config.replayPath.c_str());
+    } else if (!multiplayer() && m_config.menus && m_game->menus()) {
+        // From the first screen: no session yet, the game's screen flow opens one (GameMain does the same without --exit-tick/--bot)
+        m_match->init(matchConfig);
+        m_firstMatch = true;
+        MEALKIT_INFO("Editor play: starting at the game's first screen");
     } else if (!multiplayer()) {
         // Solo play also keeps a replay per match (user folder replays/, named by date/time on stop)
         m_keepReplays = editor.project().settings.keepReplays;
@@ -211,7 +216,8 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     }
     session::Session& session = m_match->session();
     m_match->update(now);
-    if (m_match->phase() == game::MatchPhase::Menu) { // the game pressed [Leave] (replay after the results screen)
+    // The game pressed [Leave] (replay after the results screen). From the first screen the menus are the game's own
+    if (m_match->phase() == game::MatchPhase::Menu && !(m_config.menus && m_game->menus())) {
         m_left = true;
         return;
     }

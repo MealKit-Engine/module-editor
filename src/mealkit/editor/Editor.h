@@ -190,6 +190,7 @@ public:
     void setPlayPlayers(u32 players) { m_playPlayers = players < 1 ? 1 : players > 4 ? 4 : players; }
     bool playClientBots() const { return m_playClientBots; }
     bool shadowCheck() const { return m_shadowCheck; }
+    bool playMenus() const { return m_playMenus; } // solo: start at the game's first screen (games with menus)
     // Debug controls for the running simulation (pause/rewind/shadow simulation). nullptr when play ends
     void setSimDebug(game::SimDebug* debug, bool canPause);
     // Notification window in the center of the screen (closes on OK)
@@ -527,6 +528,7 @@ private:
     bool m_shadowReported = false;
     bool m_replayReported = false;
     bool m_playClientBots = true;
+    bool m_playMenus = false;
     std::string m_message;     // notification window contents
     std::string m_recoverPath; // autosave file to ask about recovering
     f64 m_autosaveTimer = 0.0;

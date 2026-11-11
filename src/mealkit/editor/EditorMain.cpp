@@ -64,6 +64,7 @@ struct Options {
     int select = -1; // entity index to select at start (-2 = scene row, --select scene)
     std::vector<int> selectMore; // --select 3,4,5: later indices are selected too (multi-select)
     bool play = false;
+    bool playMenus = false; // --play-menus: play from the game's first screen
     std::string replayPath; // --replay <file>: watch the replay right at start
     bool bot = false;
     bool exportGame = false; // [Shipping Build] right at start
@@ -163,6 +164,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             for (const char* c = strchr(v, ','); c; c = strchr(c + 1, ',')) o.selectMore.push_back(std::atoi(c + 1));
         }
         else if (a == "--play") o.play = true;
+        else if (a == "--play-menus") o.play = o.playMenus = true;
         else if (a == "--replay" && next(v)) o.replayPath = v;
         else if (a == "--bot") o.bot = true;
         else if (a == "--export") o.exportGame = true;
@@ -518,6 +520,7 @@ int main(int argc, char** argv) {
             config.clientBots = editor.playClientBots();
             config.bot = opt.bot;
             config.shadow = editor.shadowCheck();
+            config.menus = (editor.playMenus() || opt.playMenus) && !opt.bot;
             config.bodies = opt.bodies;
             config.projectDir = project.directory;
             config.replayPath = editor.takeReplayPath();

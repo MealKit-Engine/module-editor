@@ -1258,6 +1258,11 @@ void Editor::drawMenuBar() {
             ImGui::BeginDisabled(m_playPlayers == 1);
             ImGui::Checkbox(tr("Bots in player windows"), &m_playClientBots);
             ImGui::EndDisabled();
+            ImGui::BeginDisabled(m_playPlayers != 1);
+            ImGui::Checkbox(tr("Start at the first screen"), &m_playMenus);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", tr("Solo play of a game with menus starts at its title and menus, like the game's exe"));
             commandMenuItem("Play From Here");
             ImGui::Separator();
             ImGui::Checkbox(tr("Shadow check"), &m_shadowCheck);
