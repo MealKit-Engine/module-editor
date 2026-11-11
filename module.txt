@@ -7,6 +7,6 @@ version 0.1.15
 engine 0.9
 kind tool
 layer app
-requires asset 0.2 audio 0.1 camera 0.1 data 0.1 debug 0.1 feedback 0.1 game 0.2 input 0.1 live 0.1 loc 0.1 render 0.2 rhi 0.1 scene 0.1 session 0.1 ui 0.1
+requires asset 0.2 audio 0.1 camera 0.1 data 0.1 debug 0.1 feedback 0.1 game 0.2 input 0.1 live 0.1 loc 0.1 render 0.3 rhi 0.1 scene 0.2 session 0.1 ui 0.1
 tags editor
 summary The general-purpose editor

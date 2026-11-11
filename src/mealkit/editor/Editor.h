@@ -27,11 +27,13 @@
 #include "mealkit/platform/Image.h"
 #include "mealkit/render/DrawList.h"
 #include "mealkit/render/Renderer.h"
+#include "mealkit/render/Sprites.h"
 #include "mealkit/scene/Scene.h"
 
 #include "mealkit/editor/AssetThumbnails.h"
 
 #include <functional>
+#include <memory>
 #include <map>
 #include <string>
 #include <utility>
@@ -392,6 +394,7 @@ private:
     Window* m_window = nullptr;
     render::Renderer* m_renderer = nullptr;
     asset::ModelCache* m_models = nullptr;
+    mutable std::unique_ptr<render::SpriteTextures> m_sprites; // sprite images (drawing the scene loads them, hence mutable)
     ImGuiLayer m_imgui;
 
     scene::Scene m_scene;

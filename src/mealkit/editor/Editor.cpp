@@ -176,6 +176,7 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     colorPickerSize() = m_prefs.colorPickerSize;
     m_window = &window;
     m_renderer = &renderer;
+    m_sprites = std::make_unique<render::SpriteTextures>(renderer);
     m_models = &models;
     focusPanel(kInspectorWindow); // starts in edit mode: bring the inspector to front
     if (!m_imgui.init(window, renderer, executableDirectory() + "\\mealkit_editor.ini")) {
@@ -776,6 +777,10 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
         }
         if (e.is(scene::kTypeScatter)) { // instances only (the layer object itself has no shape)
             render::addScatter(out, *m_models, e, eye, !gameView && isSelected(e.id) ? render::kInstanceHighlight : 0u);
+            continue;
+        }
+        if (e.is(scene::kTypeSprite)) { // image quad (render/Sprites.h)
+            if (m_sprites) render::addSprite(out, *m_sprites, e, world);
             continue;
         }
         if (e.is(scene::kTypeTerrain)) { // axis-aligned, rotation ignored (like the collision)
@@ -2872,6 +2877,11 @@ void Editor::addEntity(const std::string& typeName) {
         e.scale = {2, 2, 2};
         e.position = {pos.x, std::max(pos.y, 0.0f) + 1.0f, pos.z};
         e.color = solid ? 0xFFD2C8C8 : typeName == scene::kTypeDecoration ? 0xFFDCAA78 : 0xFF8CD2F0;
+    }
+    if (typeName == scene::kTypeSprite) { // a sprite's color is its tint: white shows the image as it is; flat on z = 0 in 2D
+        e.color = 0xFFFFFFFF;
+        e.scale = {2, 2, 1};
+        if (m_project.settings.view2d) e.position.z = 0.0f;
     }
     if (typeName == scene::kTypeTerrain) setupNewTerrain(e);
     if (typeName == scene::kTypeScatter) setupNewScatter(e);
