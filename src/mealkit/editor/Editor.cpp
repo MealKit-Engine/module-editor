@@ -3349,6 +3349,7 @@ void Editor::setProject(const ProjectInfo& project) {
     m_live.start(lc);
     m_live.addTopic("stats"); // performance numbers in the editor status bar (game::FrameStats::json)
     audio::addLiveService(m_live, [this] { return m_audio; }); // MkAudio: playback in the editor, reload, status
+    ui::addLiveService(m_live, [this] { return m_gameUi; }); // MkUI Designer: the play session's screens and view-model values
     m_tools = findTools(m_toolPaths);
     if (!m_engineDirectory.empty()) {
         ImportProject ip;
