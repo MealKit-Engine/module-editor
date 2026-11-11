@@ -266,10 +266,6 @@ void Editor::update(f64 dt) {
     }
 
     m_live.update();
-    for (const std::string& e : m_import.takeEvents()) {
-        setStatus(e);
-        m_uiPanel.refresh(); // new .ui files (ui::System rereads modified files)
-    }
     updateHotReload(dt);
 
     if (!m_layoutLoad.empty()) { // only between frames
@@ -3302,21 +3298,11 @@ void Editor::setProject(const ProjectInfo& project) {
     lc.projectDir = project.directory;
     lc.projectName = project.name();
     lc.port = live::kEditorPort;
-    lc.token = m_penpotToken;
     m_live.start(lc);
     m_live.addTopic("stats"); // performance numbers in the editor status bar (game::FrameStats::json)
     audio::addLiveService(m_live, [this] { return m_audio; }); // MkAudio: playback in the editor, reload, status
     ui::addLiveService(m_live, [this] { return m_gameUi; }); // MkUI Designer: the play session's screens and view-model values
     m_tools = findTools(m_toolPaths);
-    if (!m_engineDirectory.empty()) {
-        ImportProject ip;
-        ip.engineDir = m_engineDirectory;
-        ip.projectDir = project.directory;
-        ip.name = project.name();
-        ip.language = project.settings.language;
-        m_import.attach(m_live, ip);
-        m_uiPanel.setPenpotUrl(m_import.pluginUrl());
-    }
     m_projectPanel.revert(project);
     // Don't ask for the engine repo itself (no engine)
     const game::ProjectSettings& s = project.settings;

@@ -88,7 +88,6 @@ struct Options {
     std::vector<std::string> commands; // --command "<English name>": run a command from the command table right after start (can be given multiple times)
     bool uiTab = false;           // --ui: bring the [UI] tab to the front (screens are edited in the MkUI Designer)
     std::string language; // --lang: this language for this run only (docs screenshots)
-    std::string penpotToken; // --penpot-token: live connection server token (Penpot import automated tests, random if empty)
     std::vector<std::string> toolPaths; // --tool-path: extra folders for the [Tools] menu to search (build folder of a tool in development)
     bool listTools = false;             // --list-tools: print found tools and exit (no window)
     u32 windowWidth = 1600;             // --window WxH: window size (checking layouts at other sizes)
@@ -186,7 +185,6 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--ui") o.uiTab = true;
         else if (a == "--scene" && next(v)) o.scenePath = v;
         else if (a == "--lang" && next(v)) o.language = v;
-        else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
         else if (a == "--tool-path" && next(v)) o.toolPaths.push_back(v);
         else if (a == "--list-tools") o.listTools = true;
         else if (a == "--window" && next(v)) {
@@ -335,7 +333,6 @@ int main(int argc, char** argv) {
     editor.setFeedback(&feedback);
     editor.setEngineTables(input::engineTables()); // engine tables shown in the [Tables] panel: input bindings (sound events are in MkAudio)
     editor.setEngineDirectory(engineDirectory());
-    editor.setPenpotToken(opt.penpotToken);
     editor.setToolPaths(opt.toolPaths);
     editor.setAutomated(opt.frames > 0 || !opt.goldenShots.empty());
     editor.setProject(project);
@@ -375,7 +372,6 @@ int main(int argc, char** argv) {
         editor.setProjectSettingsType(nullptr);
         editor.setTables(nullptr);
         editor.setEventType(nullptr);
-        editor.setViewModels(nullptr);
         const bool loaded = host.load(dllPath, loadError);
         if (host.loaded()) {
             editor.setGameTypes(host.module()->objectTypes());
@@ -384,7 +380,6 @@ int main(int argc, char** argv) {
             static const reflect::TableList kNoTables;
             editor.setTables(host.module()->tables ? host.module()->tables() : &kNoTables);
             editor.setEventType(host.module()->eventType ? host.module()->eventType() : nullptr);
-            editor.setViewModels(host.module()->viewModels ? host.module()->viewModels() : nullptr);
             editor.setProjectSettingsType(host.module()->projectSettingsType ? host.module()->projectSettingsType()
                                                                              : nullptr);
         }
@@ -581,7 +576,6 @@ int main(int argc, char** argv) {
     editor.setProjectSettingsType(nullptr);
     editor.setTables(nullptr);
     editor.setEventType(nullptr);
-    editor.setViewModels(nullptr);
     host.unload();
     editor.shutdown();
     renderer.shutdown();

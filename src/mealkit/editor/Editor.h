@@ -15,7 +15,6 @@
 #include "mealkit/editor/ModulesPanel.h"
 #include "mealkit/editor/ProjectSettingsPanel.h"
 #include "mealkit/editor/TuningPanel.h"
-#include "mealkit/editor/ImportServer.h"
 #include "mealkit/editor/LookdevPanel.h"
 #include "mealkit/editor/Tools.h"
 #include "mealkit/editor/UiPanel.h"
@@ -64,7 +63,6 @@ public:
     void setProject(const ProjectInfo& project);
     void setEngineDirectory(const std::string& directory) { m_engineDirectory = directory; }
     // Token for the Penpot import server (before setProject, for automated tests. Random if empty)
-    void setPenpotToken(const std::string& token) { m_penpotToken = token; }
     void setToolPaths(const std::vector<std::string>& folders) { m_toolPaths = folders; } // --tool-path
     // Same as pressing [Upgrade] (for automated tests)
     void requestUpgrade() {
@@ -121,10 +119,6 @@ public:
     void setFeedback(feedback::Player* player) { m_feedback = player; }
     void setEventType(const reflect::TypeInfo* type) { m_feedbackPanel.setEventType(type); }
     void openFeedback() { openDataPage(DataPage::Feedback, 0); } // for automated tests
-    // Game screen UI ([UI] workspace tab beside the Viewport): the game's view model list for its preview values
-    void setViewModels(const std::vector<const reflect::TypeInfo*>* types) {
-        m_import.setViewModels(types);
-    }
     void openUiPanel() {
         m_uiWorkspaceOpen = true;
         m_uiFrontFrames = 30;
@@ -671,11 +665,9 @@ private:
     bool m_uiWorkspaceOpen = true;  // [Window] > [UI] (a tab beside the Viewport)
     int m_uiFrontFrames = 0;
     void drawUiWorkspace();
-    ImportServer m_import; // Penpot plugin import (penpot/ service of the live connection server)
-    live::Server m_live;   // live connection (contract between tools, starts when a project opens. Closed before m_import)
+    live::Server m_live;   // live connection (contract between tools, starts when a project opens)
     std::vector<ToolInfo> m_tools; // [Tools] menu (searched when a project opens and on [Rescan])
     std::vector<std::string> m_toolPaths;
-    std::string m_penpotToken;
     bool m_viewTableDirty = false;
     f64 m_viewTableTimer = 0.0;
     std::string m_layoutOutput;
