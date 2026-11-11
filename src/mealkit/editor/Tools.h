@@ -21,7 +21,7 @@ struct ToolInfo : mkcontract::ToolManifest {
 // (sorted by name; for the same name, the first found). Unreadable manifests and their warnings go to the log
 std::vector<ToolInfo> findTools(const std::vector<std::string>& extraFolders = {});
 std::string defaultToolsFolder();
-// Opens the tool with the project folder
-bool launchTool(const ToolInfo& tool, const std::string& projectDirectory);
+// Opens the tool with the project folder, and a file (asset path such as "ui/menu.ui") for a tool whose manifest opens its extension
+bool launchTool(const ToolInfo& tool, const std::string& projectDirectory, const std::string& file = {});
 
 } // namespace mealkit::editor

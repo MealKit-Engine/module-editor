@@ -425,11 +425,11 @@ void Editor::drawSettingsHub() {
     ImGui::End();
 }
 
-// [Previews] window: models and cutscenes (game screens are the [UI] workspace). Look dev renders only while its page is chosen
+// [Previews] window: models and cutscenes (game screens: the MkUI Designer). Look dev renders only while its page is chosen
 void Editor::drawPreviewHub() {
     if (m_previewPage == PreviewPage::Ui) m_previewPage = PreviewPage::LookDev; // saved by an older editor
-    m_lookdevOpen = m_previewOpen && !scenePanelsHidden() && m_previewPage == PreviewPage::LookDev;
-    if (!m_previewOpen || scenePanelsHidden()) return; // look dev and cutscenes step aside for the [UI] tab like the inspector
+    m_lookdevOpen = m_previewOpen && m_previewPage == PreviewPage::LookDev;
+    if (!m_previewOpen) return;
     ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 40.0f, ImGui::GetFontSize() * 34.0f), ImGuiCond_FirstUseEver);
     if (m_previewFrontFrames > 0) {
         --m_previewFrontFrames;
@@ -479,7 +479,7 @@ void Editor::drawPreviewHub() {
 
 // Status bar: how many documents differ from their files; clicking lists them with save and revert
 void Editor::drawUnsavedStatus() {
-    int count = (m_dirty ? 1 : 0) + (m_tuningPanel.docDirty(0) ? 1 : 0) + (m_tuningPanel.docDirty(1) ? 1 : 0) + (m_uiPanel.dirty() ? 1 : 0) + (m_projectPanel.dirty() ? 1 : 0);
+    int count = (m_dirty ? 1 : 0) + (m_tuningPanel.docDirty(0) ? 1 : 0) + (m_tuningPanel.docDirty(1) ? 1 : 0) + (m_projectPanel.dirty() ? 1 : 0);
     for (int i = 0; i < m_tablesPanel.docCount(); ++i) count += m_tablesPanel.docDirty(i) ? 1 : 0;
     if (count > 0) {
         ImGui::TextColored(color::kWarning, "%s", trf("Unsaved: %d", count).c_str());
@@ -514,7 +514,6 @@ void Editor::drawUnsavedStatus() {
     for (int i = 0; i < m_tablesPanel.docCount(); ++i)
         if (m_tablesPanel.docDirty(i))
             row(m_tablesPanel.docName(i), [this, i] { m_tablesPanel.saveDoc(i); }, [this, i] { m_tablesPanel.revertDoc(i); }, tr("Revert"));
-    if (m_uiPanel.dirty()) row(tr("UI"), [this] { m_uiPanel.save(); }, {}, tr("Revert"));
     if (m_projectPanel.dirty())
         row(tr("Project Settings"), [this] { m_projectPanel.save(m_project); }, [this] { m_projectPanel.revert(m_project); }, tr("Revert"));
     ImGui::EndPopup();
@@ -579,7 +578,7 @@ void Editor::updateProblems(f64 dt) {
     }
 
     required.clear();
-    m_uiPanel.collectBindingProblems(required);
+    UiPanel::collectBindingProblems(m_mode == Mode::Edit ? nullptr : m_gameUi, required);
     for (const std::string& text : required) m_problems.push_back({false, trf("UI binding has no field: %s", text.c_str()), DataPage::Sounds, -1, 0});
 
     const data::TableIndexList& index = m_tablesPanel.index();

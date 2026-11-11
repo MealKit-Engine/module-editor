@@ -220,7 +220,6 @@ void Editor::loadPanelState() {
         const size_t space = line.find(' ');
         if (space == std::string::npos) continue;
         const std::string key = line.substr(0, space);
-        if (m_uiPanel.loadState(key, line.substr(space + 1))) continue; // ui.* lines: the [UI] workspace's screen and view
         const int value = std::atoi(line.c_str() + space + 1);
         for (const auto& [name, flag] : panels)
             if (key == name) *flag = value != 0;
@@ -242,7 +241,6 @@ void Editor::savePanelState() const {
     add("modules", m_modulesOpen);
     add("ui", m_uiWorkspaceOpen);
     add("previewPage", static_cast<int>(m_previewPage));
-    m_uiPanel.saveState(text);
     writeTextFile(m_panelStatePath, text);
 }
 
@@ -323,13 +321,11 @@ void Editor::update(f64 dt) {
         ImGui::PopStyleVar(2);
         // The gaps between docked panels are painted in WindowBg: make them the dark gutter so panels read as separate without lines
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
-        // [UI] maximized (Shift+Space): the dock tree stays as it is but shows nothing; drawUiWorkspace covers the whole area
-        ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f), uiMaximized() ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
+        ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
         ImGui::PopStyleColor();
         ImGui::End();
     }
     drawSceneWindow(dockId);
-    if (uiMaximized()) m_sceneVisible = m_sceneHovered = false; // hidden under the workspace: no gizmo, toolbar or picking
     drawUiWorkspace();
 
     if (m_sceneOpen) updateCamera(dt);
@@ -380,10 +376,6 @@ void Editor::update(f64 dt) {
 
     runShortcuts();
     drawCommandPalette();
-    // [UI] workspace in front: the mouse on its canvas selects, moves and resizes boxes of the screen
-    if (editing && m_uiPanelOpen)
-        m_uiPanel.pointer(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, ImGui::IsMouseClicked(ImGuiMouseButton_Left),
-                          ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::GetIO().KeyCtrl, !m_uiPanel.canvasHovered());
     if (editing && !m_sceneVisible) {
         // Another tab covers the scene view: no gizmo, toolbar or picking
     } else if (editing) {
@@ -531,51 +523,33 @@ void Editor::drawSceneWindow(unsigned int dockId) {
     ImGui::End();
 }
 
-// [UI] workspace: a tab beside the viewport (default layout), drawn without a background so the screen rendered on the back buffer
-// shows on its canvas (UiPanel::render). Only while it is the visible tab does it render, take the mouse and own undo/save
+// [UI] tab beside the viewport: the project's screens with "Open in MkUI" (the Designer edits them), and while playing the game's open
+// screens with their values and binding errors (UiPanel)
 void Editor::drawUiWorkspace() {
     m_uiPanelOpen = false;
     if (!m_uiWorkspaceOpen) return;
-    if (uiMaximized()) { // over the whole dock area (menu and status bar stay), outside the dock tree so its tab stays where it was
-        const ImGuiViewport* main = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(main->WorkPos);
-        ImGui::SetNextWindowSize(main->WorkSize);
-        ImGui::SetNextWindowViewport(main->ID);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-        ImGui::Begin("##UiMaximized", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBackground |
-                                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse);
-        ImGui::PopStyleVar(2);
-        m_uiPanelOpen = true;
-        m_uiPanel.drawWorkspace();
-        ImGui::End();
-        return;
-    }
     if (const ImGuiWindow* scene = ImGui::FindWindowByName(kSceneWindow); scene && scene->DockId)
-        ImGui::SetNextWindowDockID(scene->DockId, ImGuiCond_FirstUseEver); // layouts saved before the workspace existed
+        ImGui::SetNextWindowDockID(scene->DockId, ImGuiCond_FirstUseEver); // layouts saved before the tab existed
     if (m_uiFrontFrames > 0) { // asked to come to the front: keep asking until the tab shows (the dock node may not exist yet)
         --m_uiFrontFrames;
         m_sceneFrontFrames = 0;
         ImGui::SetNextWindowFocus();
     }
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    const bool visible = ImGui::Begin(iconTitle(icon::kPreview, kUiWindow).c_str(), &m_uiWorkspaceOpen,
-                                      ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
-    ImGui::PopStyleVar();
+    const bool visible = ImGui::Begin(iconTitle(icon::kPreview, kUiWindow).c_str(), &m_uiWorkspaceOpen, ImGuiWindowFlags_NoCollapse);
     if (const ImGuiWindow* w = ImGui::FindWindowByName(kUiWindow); visible && m_uiFrontFrames > 0 && w && w->DockTabIsVisible) m_uiFrontFrames = 0; // GetCurrentWindow reads DLL data
-    if (visible && m_mode == Mode::Edit) {
+    if (visible) {
         m_uiPanelOpen = true;
-        m_uiPanel.drawWorkspace();
-    } else if (visible && m_gameUi) { // playing: the game's screens with their live values (kept as preview values from here)
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg)); // the tab has no background (the game draws under it)
-        if (ImGui::BeginChild("##playValues")) m_uiPanel.drawPlayValues(*m_gameUi);
-        ImGui::EndChild();
-        ImGui::PopStyleColor();
-    } else if (visible) {
-        ImGui::SetCursorPos(ImVec2(16.0f, 16.0f));
-        ImGui::TextDisabled("%s", tr("Game screens are edited while not playing."));
+        m_uiPanel.draw(m_mode == Mode::Edit ? nullptr : m_gameUi);
     }
     ImGui::End();
+}
+
+// The MkUI Designer from the [Tools] list (the tool whose manifest opens .ui), with the project and optionally one screen
+bool Editor::openInDesigner(const std::string& uiFile) {
+    for (const ToolInfo& t : m_tools)
+        if (t.problem == ToolInfo::Problem::None && std::find(t.opens.begin(), t.opens.end(), ".ui") != t.opens.end())
+            return launchTool(t, m_project.directory, uiFile);
+    return false;
 }
 
 // The mouse is on a window other than the scene view
@@ -1050,22 +1024,6 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockId, viewport->WorkSize);
     ImGuiID center = dockId;
-    // UI: the workspace gets most of the window (narrow side columns, a short bottom row)
-    // UI: the workspace has its own layers and inspector, so only the bottom row stays beside it
-    const bool uiLayout = preset == LayoutPreset::Ui;
-    if (uiLayout) {
-        const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.16f, nullptr, &center);
-        ImGui::DockBuilderDockWindow(kUiWindow, center);
-        ImGui::DockBuilderDockWindow(kSceneWindow, center);
-        for (const char* w : kBottomWindows) ImGui::DockBuilderDockWindow(w, bottom);
-        ImGui::DockBuilderDockWindow("Data###Data", bottom);
-        // Closed here, but docked in the bottom row so [Window] reopens them as tabs there instead of floating over the workspace
-        for (const char* w : {kHierarchyWindow, kInspectorWindow, "Previews###Previews"}) ImGui::DockBuilderDockWindow(w, bottom);
-        ImGui::DockBuilderFinish(dockId);
-        m_hierarchyOpen = m_inspectorOpen = m_previewOpen = false; // the other layouts bring them back
-        openUiPanel();
-        return;
-    }
     m_previewOpen = true;
     const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.17f, nullptr, &center);
     const f32 rightShare = preset == LayoutPreset::LookDev ? 0.42f : 0.27f;
@@ -1167,8 +1125,8 @@ void Editor::drawMenuBar() {
         commandMenuItem("Modules", &m_modulesOpen); // engine and source modules of the project, and the registry
         ImGui::Separator();
         if (ImGui::BeginMenu(tr("Layout"))) {
-            const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev"), tr("UI")};
-            for (int i = 0; i < 4; ++i)
+            const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev")};
+            for (int i = 0; i < 3; ++i)
                 if (ImGui::MenuItem(names[i], nullptr, static_cast<int>(m_layoutPreset) == i)) {
                     m_layoutPreset = static_cast<LayoutPreset>(i);
                     m_layoutReset = true;
@@ -1336,7 +1294,7 @@ void Editor::drawStatusBar() {
 }
 
 void Editor::drawHierarchy(bool editing) {
-    if (!m_hierarchyOpen || scenePanelsHidden()) return;
+    if (!m_hierarchyOpen) return;
     if (!ImGui::Begin(iconTitle(icon::kTree, kHierarchyWindow).c_str(), &m_hierarchyOpen)) {
         ImGui::End();
         return;
@@ -1659,7 +1617,7 @@ void Editor::reparent(u32 entityId, u32 parentId) {
 }
 
 void Editor::drawInspector(bool editing) {
-    if (!m_inspectorOpen || scenePanelsHidden()) return;
+    if (!m_inspectorOpen) return;
     if (m_focusPanel == kInspectorWindow) focusPanelNow();
     if (!ImGui::Begin(iconTitle(icon::kInspector, kInspectorWindow).c_str(), &m_inspectorOpen)) {
         ImGui::End();
@@ -3336,9 +3294,8 @@ void Editor::setProject(const ProjectInfo& project) {
     m_tablesPanel.setProjectDirectory(project.directory);
     m_tuningPanel.setProjectDirectory(project.directory);
     m_feedbackPanel.setProjectDirectory(project.directory);
-    m_uiPanel.setCodeEditor(&m_prefs.externalEditor);
-    if (m_window) m_uiPanel.setInput(&m_window->input());
-    m_uiPanel.setProject(project.settings.language);
+    m_uiPanel.setOpen([this](const std::string& file) { return openInDesigner(file); });
+    m_uiPanel.refresh();
     applyRenderStyle(project.settings);
     live::ServerConfig lc;
     lc.kind = "editor";
@@ -3509,7 +3466,6 @@ void Editor::drawBuildLog() {
 }
 
 void Editor::saveAll() {
-    if (m_uiPanel.dirty()) m_uiPanel.save();
     saveScene();
     m_tuningPanel.saveDirty();
     if (m_projectPanel.dirty()) m_projectPanel.save(m_project);

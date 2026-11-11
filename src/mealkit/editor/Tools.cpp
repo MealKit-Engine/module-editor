@@ -26,10 +26,10 @@ std::vector<ToolInfo> findTools(const std::vector<std::string>& extraFolders) {
     return out;
 }
 
-bool launchTool(const ToolInfo& tool, const std::string& projectDirectory) {
+bool launchTool(const ToolInfo& tool, const std::string& projectDirectory, const std::string& file) {
     if (tool.problem != ToolInfo::Problem::None) return false;
-    MEALKIT_INFO("Opening tool %s %s: %s", tool.name.c_str(), tool.version.c_str(), tool.exe.c_str());
-    return launchDetached(tool.exe, "--project \"" + projectDirectory + "\"", tool.folder);
+    MEALKIT_INFO("Opening tool %s %s: %s %s", tool.name.c_str(), tool.version.c_str(), tool.exe.c_str(), file.c_str());
+    return launchDetached(tool.exe, "--project \"" + projectDirectory + "\"" + (file.empty() ? "" : " --file \"" + file + "\""), tool.folder);
 }
 
 } // namespace mealkit::editor

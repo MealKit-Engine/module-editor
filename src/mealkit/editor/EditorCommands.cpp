@@ -41,26 +41,21 @@ void Editor::buildCommands() {
          [this] { openSettingsPage(SettingsPage::Project); }},
         {"Modules", 0, 0, [this] { return !m_project.directory.empty(); }, [this] { m_modulesOpen = !m_modulesOpen; }},
         {"Undo", ImGuiMod_Ctrl | ImGuiKey_Z, 0,
-         [this] { return m_dataFocused ? dataCanStep(true) : m_mode == Mode::Edit && (uiEditing() ? m_uiPanel.canUndo() : !m_undo.empty()); },
-         [this] { m_dataFocused ? dataStep(true) : uiEditing() ? m_uiPanel.undo() : undo(); }},
+         [this] { return m_dataFocused ? dataCanStep(true) : m_mode == Mode::Edit && !m_undo.empty(); },
+         [this] { m_dataFocused ? dataStep(true) : undo(); }},
         {"Redo", ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z,
-         [this] { return m_dataFocused ? dataCanStep(false) : m_mode == Mode::Edit && (uiEditing() ? m_uiPanel.canRedo() : !m_redo.empty()); },
-         [this] { m_dataFocused ? dataStep(false) : uiEditing() ? m_uiPanel.redo() : redo(); }},
+         [this] { return m_dataFocused ? dataCanStep(false) : m_mode == Mode::Edit && !m_redo.empty(); },
+         [this] { m_dataFocused ? dataStep(false) : redo(); }},
         {"History", ImGuiMod_Ctrl | ImGuiKey_H, 0, always, [this] { m_historyOpen = !m_historyOpen; }},
         {"Select All", ImGuiMod_Ctrl | ImGuiKey_A, 0, editing, [this] {
-             if (uiEditing()) return m_uiPanel.selectAll(); // the [UI] tab: the selected node's siblings
              std::vector<u32> ids;
              for (const scene::Entity& e : m_scene.entities)
                  if (!isHidden(e) && !isLocked(e)) ids.push_back(e.id);
              selectMany(ids, false);
          }},
-        {"Duplicate", ImGuiMod_Ctrl | ImGuiKey_D, 0, [this, hasSelection] { return uiEditing() || hasSelection(); },
-         [this] { uiEditing() ? (void)m_uiPanel.duplicateSelected() : duplicateSelected(); }},
-        {"Copy", ImGuiMod_Ctrl | ImGuiKey_C, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.copySelected(); }},
-        {"Paste", ImGuiMod_Ctrl | ImGuiKey_V, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.paste(); }},
+        {"Duplicate", ImGuiMod_Ctrl | ImGuiKey_D, 0, hasSelection, [this] { duplicateSelected(); }},
         {"Save as Prefab...", 0, 0, hasSelection, [this] { saveSelectionAsPrefab(); }},
-        {"Delete", ImGuiKey_Delete, 0, [this, hasSelection] { return uiEditing() || hasSelection(); },
-         [this] { uiEditing() ? (void)m_uiPanel.deleteSelected() : deleteSelected(); }},
+        {"Delete", ImGuiKey_Delete, 0, hasSelection, [this] { deleteSelected(); }},
         {"Find in Hierarchy", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] {
              m_hierarchyOpen = true;
              m_treeSearchFocus = true;
@@ -71,8 +66,7 @@ void Editor::buildCommands() {
         {"Align Z", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(2); }},
         {"Distribute Evenly", 0, 0, [this] { return m_mode == Mode::Edit && m_multi.size() >= 2; },
          [this] { distributeSelection(); }},
-        {"Focus Selected", ImGuiKey_F, 0, [this, hasSelection] { return uiEditing() || hasSelection(); },
-         [this] { uiEditing() ? m_uiPanel.frameSelection() : focusSelected(); }},
+        {"Focus Selected", ImGuiKey_F, 0, hasSelection, [this] { focusSelected(); }},
         {"Move W", ImGuiKey_W, 0, editing, [this] { m_gizmoOp = 0; }},
         {"Rotate E", ImGuiKey_E, 0, editing, [this] { m_gizmoOp = 1; }},
         {"Scale R", ImGuiKey_R, 0, editing, [this] { m_gizmoOp = 2; }},
@@ -117,31 +111,9 @@ void Editor::buildCommands() {
         {"Preview Cutscene", 0, 0, always, [this] { openPreviewPage(PreviewPage::Cutscene); }},
         {"Effects", 0, 0, always, [this] { toggleDataPage(DataPage::Effects, 0); }},
         {"Reset Layout", 0, 0, always, [this] { m_layoutReset = true; }},
-        // [UI] workspace view (also its toolbar buttons): the canvas over the whole dock area, the side columns hidden
-        {"Maximize UI Canvas", ImGuiMod_Shift | ImGuiKey_Space, 0, [this] { return m_uiPanelOpen || uiMaximized(); }, [this] { m_uiPanel.toggleMaximized(); }},
-        {"Hide UI Side Columns", ImGuiMod_Ctrl | ImGuiKey_Backslash, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleColumns(); }},
-        {"Zoom UI to 100%", ImGuiMod_Shift | ImGuiKey_0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.zoomActual(); }},
-        {"Fit UI Screen", ImGuiMod_Shift | ImGuiKey_1, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.zoomFit(); }},
-        {"Zoom UI to Selection", ImGuiMod_Shift | ImGuiKey_2, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.frameSelection(); }},
-        {"UI Layout Outlines", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("layout"); }},
-        {"UI Safe Area", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("safe"); }},
-        {"UI Rulers", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("rulers"); }},
-        {"UI Grid", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("grid"); }},
-        {"UI Snap to Grid", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("snap"); }},
-        {"UI Pseudo-Localize", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("pseudo"); }},
-        {"UI Interact Mode", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.toggleView("interact"); }},
-        {"Save UI Screen as PNG", 0, 0, [this] { return m_uiPanelOpen; }, [this] { m_uiPanel.capturePng(); }},
-        {"Add UI Frame", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.addNew("frame"); }},
-        {"UI Wrap in Frame", ImGuiMod_Ctrl | ImGuiKey_G, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.wrapSelected(); }},
-        {"UI Align Left", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(0); }},
-        {"UI Align Center", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(1); }},
-        {"UI Align Right", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(2); }},
-        {"UI Align Top", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(3); }},
-        {"UI Align Middle", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(4); }},
-        {"UI Align Bottom", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.alignSelected(5); }},
-        {"UI Distribute Horizontally", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.distributeSelected(false); }},
-        {"UI Distribute Vertically", 0, 0, [this] { return uiEditing(); }, [this] { m_uiPanel.distributeSelected(true); }},
-        {"UI Layout", 0, 0, always, [this] { m_layoutPreset = LayoutPreset::Ui; m_layoutReset = true; }}, // the [UI] workspace in front, given most of the window
+        {"Open MkUI", 0, 0, [this] { return !m_project.directory.empty(); }, [this] {
+             if (!openInDesigner({})) setStatus(tr("MkUI is not installed (see [Settings] > Tools)"), true);
+         }},
         {"Build Game Code (Hot Reload)", ImGuiMod_Ctrl | ImGuiKey_R, 0,
          [this, canBuild] { return canBuild() && m_mode == Mode::Edit; }, [this] { startBuild(BuildKind::GameCode); }},
         {"Publish Game Code", 0, 0, canBuild, [this] {
@@ -169,8 +141,6 @@ void Editor::buildCommands() {
         {"Memory", 0, 0, always, [this] { toggleDebugPage(DebugPage::Memory); }},
         {"Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Log); }},
     };
-    for (int i = 0; i < UiPanel::widgetCount(); ++i) // the [UI] workspace's library widgets, for the palette
-        m_commands.push_back({UiPanel::widgetCommand(i), 0, 0, [this] { return uiEditing(); }, [this, i] { m_uiPanel.insertWidget(i, nullptr, nullptr); }});
     tagCommandModules();
 }
 

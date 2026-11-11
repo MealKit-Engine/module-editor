@@ -86,10 +86,7 @@ struct Options {
     bool feedback = false;        // start with the [Feedback] window open
     std::string palette;          // --palette <text>: start with the command palette open with this text
     std::vector<std::string> commands; // --command "<English name>": run a command from the command table right after start (can be given multiple times)
-    std::string uiPreview;        // open the [UI] window and preview this screen (file name in assets/ui)
-    std::string uiSelect;         // with --ui: edit mode on, select this node (automated capture)
-    int uiState = 0;              // with --ui-select: state shown on it (1 hover, 2 pressed, 3 focus, 4 disabled, 5 checked)
-    std::string uiDrag;           // with --ui-select: "dx,dy" logical units to drag it after the first frame (logs the result)
+    bool uiTab = false;           // --ui: bring the [UI] tab to the front (screens are edited in the MkUI Designer)
     std::string language; // --lang: this language for this run only (docs screenshots)
     std::string penpotToken; // --penpot-token: live connection server token (Penpot import automated tests, random if empty)
     std::vector<std::string> toolPaths; // --tool-path: extra folders for the [Tools] menu to search (build folder of a tool in development)
@@ -186,10 +183,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--command" && next(v)) o.commands.push_back(v);
         else if (a == "--bake-probes") o.bakeProbes = true;
         else if (a == "--feedback") o.feedback = true;
-        else if (a == "--ui" && next(v)) o.uiPreview = v;
-        else if (a == "--ui-select" && next(v)) o.uiSelect = v;
-        else if (a == "--ui-drag" && next(v)) o.uiDrag = v;
-        else if (a == "--ui-state" && next(v)) o.uiState = std::atoi(v);
+        else if (a == "--ui") o.uiTab = true;
         else if (a == "--scene" && next(v)) o.scenePath = v;
         else if (a == "--lang" && next(v)) o.language = v;
         else if (a == "--penpot-token" && next(v)) o.penpotToken = v;
@@ -211,7 +205,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --select i --play [--players n] --replay rec --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --lookdev --look-through --cutscene <name> --palette <text> --command <name> --bake-probes --feedback --ui <file.ui> --ui-check --ui-render <ui/x.ui> <png>\n"
+                "              --project-settings --tables --sounds --lookdev --look-through --cutscene <name> --palette <text> --command <name> --bake-probes --feedback --ui --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
                 "  without --project: starts MealKit Manager if installed (%%LOCALAPPDATA%%\\MealKit\\manager), --builtin-manager for the old one\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
@@ -365,16 +359,7 @@ int main(int argc, char** argv) {
     if (!opt.cutscene.empty()) editor.previewCutscene(opt.cutscene);
     if (opt.bakeProbes) editor.bakeProbes();
     if (opt.feedback) editor.openFeedback();
-    if (!opt.uiPreview.empty()) editor.openUiPanel(opt.uiPreview);
-    if (!opt.uiSelect.empty() && !editor.selectUiNode(opt.uiSelect)) MEALKIT_ERROR("--ui-select: no node '%s'", opt.uiSelect.c_str());
-    if (opt.uiState > 0 && opt.uiState < 6) editor.setUiPreviewState(opt.uiState);
-    if (!opt.uiDrag.empty()) {
-        char* end = nullptr;
-        const f32 dx = std::strtof(opt.uiDrag.c_str(), &end);
-        const f32 dy = *end == ',' ? std::strtof(end + 1, &end) : 0.0f;
-        if (!*end && opt.uiDrag.find(',') != std::string::npos) editor.dragUiNode(opt.uiSelect, dx, dy);
-        else MEALKIT_ERROR("--ui-drag: expected dx,dy");
-    }
+    if (opt.uiTab) editor.openUiPanel();
     if (opt.play) editor.requestPlay();
     if (!opt.replayPath.empty()) editor.requestReplay(opt.replayPath);
     if (opt.exportGame) editor.startBuild(editor::BuildKind::Export);
@@ -577,7 +562,6 @@ int main(int argc, char** argv) {
         if (active && !playing) editor.renderProbeBake(renderer);
         if (active && !playing) editor.renderGradeCapture(renderer);
         if (active && playing && play.active()) play.renderUi(renderer);
-        if (active) editor.renderUiPreview(renderer, dt);
         editor.renderUi(active);
         if (active) renderer.endFrame();
 
