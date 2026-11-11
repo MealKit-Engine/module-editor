@@ -339,7 +339,7 @@ int main(int argc, char** argv) {
         else if (pick.rfind("effects", 0) == 0) feedback.playEffect(value, editor.previewPoint());
     });
     editor.setFeedback(&feedback);
-    editor.setEngineTables(input::engineTables()); // engine tables shown in the [Tables] panel: input bindings (sound events are in MealKit Audio)
+    editor.setEngineTables(input::engineTables()); // engine tables shown in the [Tables] panel: input bindings (sound events are in MkAudio)
     editor.setEngineDirectory(engineDirectory());
     editor.setPenpotToken(opt.penpotToken);
     editor.setToolPaths(opt.toolPaths);

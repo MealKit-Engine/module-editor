@@ -3348,7 +3348,7 @@ void Editor::setProject(const ProjectInfo& project) {
     lc.token = m_penpotToken;
     m_live.start(lc);
     m_live.addTopic("stats"); // performance numbers in the editor status bar (game::FrameStats::json)
-    audio::addLiveService(m_live, [this] { return m_audio; }); // MealKit Audio: playback in the editor, reload, status
+    audio::addLiveService(m_live, [this] { return m_audio; }); // MkAudio: playback in the editor, reload, status
     m_tools = findTools(m_toolPaths);
     if (!m_engineDirectory.empty()) {
         ImportProject ip;
