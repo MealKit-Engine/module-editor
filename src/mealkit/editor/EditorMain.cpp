@@ -168,8 +168,16 @@ bool parseArgs(int argc, char** argv, Options& o) {
     return true;
 }
 
-// Engine repo this editor was built from (CMake path → Windows notation)
+// Engine folder: the one this exe sits in (<engine>\build\<config>\bin), so an engine that MealKit Manager installed
+// (tools\package_engine.ps1, extracted anywhere) finds itself. Otherwise the repo it was built from (CMake path → Windows notation).
 std::string engineDirectory() {
+    std::string up = executableDirectory();
+    std::replace(up.begin(), up.end(), '/', '\\');
+    for (int i = 0; i < 3 && !up.empty(); ++i) {
+        const size_t slash = up.find_last_of('\\');
+        up = slash == std::string::npos ? std::string() : up.substr(0, slash);
+    }
+    if (!up.empty() && fileExists(up + "\\cmake\\MealKit.cmake") && fileExists(up + "\\VERSION")) return up;
     std::string dir = MEALKIT_ENGINE_DIR;
     std::replace(dir.begin(), dir.end(), '/', '\\');
     return dir;
@@ -195,8 +203,7 @@ bool startManager(const std::string& engineDir) {
 
 int main(int argc, char** argv) {
     attachParentConsole(); // it's a GUI program (so no console window appears behind it)
-    std::string engineDir = MEALKIT_ENGINE_DIR;
-    std::replace(engineDir.begin(), engineDir.end(), '/', '\\');
+    const std::string engineDir = engineDirectory();
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]) == "--player-window") { // join window of multiplayer play
             editor::initStrings(engineDir, {});
@@ -244,7 +251,7 @@ int main(int argc, char** argv) {
     // ---- Pick a project
     if (opt.projectDir.empty()) {
         const std::string chosen =
-            editor::runProjectManager(window, renderer, MEALKIT_ENGINE_DIR, opt.frames, opt.capturePath);
+            editor::runProjectManager(window, renderer, engineDir, opt.frames, opt.capturePath);
         if (!chosen.empty() && !relaunchWithProject(chosen))
             MEALKIT_ERROR("Could not start the editor for %s", chosen.c_str());
         renderer.shutdown();
