@@ -417,7 +417,7 @@ void ModulesPanel::askRemove(const std::string& name) {
 
 void ModulesPanel::drawToolbar(bool busy, bool editing) {
     ImGui::BeginDisabled(busy);
-    if (ImGui::Button(tr("Refresh"))) m_needList = true;
+    if (iconButton(icon::kRefresh, tr("Refresh"))) m_needList = true;
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 13.0f);
@@ -438,7 +438,7 @@ void ModulesPanel::drawToolbar(bool busy, bool editing) {
     if (const int updates = updateCount(); updates > 0) {
         ImGui::SameLine();
         ImGui::BeginDisabled(busy || !editing);
-        if (ImGui::Button(trf("Update All (%d)", updates).c_str())) m_confirmUpdateAll = true;
+        if (iconValueButton(icon::kSync, std::to_string(updates), trf("Update All (%d)", updates).c_str())) m_confirmUpdateAll = true;
         ImGui::EndDisabled();
     }
     if (busy) {
@@ -641,18 +641,15 @@ void ModulesPanel::drawDetails(bool canChange) {
     };
     if (item.installed) {
         next();
-        if (ImGui::Button(tr("Update")))
+        if (iconButton(icon::kSync, (std::string(tr("Update")) + "\n" + tr("Files you changed are kept; the new version is written next to them as .new")).c_str()))
             run(trf("Update %s", item.name.c_str()), "update " + item.name, Job::Change);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", tr("Files you changed are kept; the new version is written next to them as .new"));
         next();
-        if (ImGui::Button(tr("Remove"))) askRemove(item.name);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tr("Checks first what still uses it"));
+        if (iconButton(icon::kTrash, (std::string(tr("Remove")) + "\n" + tr("Checks first what still uses it")).c_str())) askRemove(item.name);
     } else if (item.registry && !item.registry->version.empty()) {
         next();
-        if (ImGui::Button((std::string(icon::kAdd) + "  " + tr("Add")).c_str())) add(item, item.name, false);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", item.engine ? tr("Copies the engine's module into modules/") : tr("Module code runs inside the editor and the game. The registry checks that it builds, not what it does - read what you add."));
+        if (iconButton(icon::kAdd, (std::string(tr("Add")) + "\n" +
+                                    (item.engine ? tr("Copies the engine's module into modules/") : tr("Module code runs inside the editor and the game. The registry checks that it builds, not what it does - read what you add."))).c_str()))
+            add(item, item.name, false);
         next();
         if (ImGui::Button(tr("Add with Required"))) add(item, item.name, true);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tr("Also adds the modules its requires line lists"));
@@ -662,15 +659,14 @@ void ModulesPanel::drawDetails(bool canChange) {
         const std::string docs = m_projectDir + "\\modules\\" + item.name + "\\docs";
         next();
         ImGui::BeginDisabled(!fileExists(docs + "\\index.md"));
-        if (ImGui::Button(tr("Docs"))) openInExplorer(docs + "\\index.md");
+        if (iconButton(icon::kDocument, tr("Docs"))) openInExplorer(docs + "\\index.md");
         ImGui::EndDisabled();
         next();
-        if (ImGui::Button(tr("Open Folder"))) openInExplorer(m_projectDir + "\\modules\\" + item.name);
+        if (iconButton(icon::kFolderOpen, tr("Open Folder"))) openInExplorer(m_projectDir + "\\modules\\" + item.name);
     }
     if (item.repo.rfind("https://", 0) == 0) {
         next();
-        if (ImGui::Button(tr("Repository"))) openInExplorer(item.repo);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", item.repo.c_str());
+        if (iconButton(icon::kGlobe, (std::string(tr("Repository")) + "\n" + item.repo).c_str())) openInExplorer(item.repo);
     }
 
     // Other versions: fetched on request (registry list or the engine module repo's tags)
@@ -860,7 +856,7 @@ void ModulesPanel::draw(const ProjectInfo& project, const std::string& engineDir
         if (m_logFailed) ImGui::TextColored(color::kDanger, "%s", tr("The last change failed:"));
         else ImGui::TextDisabled("%s", tr("Last change"));
         ImGui::SameLine();
-        if (ImGui::SmallButton(tr("Clear"))) m_log.clear();
+        if (iconButton(icon::kClear, tr("Clear"))) m_log.clear();
         if (!m_log.empty())
             ImGui::InputTextMultiline("##log", m_log.data(), m_log.size() + 1, ImVec2(-FLT_MIN, -FLT_MIN), ImGuiInputTextFlags_ReadOnly);
     }

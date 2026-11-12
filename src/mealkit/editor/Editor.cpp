@@ -392,14 +392,14 @@ void Editor::drawPlayControls() {
     const game::Timeline t = m_simDebug->timeline();
     ImGui::TextDisabled("|");
     if (t.recording && m_canPause) {
-        if (ImGui::Button(t.paused ? tr("Resume (F6)") : tr("Pause (F6)"))) m_simDebug->setPaused(!t.paused);
+        if (iconButton(t.paused ? icon::kPlay : icon::kPause, t.paused ? tr("Resume (F6)") : tr("Pause (F6)"))) m_simDebug->setPaused(!t.paused);
         ImGui::BeginDisabled(!t.paused);
-        if (ImGui::Button(tr("Step (F7)"))) m_simDebug->stepOnce();
+        if (iconButton(icon::kStep, tr("Step (F7)"))) m_simDebug->stepOnce();
         int view = static_cast<int>(t.view);
         // The timeline gives way so [Save Scenario] and the shadow status stay on the bar in a narrow window
         const ImGuiStyle& style = ImGui::GetStyle();
         const f32 font = ImGui::GetFontSize();
-        const f32 after = ImGui::CalcTextSize(tr("Save Scenario")).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x * 2.0f +
+        const f32 after = ImGui::GetFrameHeight() + style.ItemSpacing.x * 2.0f +
                           (m_simDebug->shadow().enabled ? font * 10.0f : 0.0f);
         ImGui::SetNextItemWidth(std::clamp(ImGui::GetWindowWidth() - ImGui::GetCursorPosX() - after, font * 4.0f, font * 14.0f));
         if (ImGui::SliderInt("##timeline", &view, static_cast<int>(t.first), static_cast<int>(t.live),
@@ -415,7 +415,7 @@ void Editor::drawPlayControls() {
     const bool canSaveScenario = !t.viewingPast && m_stateView.type && m_stateView.data && t.live > 0 &&
                                  fileExists(game::replayRecordingPath(game::userFolder(m_project.settings)));
     ImGui::BeginDisabled(!canSaveScenario);
-    if (ImGui::Button(tr("Save Scenario"))) saveScenario(t.live - 1);
+    if (iconButton(icon::kSave, tr("Save Scenario"))) saveScenario(t.live - 1);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("%s", tr("Saves the inputs so far and the current state values as a scenario test in tests/ "
@@ -1153,16 +1153,16 @@ void Editor::drawSceneList() {
     }
     ImGui::Separator();
     ImGui::BeginDisabled(picked.empty() || picked == m_scenePath);
-    if (ImGui::Button(tr("Open"))) open = picked;
+    if (iconButton(icon::kLaunch, tr("Open"))) open = picked;
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(picked.empty() || m_project.directory.empty());
-    if (ImGui::Button(tr("Set as Start Scene"))) m_projectPanel.setStartScene(m_project, "scenes/" + fileName(picked));
+    if (iconButton(icon::kStarFilled, tr("Set as Start Scene"))) m_projectPanel.setStartScene(m_project, "scenes/" + fileName(picked));
     ImGui::EndDisabled();
     if (hasSceneTool()) {
         ImGui::SameLine();
         ImGui::BeginDisabled(picked.empty());
-        if (ImGui::Button(tr("Open in MkRender"))) openInSceneTool("scenes/" + fileName(picked));
+        if (iconButton(icon::kLaunch, tr("Open in MkRender"))) openInSceneTool("scenes/" + fileName(picked));
         ImGui::EndDisabled();
     }
     ImGui::TextDisabled("%s", tr("★ marks the scene the game starts with (mealkit.project)"));
@@ -1975,7 +1975,7 @@ void Editor::drawNotices() {
             Notice& n = m_notices[i];
             ImGui::PushID(static_cast<int>(i));
             if (n.failed) {
-                if (ImGui::SmallButton("x")) n.time = -1.0;
+                if (iconButton(icon::kClose, tr("Hide"))) n.time = -1.0;
                 ImGui::SameLine();
             }
             ImGui::TextColored(n.failed ? ImVec4(1.0f, 0.50f, 0.45f, 1.0f) : ImVec4(0.60f, 0.88f, 0.60f, 1.0f), "%s",
@@ -2018,8 +2018,7 @@ void Editor::drawEmptyViewport() {
         // Close at the right end of the first row; it stays closed until the project is opened again
         const auto closeButton = [this] {
             ImGui::SameLine();
-            if (ImGui::SmallButton("x")) m_noGameHintClosed = true;
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", tr("Hide"));
+            if (iconButton(icon::kClose, tr("Hide"))) m_noGameHintClosed = true;
         };
         if (!projectHas("game")) { // kernel-only or without the game module: there is no game for the editor to load
             ImGui::TextUnformatted(tr("This project has no game module, so there is nothing to play here."));
@@ -2038,10 +2037,10 @@ void Editor::drawEmptyViewport() {
         ImGui::TextUnformatted(tr("The game code is not built yet. Build it to play."));
         closeButton();
         ImGui::BeginDisabled(m_buildPanel.running());
-        if (ImGui::Button(tr("Build Game Code"))) startBuild(BuildKind::GameCode);
+        if (iconButton(icon::kBuild, tr("Build Game Code"))) startBuild(BuildKind::GameCode);
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button(tr("Build Log"))) {
+        if (iconButton(icon::kLog, tr("Build Log"))) {
             openDebugPage(DebugPage::Build);
         }
     }

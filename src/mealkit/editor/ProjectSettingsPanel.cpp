@@ -2,6 +2,7 @@
 
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
 
 #include <imgui.h>
@@ -72,9 +73,9 @@ void ProjectSettingsPanel::drawContent(ProjectInfo& project, const std::string& 
     ImGui::InputTextWithHint("##search", tr("Search"), m_search, sizeof(m_search));
     ImGui::TextDisabled("%s%s", project.filePath().c_str(), m_dirty ? " *" : "");
     ImGui::BeginDisabled(!m_dirty);
-    if (ImGui::Button(tr("Save"))) save(project);
+    if (iconButton(icon::kSave, tr("Save"))) save(project);
     ImGui::SameLine();
-    if (ImGui::Button(tr("Revert"))) revert(project);
+    if (iconButton(icon::kUndo, tr("Revert"))) revert(project);
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(currentScene.empty() || currentScene == m_edit.scene);

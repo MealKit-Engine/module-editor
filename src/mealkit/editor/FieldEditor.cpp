@@ -468,7 +468,7 @@ bool drawList(const char* label, const char* name, const ValueInfo& v, void* dat
     const u32 size = v.element->size;
     for (u32 i = 0; i < count; ++i) {
         ImGui::PushID(static_cast<int>(i));
-        if (ImGui::SmallButton("x")) remove = static_cast<int>(i);
+        if (iconButton(icon::kRemove, tr("Remove"))) remove = static_cast<int>(i);
         ImGui::SameLine();
         ImGui::BeginDisabled(i == 0);
         if (ImGui::ArrowButton("##up", ImGuiDir_Up)) up = static_cast<int>(i);
@@ -492,7 +492,7 @@ bool drawList(const char* label, const char* name, const ValueInfo& v, void* dat
         changed = true;
     }
     ImGui::BeginDisabled(count >= v.count);
-    if (ImGui::SmallButton(tr("+ Add Item"))) {
+    if (iconButton(icon::kAdd, tr("Add Item"))) {
         ++count; // keeps what was in the slot; a struct starts from its defaults
         if (v.element->kind == Kind::Struct && v.element->type && v.element->type->copy) {
             reflect::Instance fresh(*v.element->type);
@@ -776,6 +776,15 @@ void drawGlyph(ImDrawList* draw, const char* glyph, ImVec2 min, ImVec2 max, f32 
 bool iconButton(const char* glyph, const char* tooltip, bool active) {
     const bool pressed = iconButtonFrame(tooltip, active);
     drawGlyph(ImGui::GetWindowDrawList(), glyph, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetFontSize() * kIconScale, ImGui::GetColorU32(ImGuiCol_Text));
+    return pressed;
+}
+
+bool iconValueButton(const char* glyph, const std::string& value, const char* tooltip) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    const bool pressed = ImGui::Button((std::string(glyph) + "  " + value + "###" + tooltip).c_str());
+    ImGui::PopStyleColor(2);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tooltip);
     return pressed;
 }
 

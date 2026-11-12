@@ -1,6 +1,8 @@
 #include "mealkit/editor/TestsPanel.h"
 
+#include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/GameModuleHost.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/SharedBuild.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
@@ -151,10 +153,8 @@ u32 TestsPanel::failedCount() const {
 
 void TestsPanel::drawContent(const ProjectInfo& project) {
     ImGui::BeginDisabled(running());
-    if (ImGui::Button(tr("Run All Tests"))) runAll(project);
+    if (iconButton(icon::kPlay, (std::string(tr("Run All Tests")) + "\n" + tr("Uses saved files: save tuning and scenes first.")).c_str())) runAll(project);
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", tr("Uses saved files: save tuning and scenes first."));
     if (!m_status.empty()) ImGui::TextUnformatted(m_status.c_str());
     if (m_results.empty()) ImGui::TextDisabled("%s", tr("No tests yet. During play, Save Scenario on the play bar makes one."));
 
@@ -177,7 +177,7 @@ void TestsPanel::drawContent(const ProjectInfo& project) {
         if (r.state == State::Failed && !r.failures.empty()) {
             ImGui::SameLine();
             ImGui::BeginDisabled(running());
-            if (ImGui::SmallButton(tr("Accept as Intended"))) {
+            if (iconButton(icon::kAccept, tr("Accept as Intended"))) {
                 r.state = State::Queued;
                 r.update = true;
                 queue(project);

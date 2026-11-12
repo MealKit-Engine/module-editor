@@ -82,6 +82,8 @@ bool beginCombo(const char* label, const char* preview, int comboFlags = 0);
 
 // Square button showing only an icon glyph, centered by the glyph's own bounds; the tooltip names it. Clear until hovered, or filled with the accent when active
 bool iconButton(const char* glyph, const char* tooltip, bool active = false);
+// A flat button with an icon and a short value after it (a count, a version); the tooltip names it (engine docs/TOOL_DESIGN.md)
+bool iconValueButton(const char* glyph, const std::string& value, const char* tooltip);
 // The same button with a drawn magnet (no such glyph in the icon fonts)
 bool magnetButton(const char* tooltip, bool active = false);
 // Draws one icon glyph centered in a rect. A button's label won't do: it starts at the frame padding when the glyph is wider than the room inside

@@ -2,6 +2,8 @@
 
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/CodeLink.h"
+#include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
 
@@ -100,7 +102,7 @@ bool BuildPanel::drawStatus(f64 now) const {
 bool BuildPanel::drawContent(bool editing, const ProjectInfo& project, f64 now, BuildKind* request) {
     bool requested = false;
     ImGui::BeginDisabled(m_process.running() || project.directory.empty() || !editing);
-    if (ImGui::Button(tr("Build Game Code"))) {
+    if (iconButton(icon::kBuild, tr("Build Game Code"))) {
         *request = BuildKind::GameCode;
         requested = true;
     }
@@ -112,7 +114,7 @@ bool BuildPanel::drawContent(bool editing, const ProjectInfo& project, f64 now, 
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(!directoryExists(project.exportDirectory()));
-    if (ImGui::Button(tr("Open Release Folder"))) openInExplorer(project.exportDirectory());
+    if (iconButton(icon::kFolderOpen, tr("Open Release Folder"))) openInExplorer(project.exportDirectory());
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (m_process.running())

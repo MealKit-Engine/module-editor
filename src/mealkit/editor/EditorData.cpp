@@ -106,11 +106,11 @@ void Editor::drawDataHub(f64 dt, bool editing) {
     // ---- Right: the chosen document
     if (ImGui::BeginChild("##dataPage")) {
         ImGui::BeginDisabled(!dataCanStep(true));
-        if (ImGui::Button(tr("Undo"))) dataStep(true);
+        if (iconButton(icon::kUndo, tr("Undo"))) dataStep(true);
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled(!dataCanStep(false));
-        if (ImGui::Button(tr("Redo"))) dataStep(false);
+        if (iconButton(icon::kRedo, tr("Redo"))) dataStep(false);
         ImGui::EndDisabled();
         switch (m_dataPage) {
         case DataPage::Tuning:
@@ -214,7 +214,7 @@ void Editor::drawStateGraphs() {
     void* data = nullptr;
     const bool valid = reflect::resolvePath(*m_stateView.type, const_cast<void*>(m_stateView.data), m_graphPath, value, data) && !reflect::formatScalar(*value, data).empty();
     ImGui::BeginDisabled(!valid);
-    if (ImGui::Button(tr("Add Graph")) || (enter && valid)) {
+    if (iconButton(icon::kAdd, tr("Add Graph")) || (enter && valid)) {
         m_graphs.push_back({m_graphPath, {}, 0});
         m_graphPath[0] = 0;
     }
@@ -230,7 +230,7 @@ void Editor::drawStateGraphs() {
         ImGui::SameLine();
         ImGui::TextUnformatted(g.path.c_str());
         ImGui::SameLine();
-        if (ImGui::SmallButton("x")) remove = static_cast<int>(i);
+        if (iconButton(icon::kRemove, tr("Remove"))) remove = static_cast<int>(i);
         ImGui::PopID();
     }
     if (remove >= 0) m_graphs.erase(m_graphs.begin() + remove);
@@ -293,7 +293,7 @@ void Editor::drawDebugHub() {
             // Only when RenderDoc/PIX was loaded with --gpu-capture
             if (const char* tool = rhi::gpuCaptureTool()) {
                 ImGui::SameLine();
-                if (ImGui::Button(trf("GPU Capture (%s)", tool).c_str())) captureGpuFrame();
+                if (iconButton(icon::kCamera, trf("GPU Capture (%s)", tool).c_str())) captureGpuFrame();
             }
             m_perfPanel.drawContent();
             break;
@@ -400,7 +400,7 @@ void Editor::drawSettingsHub() {
             for (const ToolInfo& t : m_tools) {
                 ImGui::PushID(t.folder.c_str());
                 ImGui::BeginDisabled(t.problem != ToolInfo::Problem::None);
-                if (ImGui::SmallButton(tr("Open"))) launchTool(t, m_project.directory);
+                if (iconButton(icon::kLaunch, tr("Open"))) launchTool(t, m_project.directory);
                 ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::TextUnformatted((t.version.empty() ? t.name : t.name + "  " + t.version).c_str());
@@ -411,12 +411,12 @@ void Editor::drawSettingsHub() {
                 ImGui::PopID();
             }
             ImGui::Separator();
-            if (ImGui::Button(tr("Open Tools Folder"))) {
+            if (iconButton(icon::kFolderOpen, tr("Open Tools Folder"))) {
                 createDirectories(defaultToolsFolder());
                 openInExplorer(defaultToolsFolder());
             }
             ImGui::SameLine();
-            if (ImGui::Button(tr("Rescan Tools"))) m_tools = findTools(m_toolPaths);
+            if (iconButton(icon::kRefresh, tr("Rescan Tools"))) m_tools = findTools(m_toolPaths);
             break;
         case SettingsPage::Shortcuts: drawShortcutHelp(); break;
         }
@@ -493,10 +493,10 @@ void Editor::drawUnsavedStatus() {
     if (count == 0) ImGui::TextDisabled("%s", tr("Everything is saved."));
     const auto row = [](const std::string& name, const std::function<void()>& save, const std::function<void()>& revert, const char* revertLabel) {
         ImGui::PushID(name.c_str());
-        if (ImGui::SmallButton(tr("Save"))) save();
+        if (iconButton(icon::kSave, tr("Save"))) save();
         ImGui::SameLine();
         ImGui::BeginDisabled(!revert);
-        if (ImGui::SmallButton(revertLabel) && revert) revert();
+        if (iconButton(icon::kUndo, revertLabel) && revert) revert();
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::TextUnformatted(name.c_str());

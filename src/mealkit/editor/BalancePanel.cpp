@@ -1,6 +1,7 @@
 #include "mealkit/editor/BalancePanel.h"
 
 #include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/GameModuleHost.h"
 #include "mealkit/editor/SharedBuild.h"
 #include "mealkit/editor/Strings.h"
@@ -129,7 +130,7 @@ void BalancePanel::drawContent(const ProjectInfo& project) {
             if (f != "view.tuning" && ImGui::Selectable(f.c_str(), f == m_compare)) m_compare = f;
         ImGui::EndCombo();
     }
-    if (ImGui::Button(tr("Run Bot Matches"))) run(project);
+    if (iconButton(icon::kPlay, tr("Run Bot Matches"))) run(project);
     ImGui::EndDisabled();
     ImGui::SameLine();
     const int total = m_matches * (m_compare.empty() ? 1 : 2);

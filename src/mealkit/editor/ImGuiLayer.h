@@ -64,6 +64,21 @@ inline constexpr const char* kBalance = "\xEE\xA7\x92"; // U+E9D2
 inline constexpr const char* kInfo = "\xEE\xA5\x86"; // U+E946
 inline constexpr const char* kWarning = "\xEE\x9E\xBA"; // U+E7BA
 inline constexpr const char* kError = "\xEE\xA8\xB9"; // U+EA39
+// Actions, one glyph per action across the suite (engine docs/TOOL_DESIGN.md "Glyphs")
+inline constexpr const char* kPause = "\xEE\x9D\xA9"; // U+E769
+inline constexpr const char* kStep = "\xEE\xA2\x93"; // U+E893 (one tick forward)
+inline constexpr const char* kSave = "\xEE\x9D\x8E"; // U+E74E
+inline constexpr const char* kUndo = "\xEE\x9E\xA7"; // U+E7A7 (undo, revert)
+inline constexpr const char* kRedo = "\xEE\x9E\xA6"; // U+E7A6
+inline constexpr const char* kRefresh = "\xEE\x9C\xAC"; // U+E72C (reload, rescan)
+inline constexpr const char* kFolderOpen = "\xEE\xA0\xB8"; // U+E838 (show in Explorer)
+inline constexpr const char* kLaunch = "\xEE\xA2\xA7"; // U+E8A7 (open in its program)
+inline constexpr const char* kSync = "\xEE\xA2\x95"; // U+E895 (update)
+inline constexpr const char* kDocument = "\xEE\xA2\xA5"; // U+E8A5 (docs, log)
+inline constexpr const char* kClose = "\xEE\x9C\x91"; // U+E711 (close, dismiss)
+inline constexpr const char* kRemove = "\xEE\x9C\xB8"; // U+E738 (remove from a list)
+inline constexpr const char* kClear = "\xEE\xA2\x94"; // U+E894
+inline constexpr const char* kAccept = "\xEE\x9C\xBE"; // U+E73E
 } // namespace icon
 
 using ImGuiLayer = debug::ImGuiLayer;

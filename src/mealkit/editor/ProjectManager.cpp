@@ -351,9 +351,9 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
         // ---- Top bar: create, import, search ... language
         static char filter[128] = {};
         ImGui::BeginDisabled(busy);
-        if (ImGui::Button((std::string(icon::kAdd) + "  " + tr("Create")).c_str())) openCreate = true;
+        if (iconButton(icon::kAdd, tr("Create"))) openCreate = true;
         ImGui::SameLine();
-        if (ImGui::Button((std::string(icon::kFolder) + "  " + tr("Import")).c_str())) {
+        if (iconButton(icon::kFolder, tr("Import"))) {
             const std::string dir = pickFolderDialog(window.nativeHandle(), newLocation);
             if (!dir.empty()) {
                 if (isProjectDirectory(dir)) {
@@ -549,7 +549,7 @@ std::string runProjectManager(Window& window, render::Renderer& renderer, const 
             else ImGui::TextUnformatted(message.c_str());
             if (!taskLog.empty()) {
                 ImGui::SameLine();
-                if (ImGui::SmallButton(showLog ? tr("Hide log") : tr("Show log"))) showLog = !showLog;
+                if (iconButton(icon::kLog, showLog ? tr("Hide log") : tr("Show log"), showLog)) showLog = !showLog;
             }
         }
         if (showLog && !taskLog.empty()) {

@@ -3,6 +3,7 @@
 
 #include "mealkit/core/Log.h"
 #include "mealkit/editor/FieldEditor.h"
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
@@ -100,10 +101,10 @@ void TuningPanel::drawDoc(Doc& doc, bool liveInMultiplayer, bool playing, bool m
     const reflect::TypeInfo* type = doc.value.type();
     ImGui::TextDisabled("assets\\%s (%s)%s", doc.file, type->name, doc.dirty ? " *" : "");
     ImGui::BeginDisabled(!doc.dirty);
-    if (ImGui::Button(tr("Save"))) save(doc);
+    if (iconButton(icon::kSave, tr("Save"))) save(doc);
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button(tr("Reload from File"))) {
+    if (iconButton(icon::kRefresh, tr("Reload from File"))) {
         load(doc);
         doc.undo.mark();
     }
