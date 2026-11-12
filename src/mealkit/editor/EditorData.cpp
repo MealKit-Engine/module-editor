@@ -181,7 +181,7 @@ void Editor::runTestInput() {
         queueCommand(rest);
     } else if (verb == "print") {
         const Entity* e = selected();
-        std::printf("INPUT selected=%u multi=%zu sceneDirty=%d undo=%zu tuningDirty=%d folder=%s x=%.3f viewport=%.0f,%.0f,%.0f,%.0f fields=", m_selected, m_multi.size(), m_dirty ? 1 : 0, m_undo.size(),
+        std::printf("INPUT selected=%u multi=%zu sceneDirty=%d undo=%zu tuningDirty=%d folder=%s x=%.3f viewport=%.0f,%.0f,%.0f,%.0f fields=", m_selected, m_multi.size(), m_dirty ? 1 : 0, size_t{0},
                     m_tuningPanel.docDirty(0) ? 1 : 0, e ? e->folder.c_str() : "", e ? static_cast<double>(e->position.x) : 0.0, static_cast<double>(m_viewport.x),
                     static_cast<double>(m_viewport.y), static_cast<double>(m_viewport.width), static_cast<double>(m_viewport.height));
         if (e)
@@ -502,12 +502,6 @@ void Editor::drawUnsavedStatus() {
         ImGui::TextUnformatted(name.c_str());
         ImGui::PopID();
     };
-    if (m_dirty)
-        row(m_scenePath.empty() ? std::string(tr("Untitled")) : fileName(m_scenePath), [this] { saveScene(); },
-            m_scenePath.empty() || m_mode != Mode::Edit ? std::function<void()>() : [this] {
-                if (m_revertSceneArmed) loadScene(m_scenePath);
-                m_revertSceneArmed = !m_revertSceneArmed;
-            }, m_revertSceneArmed ? tr("Really revert?") : tr("Revert"));
     for (int i = 0; i < 2; ++i)
         if (m_tuningPanel.docDirty(i))
             row(i == 0 ? "game.tuning" : "view.tuning", [this, i] { m_tuningPanel.saveDoc(i); }, [this, i] { m_tuningPanel.revertDoc(i); }, tr("Revert"));
@@ -603,84 +597,6 @@ void Editor::updateProblems(f64 dt) {
     }
 }
 
-// gizmo=radius fields of the selected object: three circles and a handle at the camera's right. Dragging is one undo step
-bool Editor::updateFieldHandles() {
-    Entity* e = selected();
-    const reflect::TypeInfo* type = e ? entityType(*e) : nullptr;
-    if (!type) return false;
-    const reflect::FieldInfo* field = nullptr;
-    for (const reflect::FieldInfo& f : type->fields)
-        if (f.value->kind == reflect::Kind::Float && splitFieldLabel(f.label).gizmo == "radius") field = &f;
-    if (!field) return false;
-
-    reflect::Instance instance(*type);
-    reflect::fromText(*type, instance.data(), e->fields);
-    f32& radius = *reinterpret_cast<f32*>(static_cast<u8*>(instance.data()) + field->offset);
-    const Vec3 center = scene::worldTransform(m_scene, *e).position;
-    const Mat4 viewProj = m_view * m_proj;
-    const auto project = [&](Vec3 p, ImVec2* out) {
-        const f32 cx = p.x * viewProj.m[0][0] + p.y * viewProj.m[1][0] + p.z * viewProj.m[2][0] + viewProj.m[3][0];
-        const f32 cy = p.x * viewProj.m[0][1] + p.y * viewProj.m[1][1] + p.z * viewProj.m[2][1] + viewProj.m[3][1];
-        const f32 cw = p.x * viewProj.m[0][3] + p.y * viewProj.m[1][3] + p.z * viewProj.m[2][3] + viewProj.m[3][3];
-        if (cw <= 0.0f) return false;
-        *out = ImVec2(m_viewport.x + (cx / cw * 0.5f + 0.5f) * m_viewport.width, m_viewport.y + (0.5f - cy / cw * 0.5f) * m_viewport.height);
-        return true;
-    };
-
-    ImDrawList* draw = ImGui::GetBackgroundDrawList(); // over the scene view, under the editor windows
-    const ImU32 line = ImGui::GetColorU32(ImVec4(1.0f, 0.85f, 0.45f, 0.8f));
-    const Vec3 axes[3][2] = {{{1, 0, 0}, {0, 1, 0}}, {{1, 0, 0}, {0, 0, 1}}, {{0, 1, 0}, {0, 0, 1}}};
-    for (const auto& axis : axes) {
-        ImVec2 previous;
-        bool hasPrevious = false;
-        for (int i = 0; i <= 64; ++i) {
-            const f32 a = static_cast<f32>(i) / 64.0f * 6.2831853f;
-            ImVec2 now;
-            const bool visible = project(center + (axis[0] * std::cos(a) + axis[1] * std::sin(a)) * radius, &now);
-            if (visible && hasPrevious) draw->AddLine(previous, now, line, 1.5f);
-            previous = now;
-            hasPrevious = visible;
-        }
-    }
-    const Vec3 forward = cameraForward();
-    const Vec3 right = normalize(cross(Vec3{0, 1, 0}, forward));
-    ImVec2 handle;
-    if (!project(center + right * radius, &handle)) return false;
-    const ImGuiIO& io = ImGui::GetIO();
-    const f32 dx = io.MousePos.x - handle.x, dy = io.MousePos.y - handle.y;
-    const bool dragging = m_handleEntity == e->id && m_handleField == field->name;
-    const bool hovered = !sceneMouseBlocked() && !ImGuizmo::IsUsing() && dx * dx + dy * dy < 100.0f;
-    draw->AddCircleFilled(handle, hovered || dragging ? 7.0f : 5.0f, ImGui::GetColorU32(ImVec4(1.0f, 0.85f, 0.45f, 1.0f)));
-    if (hovered || dragging) ImGui::SetTooltip("%s: %.2f", trData(splitFieldLabel(field->label).name.c_str()), static_cast<double>(radius));
-
-    if (!dragging && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        pushUndo(capture());
-        m_handleEntity = e->id;
-        m_handleField = field->name;
-        return true;
-    }
-    if (!dragging) return hovered;
-    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-        m_handleEntity = 0;
-        return true;
-    }
-    // The mouse on the plane through the center facing the camera
-    Vec3 origin, dir;
-    mouseRay(io.MousePos.x, io.MousePos.y, &origin, &dir);
-    const f32 facing = dot(dir, forward);
-    if (std::fabs(facing) > 0.001f) {
-        const Vec3 hit = origin + dir * (dot(center - origin, forward) / facing);
-        const f32 next = length(hit - center);
-        if (next != radius) {
-            radius = next;
-            reflect::TextFields fields;
-            reflect::toText(*type, instance.data(), fields);
-            e->fields = std::move(fields);
-        }
-    }
-    return true;
-}
-
 // Log page: what is wrong right now (kept current, gone once fixed) above what has happened (history). The flag in the filter row shows or hides the list
 void Editor::drawLogPage() {
     bool anyError = false;
@@ -720,8 +636,7 @@ void Editor::drawProblems() {
                 const DataPage page = p.page;
                 const int doc = p.doc;
                 if (entity != 0) {
-                    m_selected = entity;
-                    focusInspector();
+                    m_selected = entity; // the object is fixed in MkRender
                 } else if (doc >= 0) {
                     openDataPage(page, doc);
                 }

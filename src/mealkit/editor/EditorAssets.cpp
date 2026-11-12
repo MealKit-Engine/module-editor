@@ -186,12 +186,12 @@ void Editor::drawAssetBrowser() {
                                   cell > 0.0f ? ImVec2(cell, cell + textHeight) : ImVec2(0.0f, 0.0f))) {
                 m_assetSelected = relative;
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    if (lowerExtension(name) == ".scene") openSceneFile(folder + "\\" + name);
-                    else if (isModel(name) && m_mode == Mode::Edit) addModelEntity(relative, nullptr);
-                    else if (isPrefab(name) && m_mode == Mode::Edit) placePrefab(relative, nullptr);
+                    if (lowerExtension(name) == ".scene") { // edited in MkRender when installed, else opened here to look at and play
+                        if (!openInSceneTool(relative)) openSceneFile(folder + "\\" + name);
+                    }
                 }
             }
-            if (ImGui::BeginDragDropSource()) { // models and prefabs go to the scene view, others to pick= fields
+            if (ImGui::BeginDragDropSource()) { // to pick= fields (objects are placed in MkRender)
                 ImGui::SetDragDropPayload(kAssetPayload, relative.c_str(), relative.size() + 1);
                 ImGui::Text("%s  %s", assetIcon(name), relative.c_str());
                 ImGui::EndDragDropSource();
@@ -263,27 +263,6 @@ void Editor::drawAssetBrowser() {
         ImGui::EndPopup();
     }
     ImGui::End();
-}
-
-// Dropping a model/prefab on the scene view adds a model object/prefab copies where the mouse points (on a hit object, or the y = 0 floor if none)
-void Editor::handleAssetDrop() {
-    const ImGuiPayload* payload = ImGui::GetDragDropPayload();
-    if (!payload || !payload->IsDataType(kAssetPayload) || !ImGui::IsMouseReleased(ImGuiMouseButton_Left)) return;
-    const ImVec2 mouse = ImGui::GetIO().MousePos;
-    if (mouse.x < m_viewport.x || mouse.y < m_viewport.y || mouse.x >= m_viewport.x + m_viewport.width ||
-        mouse.y >= m_viewport.y + m_viewport.height || sceneMouseBlocked())
-        return;
-    Vec3 origin, dir;
-    mouseRay(mouse.x, mouse.y, &origin, &dir);
-    f32 t = 0.0f;
-    Vec3 at;
-    if (raycast(origin, dir, &t)) at = origin + dir * t;
-    else if (dir.y < -0.01f) at = origin + dir * (-origin.y / dir.y);
-    else at = origin + dir * 12.0f;
-    const std::string relative = static_cast<const char*>(payload->Data);
-    if (!isModel(relative) && !isPrefab(relative)) return;
-    if (isPrefab(relative)) placePrefab(relative, &at);
-    else addModelEntity(relative, &at);
 }
 
 // Text files that name this asset, found the same way a rename finds what to fix. Effects and sound events named without their folder aren't found

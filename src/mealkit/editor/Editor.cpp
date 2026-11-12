@@ -40,8 +40,6 @@ namespace {
 using scene::Entity;
 
 constexpr f32 kFovY = 60.0f * 3.14159265f / 180.0f;
-constexpr const char* kHierarchyWindow = "Hierarchy###Hierarchy";
-constexpr const char* kInspectorWindow = "Inspector###Inspector";
 constexpr const char* kSceneWindow = "Viewport###SceneView";
 constexpr const char* kUiWindow = "UI###UiWorkspace";
 // Windows docked as tabs in the bottom row (default layout)
@@ -178,7 +176,6 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     m_renderer = &renderer;
     m_sprites = std::make_unique<render::SpriteTextures>(renderer);
     m_models = &models;
-    focusPanel(kInspectorWindow); // starts in edit mode: bring the inspector to front
     if (!m_imgui.init(window, renderer, executableDirectory() + "\\mealkit_editor.ini")) {
         MEALKIT_ERROR("Editor UI initialization failed");
         return false;
@@ -211,7 +208,7 @@ void Editor::shutdown() {
 void Editor::loadPanelState() {
     std::string text;
     if (m_automated || m_panelStatePath.empty() || !readTextFile(m_panelStatePath, text)) return;
-    const std::pair<const char*, bool*> panels[] = {{"hierarchy", &m_hierarchyOpen}, {"scene", &m_sceneOpen}, {"inspector", &m_inspectorOpen}, {"assets", &m_assetsOpen},
+    const std::pair<const char*, bool*> panels[] = {{"scene", &m_sceneOpen}, {"assets", &m_assetsOpen},
                                                     {"debug", &m_debugOpen},         {"data", &m_dataOpen},   {"previews", &m_previewOpen},
                                                     {"modules", &m_modulesOpen}, {"ui", &m_uiWorkspaceOpen}};
     size_t start = 0;
@@ -231,9 +228,7 @@ void Editor::savePanelState() const {
     if (m_panelStatePath.empty()) return;
     std::string text;
     const auto add = [&text](const char* name, int value) { text += std::string(name) + " " + std::to_string(value) + "\n"; };
-    add("hierarchy", m_hierarchyOpen);
     add("scene", m_sceneOpen);
-    add("inspector", m_inspectorOpen);
     add("assets", m_assetsOpen);
     add("debug", m_debugOpen);
     add("data", m_dataOpen);
@@ -274,8 +269,6 @@ void Editor::update(f64 dt) {
     }
     m_imgui.newFrame([this] { runTestInput(); });
     ImGuizmo::BeginFrame();
-    if (!m_editActive) m_pending = capture();
-    m_changed = false;
 
     ImGui::GetStyle().FontScaleMain = m_prefs.uiScale;
     if (m_prefs.compact != m_compactApplied) { // spacing from the normal style, so turning it off restores it exactly
@@ -331,8 +324,6 @@ void Editor::update(f64 dt) {
     updateCameraPreview(dt, aspect); // looking through a virtual camera / cutscene: replaces m_view and m_proj
 
     const bool editing = m_mode == Mode::Edit;
-    drawHierarchy(editing);
-    drawInspector(editing);
     drawDataHub(dt, editing);
     drawDebugHub();
     drawPreviewHub();
@@ -363,7 +354,6 @@ void Editor::update(f64 dt) {
     drawBuildLog();
     takePanelStatus();
     drawNotices();
-    drawHistory();
     drawSceneList();
     drawAssetBrowser();
     drawPlayFrame();
@@ -375,10 +365,7 @@ void Editor::update(f64 dt) {
     if (editing && !m_sceneVisible) {
         // Another tab covers the scene view: no gizmo, toolbar or picking
     } else if (editing) {
-        drawGizmo();
-        drawViewportToolbar();
-        handleAssetDrop();
-        if (!updateFieldHandles()) handlePicking();
+        drawViewportToolbar(); // read-only preview: camera, view modes; the scene is edited in MkRender
     } else if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { // F5 (Shift+F5 too) stops; Esc belongs to the game (pause menus)
         m_stopRequest = true;
     } else if (m_simDebug && m_canPause && m_simDebug->timeline().recording) {
@@ -387,16 +374,9 @@ void Editor::update(f64 dt) {
     }
     reportSimProblems();
 
-    // Undo: pushes the state at the moment editing started (captured at frame start) only once. Not pushed while dragging.
-    if (m_changed && !m_editActive) {
-        pushUndo(std::move(m_pending));
-        m_editActive = true;
-    }
-    if (m_editActive && !ImGui::IsAnyItemActive() && !ImGuizmo::IsUsing()) m_editActive = false;
 
     drawPopups();
     drawEngineRestartPrompt();
-    updateAutosave(dt);
     updateTitle();
 }
 
@@ -564,11 +544,6 @@ bool Editor::openInSceneTool(const std::string& sceneFile) {
 // The mouse is on a window other than the scene view
 bool Editor::sceneMouseBlocked() const { return ImGui::GetIO().WantCaptureMouse && !m_sceneHovered; }
 
-void Editor::focusInspector() {
-    m_inspectorOpen = true;
-    focusPanel(kInspectorWindow);
-}
-
 void Editor::focusPanelNow() {
     ImGui::SetNextWindowFocus();
     if (--m_focusFrames <= 0) m_focusPanel = nullptr;
@@ -615,19 +590,6 @@ void Editor::updateHotReload(f64 dt) {
         if (m_scene.find(selected)) m_selected = selected; // keep the selection if the same id exists
         MEALKIT_INFO("Hot reload: scene %s", m_scenePath.c_str());
         setStatus(trf("Reloaded scene: %s", fileName(m_scenePath).c_str()));
-    }
-}
-
-void Editor::updateAutosave(f64 dt) {
-    if (m_changed) m_autosavePending = true;
-    if (m_mode != Mode::Edit) return;
-    m_autosaveTimer += dt;
-    // With unsaved changes, write to <scene>.autosave at the preference interval (0 = off)
-    if (m_prefs.autosaveSeconds == 0 || m_autosaveTimer < m_prefs.autosaveSeconds) return;
-    m_autosaveTimer = 0.0;
-    if (m_dirty && m_autosavePending) {
-        saveBackupIfDirty();
-        m_autosavePending = false;
     }
 }
 
@@ -680,7 +642,6 @@ void Editor::drawPopups() {
             scene::Scene recovered;
             std::string error;
             if (scene::load(recovered, m_recoverPath, &error)) {
-                pushUndo(capture());
                 m_scene = std::move(recovered);
                 m_selected = 0;
                 m_nameBufferId = 0;
@@ -795,146 +756,12 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
     }
 }
 
-void Editor::bakeProbes(u32 onlyId) {
-    m_probeQueue.clear();
-    m_probeFace = 0;
-    m_probeCapturePending = false;
-    for (const Entity& e : m_scene.entities)
-        if (e.is(scene::kTypeProbe) && (!onlyId || e.id == onlyId)) m_probeQueue.push_back(e.id);
-    if (m_probeQueue.empty()) setStatus(tr("No reflection probes to bake"));
-}
-
-void Editor::renderProbeBake(render::Renderer& renderer) {
-    if (m_probeQueue.empty() || !m_models) return;
-    u32 size = 16; // power of two (mips halve)
-    while (size * 2 <= std::clamp<u32>(m_project.settings.probeSize, 16, 512)) size *= 2;
-    if (!m_probeTarget || m_probeTargetSize != size) {
-        m_probeTarget = renderer.createRenderTarget(size, size); // when the size changes the old target remains (the renderer doesn't delete it)
-        m_probeTargetSize = size;
-        m_probeFace = 0;
-        m_probeCapturePending = false;
-    }
-    if (m_probeCapturePending) { // face drawn last frame: sRGB 8-bit → linear
-        m_probeCapturePending = false;
-        m_probeFaces.resize(static_cast<size_t>(size) * size * 18);
-        if (m_probeCapture.width == size && m_probeCapture.height == size) {
-            f32* dst = &m_probeFaces[static_cast<size_t>(m_probeFace) * size * size * 3];
-            for (size_t i = 0; i < static_cast<size_t>(size) * size; ++i)
-                for (u32 c = 0; c < 3; ++c) {
-                    const f32 v = static_cast<f32>(m_probeCapture.rgba[i * 4 + c]) / 255.0f;
-                    dst[i * 3 + c] = v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
-                }
-        }
-        if (++m_probeFace == 6) {
-            m_probeFace = 0;
-            const u32 id = m_probeQueue.front();
-            m_probeQueue.erase(m_probeQueue.begin());
-            if (Entity* e = m_scene.find(id)) {
-                render::ProbeMap probe;
-                render::bakeProbe(m_probeFaces.data(), size, probe);
-                std::string stem = m_scenePath.empty() ? std::string("untitled") : fileName(m_scenePath);
-                if (const size_t dot = stem.find_last_of('.'); dot != std::string::npos) stem.resize(dot);
-                const std::string path = scene::probeFileFor(stem, *e);
-                if (render::saveProbe(asset::ModelCache::assetsRoot() + "/" + path, probe)) {
-                    if (scene::probeFile(*e) != path) {
-                        std::erase_if(e->fields, [](const auto& f) { return f.first == scene::kProbeFileField; });
-                        e->fields.emplace_back(scene::kProbeFileField, path);
-                        markChanged();
-                    }
-                    m_models->reloadChanged(); // re-upload if the same path was rebaked
-                    MEALKIT_INFO("Reflection probe baked: %s (%u, %u mips)", path.c_str(), probe.size, probe.mips);
-                    setStatus(trf("Baked reflection probe: %s", path.c_str()));
-                } else {
-                    setStatus(trf("Could not write: %s", path.c_str()), true);
-                }
-            }
-            if (m_probeQueue.empty()) return;
-        }
-    }
-    const Entity* e = m_scene.find(m_probeQueue.front());
-    if (!e) {
-        m_probeQueue.erase(m_probeQueue.begin());
-        m_probeFace = 0;
-        return;
-    }
-    // Cube face orientations (same layout as render::cubeDirection: right of a left-handed lookAt = cross(up, forward))
-    static const Vec3 kForward[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
-    static const Vec3 kUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
-    const Vec3 eye = scene::worldTransform(m_scene, *e).position;
-    render::FrameParams frame;
-    frame.viewProj = lookAtLH(eye, eye + kForward[m_probeFace], kUp[m_probeFace]) *
-                     perspectiveReversedZ(3.14159265f * 0.5f, 1.0f, 0.05f, 2000.0f);
-    frame.cameraPos = eye;
-    frame.cameraForward = kForward[m_probeFace];
-    fillEnvironment(frame); // probes aren't used (so old images of other probes don't mix in)
-    frame.post.toneMapping = false; // reflections stay linear (tone mapping happens once on the screen that receives them)
-    render::DrawList list;
-    addSceneObjects(list, eye, true);
-    renderer.drawToTarget(m_probeTarget, frame, list, static_cast<render::LightingModel>(m_project.settings.lightingModel));
-    renderer.captureTarget(m_probeTarget, &m_probeCapture);
-    m_probeCapturePending = true;
-}
-
-void Editor::renderGradeCapture(render::Renderer& renderer) {
-    if (m_gradeCapturePending) { // endFrame read what was drawn last frame
-        m_gradeCapturePending = false;
-        std::string stem = m_scenePath.empty() ? std::string("untitled") : fileName(m_scenePath);
-        if (const size_t dot = stem.find_last_of('.'); dot != std::string::npos) stem.resize(dot);
-        const std::string folder = projectRoot() + "/art/grading";
-        const std::string png = folder + "/" + stem + ".png", cube = folder + "/neutral.cube";
-        createDirectories(folder);
-        if (!fileExists(cube)) render::saveNeutralCubeLut(cube);
-        if (m_gradeCapture.width && savePng(png, m_gradeCapture)) {
-            MEALKIT_INFO("Grading capture saved: %s", png.c_str());
-            setStatus(trf("Grading capture saved: %s", png.c_str()));
-        } else {
-            setStatus(trf("Could not write: %s", png.c_str()), true);
-        }
-        return;
-    }
-    if (!m_gradeRequested || !m_models || bakingProbes()) return;
-    m_gradeRequested = false;
-    const u32 w = std::max(64u, static_cast<u32>(m_viewport.width)), h = std::max(64u, static_cast<u32>(m_viewport.height));
-    if (!m_gradeTarget || m_gradeTargetSize[0] != w || m_gradeTargetSize[1] != h) { // when the size changes the old target remains
-        m_gradeTarget = renderer.createRenderTarget(w, h);
-        m_gradeTargetSize[0] = w;
-        m_gradeTargetSize[1] = h;
-    }
-    render::FrameParams frame;
-    render::DrawList list;
-    frame.viewProj = m_view * m_proj;
-    frame.cameraPos = m_cameraPos;
-    frame.cameraForward = cameraForward();
-    fillEnvironment(frame);
-    render::probes(*m_models, m_scene, m_probeList);
-    frame.probes = m_probeList.data();
-    frame.probeCount = static_cast<u32>(m_probeList.size());
-    frame.post.lut = 0; // image before grading (up to tone mapping)
-    addSceneObjects(list, m_cameraPos, true);
-    renderer.drawToTarget(m_gradeTarget, frame, list, static_cast<render::LightingModel>(m_project.settings.lightingModel));
-    renderer.captureTarget(m_gradeTarget, &m_gradeCapture);
-    m_gradeCapturePending = true;
-}
-
-void Editor::buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 width, f32 height, render::FrameParams& frame,
-                       render::DrawList& drawList) {
-    constexpr f32 kDegrees = 3.14159265f / 180.0f;
-    m_cameraPos = position;
-    m_cameraYaw = yawDegrees * kDegrees;
-    m_cameraPitch = pitchDegrees * kDegrees;
-    m_selected = 0; // no selection highlight
-    m_animTime = 0.0; // animation only uses the clip offset (anim field)
-    m_viewport = {0.0f, 0.0f, width, height};
-    m_proj = perspectiveReversedZ(kFovY, width / std::max(height, 1.0f), 0.1f, 2000.0f);
-    m_view = lookAtLH(m_cameraPos, m_cameraPos + cameraForward(), {0, 1, 0});
-    buildSceneView(frame, drawList);
-}
-
 void Editor::renderLookdev(render::Renderer& renderer, f64 dt) {
     if (m_models) m_thumbnails.render(renderer, *m_models);
     if (!m_lookdevOpen || !m_models) return;
-    // Follows the selected object's model (selecting an object without a model keeps the previous model)
-    if (const Entity* e = selected(); e && !e->model.empty()) m_lookdev.setModel(e->model);
+    // Follows the model picked in [Assets] (picking another kind of file keeps the previous model)
+    const std::string ext = m_assetSelected.size() > 4 ? m_assetSelected.substr(m_assetSelected.find_last_of('.')) : std::string();
+    if (ext == ".glb" || ext == ".gltf") m_lookdev.setModel(m_assetSelected);
     m_lookdev.render(renderer, *m_models, static_cast<render::LightingModel>(m_project.settings.lightingModel), dt);
 }
 
@@ -959,8 +786,7 @@ void Editor::setMode(Mode mode) {
         m_sceneOpen = true; // the game must be seen
         openDebugPage(DebugPage::State); // the [State] page during play
         m_sceneFrontFrames = m_debugFrontFrames + 2; // outlasts the [Debug] request so the game view ends up with the keyboard
-    } else
-        focusPanel(kInspectorWindow);
+    }
 }
 
 // Temporarily moves all spawn points to the selected object if it's a spawn, otherwise to the floor under the camera (in the camera's view direction)
@@ -1012,29 +838,18 @@ void Editor::saveBackupIfDirty() {
     if (scene::save(m_scene, path)) MEALKIT_INFO("Unsaved scene changes written to %s", path.c_str());
 }
 
-void Editor::selectByIndex(int index, bool add) {
-    if (index == -2) { // scene row (inspector = environment)
-        m_selected = 0;
-        m_sceneRow = true;
-        return;
-    }
-    if (index >= 0 && static_cast<size_t>(index) < m_scene.entities.size())
-        selectMany({m_scene.entities[static_cast<size_t>(index)].id}, add);
-}
-
 // ---------------------------------------------------------------- UI
 
-// Predefined layouts: scene tree on the left, one column on the right (inspector + [State]/[Tuning] tabs), bottom row (build log, tables).
+// Predefined layouts: the scene view, one column on the right ([Previews]), bottom row (build log, tables).
 // Play shrinks the bottom row and brings [State] to front; lookdev puts a large [Lookdev] window at the top right.
 void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
-    m_hierarchyOpen = m_sceneOpen = m_inspectorOpen = true;
+    m_sceneOpen = true;
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::DockBuilderRemoveNode(dockId);
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockId, viewport->WorkSize);
     ImGuiID center = dockId;
     m_previewOpen = true;
-    const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.17f, nullptr, &center);
     const f32 rightShare = preset == LayoutPreset::LookDev ? 0.42f : 0.27f;
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, rightShare, nullptr, &center);
     const f32 bottomShare = preset == LayoutPreset::Play ? 0.18f : 0.26f;
@@ -1042,20 +857,17 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     ImGui::DockBuilderDockWindow(kUiWindow, center); // a tab behind the viewport
     ImGui::DockBuilderDockWindow(kSceneWindow, center);
     m_sceneFrontFrames = 2;
-    ImGui::DockBuilderDockWindow(kHierarchyWindow, left);
     if (preset == LayoutPreset::LookDev) {
         const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
         ImGui::DockBuilderDockWindow("Previews###Previews", right);
         right = rightBottom;
         openPreviewPage(PreviewPage::LookDev);
     } else {
-        ImGui::DockBuilderDockWindow("Previews###Previews", right); // a tab behind the inspector
+        ImGui::DockBuilderDockWindow("Previews###Previews", right);
     }
-    ImGui::DockBuilderDockWindow(kInspectorWindow, right);
     for (const char* w : kBottomWindows) ImGui::DockBuilderDockWindow(w, bottom);
     ImGui::DockBuilderDockWindow("Data###Data", bottom);
     ImGui::DockBuilderFinish(dockId);
-    focusPanel(kInspectorWindow);
     if (preset == LayoutPreset::Play) openDebugPage(DebugPage::State);
 }
 
@@ -1084,7 +896,6 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (projectHas("scene") && ImGui::BeginMenu(tr("Scene"), editing)) {
-        commandMenuItem("New Scene");
         commandMenuItem("Open...");
         if (ImGui::BeginMenu(tr("Recent Scenes"), !m_recentScenes.empty())) {
             std::string chosen;
@@ -1095,9 +906,10 @@ void Editor::drawMenuBar() {
         }
         commandMenuItem("Scenes", &m_sceneListOpen);
         ImGui::Separator();
-        commandMenuItem("Save");
-        commandMenuItem("Save As...");
-        commandMenuItem("Save as Prefab..."); // writes a file from the selection, it doesn't edit the scene
+        if (hasSceneTool() && ImGui::MenuItem(tr("Open in MkRender"), nullptr, false, !m_scenePath.empty())) {
+            const std::string assets = m_project.directory + "\\assets\\";
+            openInSceneTool(m_scenePath.rfind(assets, 0) == 0 ? m_scenePath.substr(assets.size()) : m_scenePath);
+        }
         ImGui::Separator();
         commandMenuItem("Open Replay...");
         ImGui::EndMenu();
@@ -1105,27 +917,11 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("Edit"), editing)) {
         commandMenuItem("Undo");
         commandMenuItem("Redo");
-        commandMenuItem("History");
-        ImGui::Separator();
-        commandMenuItem("Select All");
-        commandMenuItem("Duplicate");
-        commandMenuItem("Delete");
-        ImGui::Separator();
-        commandMenuItem("Drop to Floor");
-        if (ImGui::BeginMenu(tr("Align"), !m_multi.empty())) {
-            commandMenuItem("Align X");
-            commandMenuItem("Align Y");
-            commandMenuItem("Align Z");
-            commandMenuItem("Distribute Evenly");
-            ImGui::EndMenu();
-        }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Window"))) {
-        commandMenuItem("Hierarchy", &m_hierarchyOpen);
         commandMenuItem("Viewport", &m_sceneOpen);
         if (projectHas("ui")) commandMenuItem("UI", &m_uiWorkspaceOpen);
-        commandMenuItem("Inspector", &m_inspectorOpen);
         ImGui::Separator();
         commandMenuItem("Assets", &m_assetsOpen);
         commandMenuItem("Debug", &m_debugOpen); // log with problems, build log, performance and state are its pages
@@ -1302,641 +1098,6 @@ void Editor::drawStatusBar() {
     ImGui::End();
 }
 
-void Editor::drawHierarchy(bool editing) {
-    if (!m_hierarchyOpen) return;
-    if (!ImGui::Begin(iconTitle(icon::kTree, kHierarchyWindow).c_str(), &m_hierarchyOpen)) {
-        ImGui::End();
-        return;
-    }
-    ImGui::BeginDisabled(!editing);
-    // One row whatever the panel width: the same list as the [Add] menu, then search
-    if (iconButton(icon::kAdd, tr("Add Object"))) ImGui::OpenPopup("##add");
-    if (ImGui::BeginPopup("##add")) {
-        drawAddMenuItems();
-        ImGui::EndPopup();
-    }
-    ImGui::SameLine();
-    // Search (name/kind, Ctrl+F): with text, only matching objects, flat
-    if (m_treeSearchFocus) {
-        ImGui::SetKeyboardFocusHere();
-        m_treeSearchFocus = false;
-    }
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::InputTextWithHint("##treeSearch", (std::string(icon::kSearch) + "  " + tr("Find (Ctrl+F)")).c_str(), m_treeSearch,
-                             sizeof(m_treeSearch));
-
-    if (ImGui::BeginChild("##entities")) {
-        // parent → child list (entities order)
-        std::unordered_map<u32, std::vector<size_t>> children;
-        std::vector<size_t> roots;
-        for (size_t i = 0; i < m_scene.entities.size(); ++i) {
-            const Entity& e = m_scene.entities[i];
-            if (e.parent && m_scene.find(e.parent)) children[e.parent].push_back(i);
-            else roots.push_back(i);
-        }
-        m_treeAction = {};
-        // Fixed top row: selecting it makes the inspector show the scene environment (docs/DECISIONS.md 2026-10-28)
-        const std::string sceneLabel = std::string(icon::kGlobe) + "  " + tr("Scene Environment");
-        if (ImGui::Selectable(sceneLabel.c_str(), m_sceneRow && m_selected == 0, ImGuiSelectableFlags_SpanAvailWidth)) {
-            m_selected = 0;
-            m_sceneRow = true;
-        }
-        if (m_treeSearch[0]) {
-            const std::unordered_map<u32, std::vector<size_t>> none;
-            bool found = false;
-            for (size_t i = 0; i < m_scene.entities.size(); ++i) {
-                const Entity& e = m_scene.entities[i];
-                const reflect::TypeInfo* type = entityType(e);
-                if (containsNoCase(e.name, m_treeSearch) || containsNoCase(e.type, m_treeSearch) ||
-                    (type && containsNoCase(trData(type->label), m_treeSearch))) {
-                    drawEntityNode(i, none);
-                    found = true;
-                }
-            }
-            if (!found) ImGui::TextDisabled("%s", tr("No matching objects"));
-        } else {
-            drawTreeFolders({}, roots, children);
-        }
-        m_treeRevealed = m_selected;
-        // Clicking empty space deselects, dropping on it moves to top level
-        const ImVec2 rest = ImGui::GetContentRegionAvail();
-        if (ImGui::InvisibleButton("##treeRoot", ImVec2(std::max(rest.x, 1.0f), std::max(rest.y, ImGui::GetFrameHeight())))) {
-            m_selected = 0;
-            m_sceneRow = false;
-        }
-        if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload))
-                m_treeAction = {TreeAction::Reparent, *static_cast<const u32*>(payload->Data), 0};
-            ImGui::EndDragDropTarget();
-        }
-    }
-    ImGui::EndChild();
-    // "Move to Folder..." and "Rename Folder...": a path, with / for folders inside folders (empty = out of folders)
-    if (m_folderDialogOpen) {
-        ImGui::OpenPopup("##folderDialog");
-        m_folderDialogOpen = false;
-    }
-    if (ImGui::BeginPopupModal("##folderDialog", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted(tr("Folder path (use / for folders inside folders, empty for none)"));
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 22.0f);
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-        const bool enter = ImGui::InputText("##folder", m_folderBuffer, sizeof(m_folderBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
-        if (ImGui::Button(tr("OK")) || enter) {
-            std::string to = m_folderBuffer;
-            std::replace(to.begin(), to.end(), '\\', '/');
-            while (!to.empty() && (to.back() == '/' || to.back() == ' ')) to.pop_back();
-            while (!to.empty() && (to.front() == '/' || to.front() == ' ')) to.erase(0, 1);
-            if (!m_folderDialogFrom.empty()) m_treeAction = {TreeAction::RenameFolder, 0, 0}, m_treeActionFolder = m_folderDialogFrom, m_treeFolderTo = to;
-            else m_treeAction = {TreeAction::SetFolder, m_folderDialogEntity, 0}, m_treeActionFolder = to;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(tr("Cancel")) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-    // Change the structure after drawing the whole tree (so the list doesn't change mid-draw)
-    switch (m_treeAction.kind) {
-    case TreeAction::Reparent:
-        reparent(m_treeAction.entity, m_treeAction.parent);
-        if (m_treeAction.parent == 0) setFolder(m_treeAction.entity, {}); // dropped on empty space: out of folders too
-        break;
-    case TreeAction::SetFolder: setFolder(m_treeAction.entity, m_treeActionFolder); break;
-    case TreeAction::RenameFolder: renameFolder(m_treeActionFolder, m_treeFolderTo); break;
-    case TreeAction::Ungroup: {
-        const size_t slash = m_treeActionFolder.rfind('/');
-        renameFolder(m_treeActionFolder, slash == std::string::npos ? std::string() : m_treeActionFolder.substr(0, slash));
-        break;
-    }
-    case TreeAction::Duplicate: duplicateSelected(); break;
-    case TreeAction::SavePrefab: saveSelectionAsPrefab(); break;
-    case TreeAction::Delete: deleteSelected(); break;
-    case TreeAction::None: break;
-    }
-    ImGui::EndDisabled();
-    ImGui::End();
-}
-
-// One level of folders, then the objects directly in it. Children stay under their parent, whatever folder they have
-void Editor::drawTreeFolders(const std::string& prefix, const std::vector<size_t>& roots, const std::unordered_map<u32, std::vector<size_t>>& children) {
-    const std::string lead = prefix.empty() ? std::string() : prefix + "/";
-    std::vector<std::string> names; // in order of first appearance
-    for (size_t i : roots) {
-        const std::string& folder = m_scene.entities[i].folder;
-        if (folder.size() <= lead.size() || folder.compare(0, lead.size(), lead) != 0) continue;
-        const std::string name = folder.substr(lead.size(), folder.find('/', lead.size()) - lead.size());
-        if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
-    }
-    // The newly selected object's folder opens, as for parents
-    std::string revealFolder;
-    if (m_selected != m_treeRevealed && m_selected != 0) {
-        const Entity* top = m_scene.find(m_selected);
-        while (top && top->parent && m_scene.find(top->parent)) top = m_scene.find(top->parent);
-        if (top) revealFolder = top->folder + "/";
-    }
-    for (const std::string& name : names) {
-        const std::string path = lead + name;
-        ImGui::PushID(path.c_str());
-        if (revealFolder.rfind(path + "/", 0) == 0) ImGui::SetNextItemOpen(true);
-        const bool open = ImGui::TreeNodeEx("##folder", ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen, "%s  %s", icon::kFolder, name.c_str());
-        if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload)) {
-                m_treeAction = {TreeAction::SetFolder, *static_cast<const u32*>(payload->Data), 0};
-                m_treeActionFolder = path;
-            }
-            ImGui::EndDragDropTarget();
-        }
-        if (ImGui::BeginPopupContextItem()) {
-            if (ImGui::MenuItem(tr("Rename Folder..."))) {
-                m_folderDialogFrom = path;
-                m_folderDialogOpen = true;
-                snprintf(m_folderBuffer, sizeof(m_folderBuffer), "%s", path.c_str());
-            }
-            if (ImGui::MenuItem(tr("Remove Folder (keep objects)"))) {
-                m_treeAction = {TreeAction::Ungroup, 0, 0};
-                m_treeActionFolder = path;
-            }
-            ImGui::EndPopup();
-        }
-        if (open) {
-            drawTreeFolders(path, roots, children);
-            ImGui::TreePop();
-        }
-        ImGui::PopID();
-    }
-    for (size_t i : roots)
-        if (m_scene.entities[i].folder == prefix) drawEntityNode(i, children);
-}
-
-// Moves the object, and the rest of the selection when it is part of it. A child leaves its parent, since only top-level objects sit in folders
-void Editor::setFolder(u32 entity, const std::string& folder) {
-    std::vector<u32> ids{entity};
-    if (isSelected(entity)) {
-        if (m_selected != entity && m_selected != 0) ids.push_back(m_selected);
-        for (u32 id : m_multi)
-            if (id != entity && id != m_selected) ids.push_back(id);
-    }
-    bool any = false;
-    for (u32 id : ids)
-        if (const Entity* e = m_scene.find(id)) any = any || e->folder != folder || (!folder.empty() && e->parent != 0);
-    if (!any) return;
-    for (u32 id : ids)
-        if (const Entity* e = m_scene.find(id); e && e->parent && !folder.empty()) reparent(id, 0);
-    pushUndo(capture());
-    for (u32 id : ids)
-        if (Entity* e = m_scene.find(id)) e->folder = folder;
-}
-
-void Editor::renameFolder(const std::string& from, const std::string& to) {
-    if (from == to) return;
-    pushUndo(capture());
-    const std::string lead = from + "/";
-    for (Entity& e : m_scene.entities) {
-        if (e.folder == from) e.folder = to;
-        else if (e.folder.rfind(lead, 0) == 0) e.folder = (to.empty() ? std::string() : to + "/") + e.folder.substr(lead.size());
-    }
-}
-
-void Editor::drawEntityNode(size_t index, const std::unordered_map<u32, std::vector<size_t>>& children) {
-    const Entity& e = m_scene.entities[index];
-    const u32 id = e.id;
-    const auto kids = children.find(id);
-    const bool leaf = kids == children.end();
-    ImGui::PushID(static_cast<int>(id));
-    f32 rgb[3];
-    unpackColor(e.color, rgb);
-    const std::string label = e.name.empty() ? tr("(no name)") : e.name;
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth |
-                               ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap;
-    if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    if (isSelected(id)) flags |= ImGuiTreeNodeFlags_Selected;
-    // Newly selected objects expand their ancestors and scroll to their row (when selected in the viewport)
-    const bool reveal = m_selected != m_treeRevealed && m_selected != 0;
-    if (reveal && !leaf && m_scene.find(m_selected) && scene::isDescendant(m_scene, m_selected, id))
-        ImGui::SetNextItemOpen(true);
-    // Leave room for the kind icon before the label and draw it in the object's color
-    const bool hiddenRow = isHidden(e);
-    if (hiddenRow) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
-    const bool open = ImGui::TreeNodeEx("##node", flags, "      %s", label.c_str());
-    if (reveal && m_selected == id) ImGui::SetScrollHereY();
-    const ImVec2 rowMin = ImGui::GetItemRectMin(), rowMax = ImGui::GetItemRectMax();
-    ImGui::GetWindowDrawList()->AddText(ImVec2(rowMin.x + ImGui::GetTreeNodeToLabelSpacing(), rowMin.y),
-                                        ImGui::ColorConvertFloat4ToU32(ImVec4(rgb[0], rgb[1], rgb[2], 1.0f)),
-                                        entityIcon(e));
-    // Badges after the name: "!" for a problem (red) or warning (orange), a blue dot for fields changed from the kind's defaults
-    f32 badgeEnd = rowMin.x + ImGui::GetTreeNodeToLabelSpacing() + ImGui::CalcTextSize(("      " + label).c_str()).x + ImGui::GetFontSize() * 0.5f;
-    const auto badge = m_badges.find(id);
-    if (badge != m_badges.end()) {
-        const ImU32 color = ImGui::GetColorU32(badge->second.error ? color::kDanger : color::kWarning);
-        ImGui::GetWindowDrawList()->AddText(ImVec2(badgeEnd, rowMin.y), color, "!");
-        badgeEnd += ImGui::GetFontSize() * 0.6f;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", badge->second.text.c_str());
-    } else if (!e.is(scene::kTypeSolid) && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-        // The row's icon shows the kind; its name is one hover away
-        const reflect::TypeInfo* kind = entityType(e);
-        ImGui::SetTooltip("%s", kind ? trData(kind->label) : e.type.c_str());
-    }
-    if (m_differsFromDefault.count(id)) {
-        ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(badgeEnd + 3.0f, (rowMin.y + rowMax.y) * 0.5f), 2.5f, ImGui::GetColorU32(color::kChanged));
-    }
-    if (hiddenRow) ImGui::PopStyleVar();
-    // Click to select, double-click to move to, drag to reparent
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
-        if (ImGui::GetIO().KeyShift) {
-            toggleSelect(id);
-        } else {
-            m_selected = id;
-            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) focusSelected();
-        }
-    }
-    if (ImGui::BeginDragDropSource()) {
-        ImGui::SetDragDropPayload(kEntityPayload, &id, sizeof(id));
-        ImGui::Text(tr("%s -> (child of the drop target)"), label.c_str());
-        ImGui::EndDragDropSource();
-    }
-    if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload))
-            m_treeAction = {TreeAction::Reparent, *static_cast<const u32*>(payload->Data), id};
-        ImGui::EndDragDropTarget();
-    }
-    // Before the toggles below, which become the last item
-    if (ImGui::BeginPopupContextItem()) {
-        if (!isSelected(id)) m_selected = id;
-        if (ImGui::MenuItem(tr("Duplicate"), "Ctrl+D")) m_treeAction = {TreeAction::Duplicate, id, 0};
-        if (ImGui::MenuItem(tr("Save as Prefab..."))) m_treeAction = {TreeAction::SavePrefab, id, 0};
-        if (ImGui::MenuItem(tr("Move to Folder..."))) {
-            m_folderDialogEntity = id;
-            m_folderDialogFrom.clear();
-            m_folderDialogOpen = true;
-            snprintf(m_folderBuffer, sizeof(m_folderBuffer), "%s", e.folder.c_str());
-        }
-        if (ImGui::MenuItem(tr("Delete"), "Delete")) m_treeAction = {TreeAction::Delete, id, 0};
-        if (ImGui::MenuItem(tr("Move to Top Level"), nullptr, false, e.parent != 0))
-            m_treeAction = {TreeAction::Reparent, id, 0};
-        ImGui::EndPopup();
-    }
-    // Visibility/lock toggles on the right of the row (shown only on hover or when on)
-    {
-        const bool hovered = ImGui::IsItemHovered();
-        const f32 w = ImGui::GetFrameHeight();
-        const ImVec2 back = ImGui::GetCursorScreenPos();
-        bool toggled = false;
-        int slot = 0;
-        for (auto* set : {&m_locked, &m_hidden}) {
-            const bool on = set->count(id) != 0;
-            ImGui::SetCursorScreenPos(ImVec2(rowMax.x - w * static_cast<f32>(++slot), rowMin.y));
-            ImGui::PushID(slot);
-            if (ImGui::InvisibleButton("##toggle", ImVec2(w, rowMax.y - rowMin.y))) {
-                if (on) set->erase(id);
-                else set->insert(id);
-                toggled = true;
-            }
-            const bool lockSet = set == &m_locked;
-            if (on || hovered || ImGui::IsItemHovered()) {
-                const char* glyph = lockSet ? (on ? icon::kLock : icon::kUnlock) : (on ? icon::kHide : icon::kView);
-                ImGui::GetWindowDrawList()->AddText(ImVec2(ImGui::GetItemRectMin().x + 4.0f, rowMin.y),
-                                                    ImGui::GetColorU32(on ? ImGuiCol_Text : ImGuiCol_TextDisabled), glyph);
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", lockSet ? tr("Lock (cannot be picked in the viewport)") : tr("Hide in the viewport"));
-            ImGui::PopID();
-        }
-        ImGui::SetCursorScreenPos(back);
-        if (toggled) saveViewState();
-    }
-    if (open && !leaf) {
-        for (size_t child : kids->second) drawEntityNode(child, children);
-        ImGui::TreePop();
-    }
-    ImGui::PopID();
-}
-
-void Editor::reparent(u32 entityId, u32 parentId) {
-    Entity* e = m_scene.find(entityId);
-    if (!e || e->parent == parentId) return;
-    if (parentId && scene::isDescendant(m_scene, parentId, entityId)) {
-        setStatus(tr("Cannot move an object under itself or its children"));
-        return;
-    }
-    pushUndo(capture());
-    const scene::Transform world = scene::worldTransform(m_scene, *e); // keeps its place on screen
-    e->parent = parentId;
-    scene::setWorldTransform(m_scene, *e, world);
-    const Entity* parent = parentId ? m_scene.find(parentId) : nullptr;
-    setStatus(parent ? trf("%s -> child of %s", e->name.c_str(), parent->name.c_str()) : trf("%s -> top level", e->name.c_str()));
-}
-
-void Editor::drawInspector(bool editing) {
-    if (!m_inspectorOpen) return;
-    if (m_focusPanel == kInspectorWindow) focusPanelNow();
-    if (!ImGui::Begin(iconTitle(icon::kInspector, kInspectorWindow).c_str(), &m_inspectorOpen)) {
-        ImGui::End();
-        return;
-    }
-    if (!editing)
-        ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.35f, 1.0f), "%s", tr("Playing - scene values go back when you stop"));
-    ImGui::BeginDisabled(!editing);
-    if (m_selected != 0) m_sceneRow = false; // selecting an object deselects the scene row
-    if (!m_multi.empty()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
-        ImGui::TextWrapped("%s", trf("%zu objects selected - the gizmo moves all, fields of the same kind edit together",
-                                     m_multi.size() + 1).c_str());
-        ImGui::PopStyleColor();
-    }
-    Entity* e = selected();
-    if (!e && m_sceneRow) {
-        drawEnvironment();
-    } else if (!e) {
-        ImGui::TextDisabled("%s", tr("Nothing selected."));
-        ImGui::TextDisabled("%s", tr("Click in the viewport or pick from the hierarchy."));
-    } else {
-        if (m_nameBufferId != e->id) {
-            strncpy_s(m_nameBuffer, e->name.c_str(), _TRUNCATE);
-            m_nameBufferId = e->id;
-        }
-        if (ImGui::InputText(propertyRow(tr("Name")).c_str(), m_nameBuffer, sizeof(m_nameBuffer))) {
-            e->name = m_nameBuffer;
-            markChanged();
-        }
-        const reflect::TypeInfo* type = entityType(*e);
-        const std::string typeLabel = type ? trData(type->label) : trf("%s (not in game code)", e->type.c_str());
-        if (beginCombo(propertyRow(tr("Type")).c_str(), typeLabel.c_str())) {
-            for (const reflect::TypeInfo* t : allTypes()) {
-                if (ImGui::Selectable(trData(t->label), t == type) && t != type) {
-                    e->type = t->name;
-                    e->fields = scene::defaultFields(*t);
-                    markChanged();
-                }
-            }
-            ImGui::EndCombo();
-        }
-        // Opens the game kind's declaration (MEALKIT_OBJECT) in the code editor (project source folder, or the samples folder in the engine repo)
-        if (type && !scene::findType(e->type, nullptr)) {
-            if (ImGui::SmallButton(tr("Open Code"))) {
-                FileLine at;
-                const std::vector<std::string> folders = {m_project.directory + "\\source", m_project.directory + "\\samples"};
-                if (findInHeaders(folders, std::string("MEALKIT_OBJECT(") + type->name + ")", &at))
-                    openInCodeEditor(m_prefs.externalEditor, at.file, at.line);
-                else setStatus(trf("Could not find MEALKIT_OBJECT(%s) in the project code", type->name), true);
-            }
-        }
-        // Same order for every kind: where it is and how it looks first, then what is special about it
-        f32 matrix[16], t[3], r[3], s[3];
-        compose(scene::localTransform(*e), matrix);
-        ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
-        bool changed = false;
-        if (sectionHeader(e->parent ? tr("Transform (relative to parent)###transform") : tr("Transform###transform"),
-                          ImGuiTreeNodeFlags_DefaultOpen)) {
-            changed |= transformRow(tr("Position"), "##pos", t, 0.05f, 0.0f, 0.0f, "%.2f", 0.0f);
-            changed |= transformRow(tr("Rotation (deg)"), "##rot", r, 0.5f, 0.0f, 0.0f, "%.1f", 0.0f);
-            if (!isMarker(*e)) changed |= transformRow(tr("Scale"), "##scale", s, 0.02f, 0.01f, 10000.0f, "%.2f", 1.0f, &m_scaleLock);
-        }
-        if (changed) {
-            for (f32& v : s) v = std::max(v, 0.01f);
-            ImGuizmo::RecomposeMatrixFromComponents(t, r, s, matrix);
-            scene::Transform local;
-            decompose(matrix, local);
-            // The other selected objects move, turn and scale by the same change
-            const Vec3 moved = local.position - e->position;
-            const Quat turned = local.rotation * Quat{-e->rotation.x, -e->rotation.y, -e->rotation.z, e->rotation.w};
-            const Vec3 scaled{local.scale.x / std::max(e->scale.x, 0.0001f), local.scale.y / std::max(e->scale.y, 0.0001f), local.scale.z / std::max(e->scale.z, 0.0001f)};
-            for (u32 id : m_multi) {
-                Entity* other = m_scene.find(id);
-                if (!other || other == e) continue;
-                other->position = other->position + moved;
-                other->rotation = normalize(turned * other->rotation);
-                other->scale = {other->scale.x * scaled.x, other->scale.y * scaled.y, other->scale.z * scaled.z};
-            }
-            e->position = local.position;
-            e->rotation = local.rotation;
-            e->scale = local.scale;
-            markChanged();
-        }
-
-        if (sectionHeader(tr("Look"), ImGuiTreeNodeFlags_DefaultOpen)) {
-            f32 rgb[3];
-            unpackColor(e->color, rgb);
-            if (colorEdit(propertyRow(tr("Color")).c_str(), rgb)) {
-                e->color = packColor(rgb, e->color);
-                markChanged();
-            }
-            bool checker = (e->flags & render::kInstanceChecker) != 0;
-            if (ImGui::Checkbox(propertyRow(tr("Checker pattern")).c_str(), &checker)) {
-                e->flags = checker ? (e->flags | render::kInstanceChecker) : (e->flags & ~render::kInstanceChecker);
-                markChanged();
-            }
-        }
-
-        if (!isMarker(*e) && !e->is(scene::kTypeTerrain) && !e->is(scene::kTypeScatter) && sectionHeader(tr("Model"), ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (e->model.empty()) {
-                ImGui::TextDisabled("%s", tr("Default box"));
-            } else {
-                ImGui::TextUnformatted(e->model.c_str());
-                if (const asset::Model* model = m_models->get(e->model)) {
-                    ImGui::TextDisabled(tr("%u triangles · %u LODs"), model->triangles[0], model->lodCount);
-                    // Asset budget: usage vs. the kind's (folder's) limit, red when over (mealkit.project budget*)
-                    const asset::ModelBudget& b = m_models->budget(model->kind);
-                    const ImVec4 red(1.0f, 0.45f, 0.4f, 1.0f);
-                    const auto usage = [&](u32 used, u32 limit, const char* what) {
-                        const ImVec4 color = used > limit ? red : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
-                        ImGui::TextColored(color, "%s %u / %u", what, used, limit);
-                    };
-                    const char* kind = model->kind == asset::ModelKind::Character     ? tr("characters")
-                                       : model->kind == asset::ModelKind::Environment ? tr("environment")
-                                                                                      : tr("props");
-                    ImGui::TextDisabled("%s", trf("Budget: %s", kind).c_str());
-                    usage(model->triangles[0], b.triangles, tr("Triangles"));
-                    usage(model->materials, b.materials, tr("Materials"));
-                } else ImGui::TextColored(color::kDanger, "%s", tr("Could not load (see the log)"));
-            }
-            if (ImGui::Button(tr("Choose Model..."))) {
-                const std::string path = chooseModel();
-                if (!path.empty()) {
-                    e->model = path;
-                    markChanged();
-                }
-            }
-            if (!e->model.empty()) {
-                ImGui::SameLine();
-                if (ImGui::Button(tr("Back to Box"))) {
-                    e->model.clear();
-                    markChanged();
-                }
-            }
-        }
-
-        drawObjectFields(*e);
-
-        if (const asset::Model* model = e->model.empty() ? nullptr : m_models->get(e->model);
-            model && model->skinned() && sectionHeader(tr("Animation"), ImGuiTreeNodeFlags_DefaultOpen)) {
-            // Skinned model: looping view clip (scene field anim, also played on the game screen)
-            ImGui::TextDisabled(tr("%u joints, %u clips"), model->bones, static_cast<u32>(model->clips.size()));
-            const std::string current = scene::animField(*e);
-            const std::string currentClip = current.substr(0, current.find(' '));
-            if (beginCombo(propertyRow(tr("Clip")).c_str(), currentClip.empty() ? tr("(rest pose)") : currentClip.c_str())) {
-                const auto set = [&](const std::string& value) {
-                    std::erase_if(e->fields, [](const auto& f) { return f.first == scene::kAnimField; });
-                    if (!value.empty()) e->fields.emplace_back(scene::kAnimField, value);
-                    markChanged();
-                };
-                if (ImGui::Selectable(tr("(rest pose)"), currentClip.empty())) set({});
-                for (const asset::AnimationClip& c : model->clips) {
-                    char label[160];
-                    std::snprintf(label, sizeof(label), "%s (%.2f s)", c.name.c_str(), static_cast<double>(c.duration));
-                    if (ImGui::Selectable(label, c.name == currentClip)) set(c.name);
-                }
-                ImGui::EndCombo();
-            }
-        }
-
-        if (e->is(scene::kTypeVirtualCamera) && sectionHeader(tr("Virtual camera"), ImGuiTreeNodeFlags_DefaultOpen)) {
-            // Shows the scene view through this camera (no follow target in edit mode: it stands at its placement)
-            bool through = m_lookThrough == e->id;
-            if (ImGui::Checkbox(tr("Look Through"), &through)) m_lookThrough = through ? e->id : 0;
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", tr("Esc stops"));
-        }
-
-        if (e->is(scene::kTypeProbe) && sectionHeader(tr("Reflection probe"), ImGuiTreeNodeFlags_DefaultOpen)) {
-            // Reflection probe: bake (edit mode, baked files in assets/probes/)
-            const std::string file = scene::probeFile(*e);
-            ImGui::TextDisabled("%s", file.empty() ? tr("Not baked") : file.c_str());
-            ImGui::BeginDisabled(bakingProbes());
-            if (ImGui::Button(tr("Bake"))) bakeProbes(e->id);
-            ImGui::SameLine();
-            if (ImGui::Button(tr("Bake all probes"))) bakeProbes();
-            ImGui::EndDisabled();
-            u32 count = 0;
-            for (const Entity& other : m_scene.entities) count += other.is(scene::kTypeProbe) ? 1u : 0u;
-            if (count > probeMaxCount())
-                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), tr("%u probes, only the first %u are used (project settings)"), count,
-                                   probeMaxCount());
-        }
-
-        if (e->is(scene::kTypeTerrain)) drawTerrainInspector(*e);
-        if (e->is(scene::kTypeScatter)) drawScatterInspector(*e);
-
-        ImGui::Dummy(ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y));
-        const u32 shownId = e->id;
-        if (iconButton(icon::kCopy, tr("Duplicate (Ctrl+D)"))) duplicateSelected();
-        ImGui::SameLine(0.0f, 2.0f);
-        if (iconButton(icon::kPrefab, tr("Save as Prefab..."))) saveSelectionAsPrefab();
-        ImGui::SameLine(0.0f, 2.0f);
-        if (iconButton(icon::kTrash, tr("Delete (Del)"))) deleteSelected(); // e isn't used after this
-        ImGui::SameLine();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextDisabled("ID %u", shownId);
-    }
-    ImGui::EndDisabled();
-    ImGui::End();
-}
-
-// One transform row: dot if different from default, right-click "Reset to default / Copy / Paste", scale has a lock-ratio toggle
-bool Editor::transformRow(const char* label, const char* id, f32 v[3], f32 speed, f32 lo, f32 hi, const char* format,
-                          f32 defaultValue, bool* lockRatio) {
-    ImGui::PushID(id);
-    const f32 before[3] = {v[0], v[1], v[2]};
-    propertyRow(label);
-    if (lockRatio) {
-        // In the margin left of the fields, past the changed dot, so X, Y and Z line up with the rows above
-        const ImVec2 fields = ImGui::GetCursorScreenPos();
-        ImGui::SetCursorScreenPos(ImVec2(fields.x - ImGui::GetFrameHeight() - 9.0f, fields.y));
-        if (iconButton(*lockRatio ? icon::kLock : icon::kUnlock, tr("Keep the ratio between X, Y and Z"), *lockRatio)) *lockRatio = !*lockRatio;
-        ImGui::SameLine();
-        ImGui::SetCursorScreenPos(fields);
-        ImGui::SetNextItemWidth(-FLT_MIN);
-    }
-    // One field per axis with its letter inside, in the gizmo's axis colors
-    bool changed = false;
-    {
-        const ImVec4 axes[3] = {ImVec4(0.95f, 0.45f, 0.45f, 1.0f), ImVec4(0.50f, 0.82f, 0.50f, 1.0f), ImVec4(0.55f, 0.70f, 1.0f, 1.0f)};
-        const char* const letters[3] = {"X", "Y", "Z"};
-        const char* const fields[3] = {"##x", "##y", "##z"};
-        const f32 letterSize = ImGui::GetFontSize() * 0.8f;
-        const std::string spaced = std::string("   ") + format; // pushes the centered number away from the letter
-        ImGui::BeginGroup();
-        ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
-        for (int i = 0; i < 3; ++i) {
-            if (i > 0) ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            changed |= ImGui::DragFloat(fields[i], &v[i], speed, lo, hi, spaced.c_str());
-            ImGui::PopItemWidth();
-            const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
-            ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), letterSize, ImVec2(min.x + 6.0f, min.y + (max.y - min.y - letterSize) * 0.5f - 1.0f), ImGui::GetColorU32(axes[i]), letters[i]);
-        }
-        ImGui::EndGroup();
-    }
-    if (changed && lockRatio && *lockRatio) { // the rest follow the ratio of the changed axis
-        for (int i = 0; i < 3; ++i)
-            if (v[i] != before[i] && before[i] != 0.0f) {
-                const f32 k = v[i] / before[i];
-                for (int j = 0; j < 3; ++j)
-                    if (j != i) v[j] = before[j] * k;
-                break;
-            }
-    }
-    const bool differs = v[0] != defaultValue || v[1] != defaultValue || v[2] != defaultValue;
-    if (differs) {
-        const ImVec2 min = ImGui::GetItemRectMin();
-        ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(min.x - 5.0f, min.y + ImGui::GetFrameHeight() * 0.5f), 2.5f,
-                                                    ImGui::GetColorU32(color::kChanged));
-    }
-    if (ImGui::BeginPopupContextItem("##transformMenu")) {
-        if (ImGui::MenuItem(tr("Reset to Default"), nullptr, false, differs)) {
-            v[0] = v[1] = v[2] = defaultValue;
-            changed = true;
-        }
-        if (ImGui::MenuItem(tr("Copy Value"))) {
-            char text[96];
-            snprintf(text, sizeof(text), "%g %g %g", v[0], v[1], v[2]);
-            ImGui::SetClipboardText(text);
-        }
-        if (ImGui::MenuItem(tr("Paste Value"))) {
-            f32 p[3];
-            const char* clip = ImGui::GetClipboardText();
-            if (clip && sscanf(clip, "%f %f %f", &p[0], &p[1], &p[2]) == 3) {
-                v[0] = p[0], v[1] = p[1], v[2] = p[2];
-                changed = true;
-            }
-        }
-        ImGui::EndPopup();
-    }
-    ImGui::PopID();
-    return changed;
-}
-
-// [Edit] > [History]: oldest at top. Clicking reverts to just before that change (redo can go forward)
-void Editor::drawHistory() {
-    if (!m_historyOpen) return;
-    ImGui::SetNextWindowSize(ImVec2(320, 380), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(trl("History###History"), &m_historyOpen, ImGuiWindowFlags_NoDocking)) {
-        ImGui::End();
-        return;
-    }
-    ImGui::BeginDisabled(m_mode != Mode::Edit);
-    int target = -1; // number to undo
-    for (size_t i = 0; i < m_undo.size(); ++i) {
-        ImGui::PushID(static_cast<int>(i));
-        if (ImGui::Selectable(m_undo[i].label.c_str())) target = static_cast<int>(m_undo.size() - i);
-        ImGui::PopID();
-    }
-    ImGui::Selectable(tr("(now)"), true, ImGuiSelectableFlags_Disabled);
-    for (size_t i = m_redo.size(); i-- > 0;)
-        ImGui::TextDisabled("%s", m_redo[i].label.c_str());
-    ImGui::EndDisabled();
-    // The open [Data] page keeps its own steps
-    if (m_dataOpen) {
-        ImGui::SeparatorText(tr("Data"));
-        ImGui::BeginDisabled(!dataCanStep(true));
-        if (ImGui::Button(tr("Undo"))) dataStep(true);
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!dataCanStep(false));
-        if (ImGui::Button(tr("Redo"))) dataStep(false);
-        ImGui::EndDisabled();
-    }
-    ImGui::End();
-    for (int i = 0; i < target; ++i) undo();
-}
-
 void Editor::openSceneFile(const std::string& path) {
     saveBackupIfDirty();
     loadScene(path);
@@ -1998,8 +1159,6 @@ void Editor::drawSceneList() {
     ImGui::BeginDisabled(picked.empty() || m_project.directory.empty());
     if (ImGui::Button(tr("Set as Start Scene"))) m_projectPanel.setStartScene(m_project, "scenes/" + fileName(picked));
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button(tr("New Scene"))) newScene();
     if (hasSceneTool()) {
         ImGui::SameLine();
         ImGui::BeginDisabled(picked.empty());
@@ -2010,59 +1169,6 @@ void Editor::drawSceneList() {
     ImGui::EndDisabled();
     ImGui::End();
     if (!open.empty()) openSceneFile(open);
-}
-
-// Scene environment (when the scene row is selected in the inspector)
-void Editor::drawEnvironment() {
-    ImGui::SeparatorText(tr("Environment"));
-    scene::Environment& env = m_scene.environment;
-    const ImGuiColorEditFlags hdr = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR;
-    bool c = false;
-    c |= ImGui::DragFloat3(propertyRow(tr("Sun direction")).c_str(), &env.sunDirection.x, 0.01f, -1.0f, 1.0f, "%.2f");
-    c |= colorEdit(propertyRow(tr("Sun light")).c_str(), &env.sunColor.x, false, hdr);
-    c |= colorEdit(propertyRow(tr("Sky ambient")).c_str(), &env.skyColor.x, false, hdr);
-    c |= colorEdit(propertyRow(tr("Ground bounce")).c_str(), &env.groundColor.x, false, hdr);
-    c |= colorEdit(propertyRow(tr("Fog / background")).c_str(), &env.fogColor.x, false, hdr);
-    c |= ImGui::DragFloat(propertyRow(tr("Fog density")).c_str(), &env.fogDensity, 0.0002f, 0.0f, 0.1f, "%.4f");
-    // Sky HDRI: one .hdr under assets/textures/ (none = the color gradient above). First selection pauses briefly to bake
-    if (beginCombo(propertyRow(tr("Sky HDRI")).c_str(), env.hdri.empty() ? tr("None (sky colors)") : env.hdri.c_str())) {
-        if (ImGui::Selectable(tr("None (sky colors)"), env.hdri.empty())) env.hdri.clear(), c = true;
-        for (const std::string& h : render::listHdris(asset::ModelCache::assetsRoot()))
-            if (ImGui::Selectable(h.c_str(), env.hdri == h)) env.hdri = h, c = true;
-        ImGui::EndCombo();
-    }
-    ImGui::BeginDisabled(env.hdri.empty());
-    c |= ImGui::DragFloat(propertyRow(tr("HDRI intensity")).c_str(), &env.hdriIntensity, 0.01f, 0.0f, 16.0f, "%.2f");
-    c |= ImGui::DragFloat(propertyRow(tr("HDRI rotation")).c_str(), &env.hdriRotation, 1.0f, -360.0f, 360.0f, "%.0f");
-    ImGui::EndDisabled();
-
-    // Post-processing (scene::PostFields → render::PostParams). View values; player settings can turn effects off
-    ImGui::SeparatorText(tr("Post processing"));
-    scene::PostFields& post = env.post;
-    c |= ImGui::Checkbox(propertyRow(tr("Tone mapping (AgX)")).c_str(), &post.toneMapping);
-    ImGui::BeginDisabled(!post.toneMapping);
-    c |= ImGui::Checkbox(propertyRow(tr("Punchy look (contrast, saturation)")).c_str(), &post.punchy);
-    c |= ImGui::DragFloat(propertyRow(tr("Exposure (EV)")).c_str(), &post.exposure, 0.02f, -6.0f, 6.0f, "%.2f");
-    if (beginCombo(propertyRow(tr("Color LUT")).c_str(), post.lut.empty() ? tr("None") : post.lut.c_str())) {
-        if (ImGui::Selectable(tr("None"), post.lut.empty())) post.lut.clear(), c = true;
-        for (const std::string& l : render::listLuts(asset::ModelCache::assetsRoot()))
-            if (ImGui::Selectable(l.c_str(), post.lut == l)) post.lut = l, c = true;
-        ImGui::EndCombo();
-    }
-    if (ImGui::Button(tr("Grading capture"))) m_gradeRequested = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", tr("Saves the viewport without the LUT to art/grading/ with a neutral .cube. Grade it in DaVinci "
-                                   "Resolve or Photoshop, export a 32-point .cube into assets/lut/ and pick it above."));
-    c |= ImGui::DragFloat(propertyRow(tr("Bloom intensity")).c_str(), &post.bloomIntensity, 0.01f, 0.0f, 2.0f, "%.2f");
-    c |= ImGui::DragFloat(propertyRow(tr("Bloom threshold")).c_str(), &post.bloomThreshold, 0.02f, 0.0f, 16.0f, "%.2f");
-    c |= colorEdit(propertyRow(tr("Bloom tint")).c_str(), &post.bloomTint.x, false, hdr);
-    c |= ImGui::SliderFloat(propertyRow(tr("Vignette")).c_str(), &post.vignette, 0.0f, 1.0f, "%.2f");
-    c |= ImGui::SliderFloat(propertyRow(tr("Vignette start")).c_str(), &post.vignetteSmoothness, 0.0f, 1.0f, "%.2f");
-    c |= ImGui::SliderFloat(propertyRow(tr("Film grain")).c_str(), &post.grain, 0.0f, 1.0f, "%.2f");
-    c |= ImGui::SliderFloat(propertyRow(tr("Chromatic aberration")).c_str(), &post.chromaticAberration, 0.0f, 0.05f, "%.3f");
-    ImGui::EndDisabled();
-    if (c) markChanged();
-    ImGui::TextDisabled("%s", tr("Colors are linear values."));
 }
 
 // ---------------------------------------------------------------- Definition data tables ([Tables] panel)
@@ -2083,55 +1189,6 @@ void Editor::drawState() {
     ImGui::TextDisabled(tr("%s (read-only)"), m_stateView.type->name);
     drawStateGraphs();
     drawFieldsReadOnly(*m_stateView.type, m_stateView.data);
-}
-
-void Editor::drawGizmo() {
-    Entity* e = selected();
-    if (!e || m_viewport.width < 1.0f || m_viewport.height < 1.0f) return;
-    if (e->is(scene::kTypeScatter) || (m_brushOn && e->is(scene::kTypeTerrain))) return; // layers have no shape to move; painting terrain
-
-    ImGuizmo::SetOrthographic(m_ortho);
-    ImGuizmo::SetRect(m_viewport.x, m_viewport.y, m_viewport.width, m_viewport.height);
-    {
-        // Rounder, thicker handles that read at a glance (softer axis colors, big round ends and centre), scaled with the UI
-        ImGuizmo::Style& style = ImGuizmo::GetStyle();
-        const f32 k = std::max(1.0f, ImGui::GetFontSize() / 16.0f);
-        style.TranslationLineThickness = 5.0f * k;
-        style.TranslationLineArrowSize = 9.0f * k;
-        style.RotationLineThickness = 5.0f * k;
-        style.RotationOuterLineThickness = 4.0f * k;
-        style.ScaleLineThickness = 5.0f * k;
-        style.ScaleLineCircleSize = 9.0f * k;
-        style.CenterCircleSize = 8.0f * k;
-        style.HatchedAxisLineThickness = 0.0f; // no dashed negative axes
-        style.Colors[ImGuizmo::DIRECTION_X] = ImVec4(0.95f, 0.36f, 0.38f, 1.0f);
-        style.Colors[ImGuizmo::DIRECTION_Y] = ImVec4(0.45f, 0.85f, 0.40f, 1.0f);
-        style.Colors[ImGuizmo::DIRECTION_Z] = ImVec4(0.36f, 0.58f, 1.00f, 1.0f);
-        style.Colors[ImGuizmo::PLANE_X] = ImVec4(0.95f, 0.36f, 0.38f, 0.45f);
-        style.Colors[ImGuizmo::PLANE_Y] = ImVec4(0.45f, 0.85f, 0.40f, 0.45f);
-        style.Colors[ImGuizmo::PLANE_Z] = ImVec4(0.36f, 0.58f, 1.00f, 0.45f);
-        style.Colors[ImGuizmo::SELECTION] = ImVec4(1.00f, 0.80f, 0.25f, 1.0f);
-        ImGuizmo::SetGizmoSizeClipSpace(0.13f);
-    }
-    f32 matrix[16];
-    compose(scene::worldTransform(m_scene, *e), matrix); // the gizmo is in world space; the result is converted back to parent-relative
-
-    const ImGuizmo::OPERATION ops[3] = {ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE};
-    ImGuizmo::OPERATION op = ops[m_gizmoOp];
-    if (isMarker(*e) && op == ImGuizmo::SCALE) op = ImGuizmo::TRANSLATE;
-    const ImGuizmo::MODE mode = (m_gizmoLocal || op == ImGuizmo::SCALE) ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
-    const f32 step = op == ImGuizmo::TRANSLATE ? m_prefs.snapMove : op == ImGuizmo::ROTATE ? m_prefs.snapRotate : m_prefs.snapScale;
-    const f32 snap[3] = {step, step, step};
-    const bool snapping = ImGui::GetIO().KeyCtrl != m_snapOn; // when toolbar snap is on, Ctrl temporarily turns it off
-
-    if (ImGuizmo::Manipulate(&m_view.m[0][0], &m_proj.m[0][0], op, mode, matrix, nullptr, snapping ? snap : nullptr)) {
-        scene::Transform world;
-        decompose(matrix, world);
-        const scene::Transform before = scene::worldTransform(m_scene, *e);
-        scene::setWorldTransform(m_scene, *e, world);
-        if (!m_multi.empty()) moveOthersWith(before, world);
-        markChanged();
-    }
 }
 
 // Toolbar overlaid on the viewport (top left) and axis gizmo (top right; clicking an axis views from that side)
@@ -2165,43 +1222,11 @@ void Editor::drawViewportToolbar() {
         };
         const auto endGroup = [](int) { ImGui::EndGroup(); };
 
-        beginGroup(0);
-        if (iconButton(icon::kMove, tr("Move W"), m_gizmoOp == 0)) m_gizmoOp = 0;
-        ImGui::SameLine(0, 2);
-        if (iconButton(icon::kRotate, tr("Rotate E"), m_gizmoOp == 1)) m_gizmoOp = 1;
-        ImGui::SameLine(0, 2);
-        if (iconButton(icon::kScale, tr("Scale R"), m_gizmoOp == 2)) m_gizmoOp = 2;
-        ImGui::SameLine(0, 2);
-        if (iconButton(m_gizmoLocal ? icon::kCube : icon::kGlobe, m_gizmoLocal ? tr("Local Axes") : tr("World Axes"))) m_gizmoLocal = !m_gizmoLocal;
-        endGroup(0);
-
         beginGroup(1);
-        if (magnetButton(tr("Snap without holding Ctrl (Ctrl turns it off for a moment)"), m_snapOn)) m_snapOn = !m_snapOn;
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##snapPopup");
-        ImGui::SameLine(0, 0);
-        {
-            // Narrow chevron beside Snap for its settings
-            const f32 h = ImGui::GetFrameHeight(), w = std::floor(h * 0.55f);
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-            if (ImGui::Button("##snapSettings", ImVec2(w, h))) ImGui::OpenPopup("##snapPopup");
-            ImGui::PopStyleColor(2);
-            tip(tr("Snap"));
-            drawGlyph(ImGui::GetWindowDrawList(), icon::kChevronDown, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), std::floor(ImGui::GetFontSize() * 0.55f), ImGui::GetColorU32(ImGuiCol_TextDisabled));
-        }
-        if (ImGui::BeginPopup("##snapPopup")) {
-            if (drawSnapSettings(m_prefs)) savePreferences(m_prefs);
-            ImGui::EndPopup();
-        }
-        ImGui::SameLine(0, 2);
         if (iconButton(icon::kArea, tr("Grid"), m_showGrid)) m_showGrid = !m_showGrid;
         endGroup(1);
 
         beginGroup(2);
-        ImGui::BeginDisabled(!selected());
-        if (iconButton(icon::kFocus, tr("Focus Selected (F)"))) focusSelected();
-        ImGui::EndDisabled();
-        ImGui::SameLine(0, 2);
         if (iconButton(m_ortho ? icon::kOrtho : icon::kPerspective, tr("Switch between perspective and orthographic (wheel zooms in orthographic)"))) m_ortho = !m_ortho;
         ImGui::SameLine(0, 2);
         const char* views[] = {tr("Lit"), tr("Wireframe"), tr("Normals"), tr("LOD Level"), tr("Overdraw"),
@@ -2399,59 +1424,9 @@ void Editor::handleBookmarks() {
     }
 }
 
-// Left click = select (Shift = add/remove), drag on empty space = select objects inside the box
-void Editor::handlePicking() {
-    ImGuiIO& io = ImGui::GetIO();
-    if (!m_boxSelecting && handleTerrainBrush()) return; // the terrain brush owns the left button
-    if (m_boxSelecting) {
-        const Vec2 a = m_boxStart, b{io.MousePos.x, io.MousePos.y};
-        const ImVec2 lo(std::min(a.x, b.x), std::min(a.y, b.y)), hi(std::max(a.x, b.x), std::max(a.y, b.y));
-        const bool dragged = hi.x - lo.x > 4.0f || hi.y - lo.y > 4.0f;
-        if (dragged) {
-            ImDrawList* draw = ImGui::GetForegroundDrawList();
-            draw->AddRectFilled(lo, hi, IM_COL32(90, 150, 255, 40));
-            draw->AddRect(lo, hi, IM_COL32(90, 150, 255, 200));
-        }
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) return;
-        m_boxSelecting = false;
-        if (dragged) {
-            const Mat4 viewProj = m_view * m_proj;
-            std::vector<u32> inside;
-            for (const Entity& e : m_scene.entities) {
-                if (isLocked(e) || isHidden(e)) continue;
-                const Vec3 p = scene::worldTransform(m_scene, e).position;
-                const f32 cx = p.x * viewProj.m[0][0] + p.y * viewProj.m[1][0] + p.z * viewProj.m[2][0] + viewProj.m[3][0];
-                const f32 cy = p.x * viewProj.m[0][1] + p.y * viewProj.m[1][1] + p.z * viewProj.m[2][1] + viewProj.m[3][1];
-                const f32 cw = p.x * viewProj.m[0][3] + p.y * viewProj.m[1][3] + p.z * viewProj.m[2][3] + viewProj.m[3][3];
-                if (cw <= 0.0f) continue; // behind the camera
-                const f32 sx = m_viewport.x + (cx / cw * 0.5f + 0.5f) * m_viewport.width;
-                const f32 sy = m_viewport.y + (0.5f - cy / cw * 0.5f) * m_viewport.height;
-                if (sx >= lo.x && sx <= hi.x && sy >= lo.y && sy <= hi.y) inside.push_back(e.id);
-            }
-            selectMany(inside, io.KeyShift);
-            return;
-        }
-    } else {
-        if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || sceneMouseBlocked() || io.KeyAlt || ImGuizmo::IsOver() ||
-            ImGuizmo::IsUsing() || ImGuizmo::IsViewManipulateHovered() || ImGuizmo::IsUsingViewManipulate())
-            return;
-        const ImVec2 mouse = io.MousePos;
-        if (mouse.x < m_viewport.x || mouse.y < m_viewport.y || mouse.x >= m_viewport.x + m_viewport.width ||
-            mouse.y >= m_viewport.y + m_viewport.height)
-            return;
-        m_boxSelecting = true; // decide on release whether it was a click or a drag
-        m_boxStart = {mouse.x, mouse.y};
-        return;
-    }
-    Vec3 origin, dir;
-    mouseRay(m_boxStart.x, m_boxStart.y, &origin, &dir);
-    f32 distance = 0.0f;
-    const u32 best = raycast(origin, dir, &distance);
-    if (io.KeyShift) {
-        if (best) toggleSelect(best);
-    } else {
-        m_selected = best;
-    }
+// Terrain of a terrain object (its heightmap from the model cache; edited in MkRender)
+asset::Terrain* Editor::terrainOf(const scene::Entity& e) const {
+    return e.is(scene::kTypeTerrain) ? m_models->terrain(scene::terrainFile(e)) : nullptr;
 }
 
 u32 Editor::raycast(Vec3 origin, Vec3 dir, f32* distance, const std::vector<u32>& skip) const {
@@ -2504,138 +1479,8 @@ void Editor::pickBounds(const Entity& e, const scene::Transform& w, Vec3* center
     }
 }
 
-void Editor::dropToFloor() {
-    const std::vector<u32> roots = selectionRoots();
-    if (roots.empty()) return;
-    pushUndo(capture());
-    for (u32 id : roots) {
-        Entity* e = m_scene.find(id);
-        scene::Transform w = scene::worldTransform(m_scene, *e);
-        Vec3 center, half;
-        pickBounds(*e, w, &center, &half);
-        // Height down to the lowest point of the rotated box
-        f32 below = 0.0f;
-        for (int k = 0; k < 8; ++k) {
-            const Vec3 corner{k & 1 ? half.x : -half.x, k & 2 ? half.y : -half.y, k & 4 ? half.z : -half.z};
-            below = std::max(below, -rotate(w.rotation, center + corner).y);
-        }
-        std::vector<u32> skip = scene::subtree(m_scene, id);
-        f32 t = 0.0f;
-        const Vec3 from{w.position.x, w.position.y - below + 0.01f, w.position.z};
-        f32 floorY = 0.0f;
-        if (raycast(from, {0.0f, -1.0f, 0.0f}, &t, skip)) floorY = from.y - t;
-        else if (from.y < 0.0f) floorY = 0.0f;
-        w.position.y = floorY + below;
-        scene::setWorldTransform(m_scene, *e, w);
-    }
-    setStatus(tr("Dropped to the floor"));
-}
-
-void Editor::alignSelection(int axis) {
-    const Entity* primary = selected();
-    if (!primary || m_multi.empty()) return;
-    pushUndo(capture());
-    const Vec3 target = scene::worldTransform(m_scene, *primary).position;
-    for (u32 id : selectionRoots()) {
-        if (id == m_selected) continue;
-        Entity* e = m_scene.find(id);
-        scene::Transform w = scene::worldTransform(m_scene, *e);
-        (&w.position.x)[axis] = (&target.x)[axis];
-        scene::setWorldTransform(m_scene, *e, w);
-    }
-}
-
-void Editor::distributeSelection() {
-    std::vector<u32> roots = selectionRoots();
-    if (roots.size() < 3) return;
-    pushUndo(capture());
-    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-    for (u32 id : roots) {
-        const Vec3 p = scene::worldTransform(m_scene, *m_scene.find(id)).position;
-        for (int a = 0; a < 3; ++a) {
-            (&lo.x)[a] = std::min((&lo.x)[a], (&p.x)[a]);
-            (&hi.x)[a] = std::max((&hi.x)[a], (&p.x)[a]);
-        }
-    }
-    int axis = 0;
-    for (int a = 1; a < 3; ++a)
-        if ((&hi.x)[a] - (&lo.x)[a] > (&hi.x)[axis] - (&lo.x)[axis]) axis = a;
-    auto key = [&](u32 id) {
-        const Vec3 p = scene::worldTransform(m_scene, *m_scene.find(id)).position;
-        return (&p.x)[axis];
-    };
-    std::sort(roots.begin(), roots.end(), [&](u32 a, u32 b) { return key(a) < key(b); });
-    const f32 step = ((&hi.x)[axis] - (&lo.x)[axis]) / static_cast<f32>(roots.size() - 1);
-    for (size_t i = 0; i < roots.size(); ++i) {
-        Entity* e = m_scene.find(roots[i]);
-        scene::Transform w = scene::worldTransform(m_scene, *e);
-        (&w.position.x)[axis] = (&lo.x)[axis] + step * static_cast<f32>(i);
-        scene::setWorldTransform(m_scene, *e, w);
-    }
-}
-
 bool Editor::isSelected(u32 id) const {
     return id && (id == m_selected || std::find(m_multi.begin(), m_multi.end(), id) != m_multi.end());
-}
-
-std::vector<u32> Editor::selectionRoots() const {
-    std::vector<u32> all;
-    if (m_selected) all.push_back(m_selected);
-    all.insert(all.end(), m_multi.begin(), m_multi.end());
-    std::vector<u32> roots;
-    for (u32 id : all) {
-        if (!m_scene.find(id)) continue;
-        bool under = false;
-        for (u32 other : all)
-            under |= other != id && scene::isDescendant(m_scene, id, other);
-        if (!under) roots.push_back(id);
-    }
-    return roots;
-}
-
-void Editor::toggleSelect(u32 id) {
-    if (id == m_selected) { // removing the primary selection makes the next one primary
-        m_selected = m_multi.empty() ? 0 : m_multi.front();
-        if (!m_multi.empty()) m_multi.erase(m_multi.begin());
-    } else if (auto it = std::find(m_multi.begin(), m_multi.end(), id); it != m_multi.end()) {
-        m_multi.erase(it);
-    } else {
-        if (m_selected) m_multi.push_back(m_selected);
-        m_selected = id;
-    }
-    m_multiOwner = m_selected;
-}
-
-void Editor::selectMany(const std::vector<u32>& ids, bool add) {
-    if (!add) {
-        m_selected = 0;
-        m_multi.clear();
-    }
-    for (u32 id : ids)
-        if (!isSelected(id)) {
-            if (m_selected) m_multi.push_back(m_selected);
-            m_selected = id;
-        }
-    m_multiOwner = m_selected;
-}
-
-// Moves the other selected objects (their top-level ones) by as much as the primary selection's world transform changed from before → after.
-// Rotation around the primary selection's position, scale by each one's ratio
-void Editor::moveOthersWith(const scene::Transform& before, const scene::Transform& after) {
-    const Quat inv{-before.rotation.x, -before.rotation.y, -before.rotation.z, before.rotation.w};
-    const Quat delta = normalize(after.rotation * inv);
-    const Vec3 ratio{after.scale.x / (before.scale.x != 0.0f ? before.scale.x : 1.0f),
-                     after.scale.y / (before.scale.y != 0.0f ? before.scale.y : 1.0f),
-                     after.scale.z / (before.scale.z != 0.0f ? before.scale.z : 1.0f)};
-    for (u32 id : selectionRoots()) {
-        if (id == m_selected || scene::isDescendant(m_scene, id, m_selected)) continue;
-        Entity* o = m_scene.find(id);
-        scene::Transform w = scene::worldTransform(m_scene, *o);
-        w.position = after.position + rotate(delta, w.position - before.position);
-        w.rotation = normalize(delta * w.rotation);
-        w.scale = {w.scale.x * ratio.x, w.scale.y * ratio.y, w.scale.z * ratio.z};
-        scene::setWorldTransform(m_scene, *o, w);
-    }
 }
 
 // ---------------------------------------------------------------- Edit actions
@@ -2654,17 +1499,6 @@ bool Editor::isLocked(const Entity& e) const {
     for (const Entity* p = &e; p; p = p->parent ? m_scene.find(p->parent) : nullptr)
         if (m_locked.count(p->id)) return true;
     return false;
-}
-
-const char* Editor::entityIcon(const Entity& e) const {
-    if (e.is(scene::kTypePointLight)) return icon::kLight;
-    if (e.is(scene::kTypeVirtualCamera)) return icon::kCamera;
-    if (e.is(scene::kTypeProbe)) return icon::kProbe;
-    if (isArea(e)) return icon::kArea;
-    if (isMarker(e)) return icon::kPin;
-    if (!e.model.empty()) return icon::kModel;
-    if (e.is(scene::kTypeSolid) || e.is(scene::kTypeDecoration)) return icon::kBox;
-    return icon::kFlag;
 }
 
 std::string Editor::viewStatePath() const {
@@ -2737,293 +1571,6 @@ bool Editor::isMarker(const Entity& e) const {
 bool Editor::isArea(const Entity& e) const {
     const reflect::TypeInfo* type = entityType(e);
     return type && (type->flags & reflect::kObjectArea);
-}
-
-std::vector<const reflect::TypeInfo*> Editor::allTypes() const {
-    std::vector<const reflect::TypeInfo*> list = scene::builtinTypes();
-    if (m_gameTypes) {
-        std::vector<const reflect::TypeInfo*> game = *m_gameTypes;
-        std::sort(game.begin(), game.end(), [](const reflect::TypeInfo* a, const reflect::TypeInfo* b) {
-            return std::strcmp(a->label, b->label) < 0;
-        });
-        list.insert(list.end(), game.begin(), game.end());
-    }
-    return list;
-}
-
-void Editor::drawAddMenuItems() {
-    const size_t builtins = scene::builtinTypes().size();
-    const std::vector<const reflect::TypeInfo*> types = allTypes();
-    for (size_t i = 0; i < types.size(); ++i) {
-        if (i == builtins) ImGui::SeparatorText(tr("Game"));
-        if (ImGui::MenuItem(trData(types[i]->label))) addEntity(types[i]->name);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", types[i]->name);
-    }
-    if (!m_gameTypes) ImGui::TextDisabled("%s", tr("(game types appear when the game code is loaded)"));
-    ImGui::Separator();
-    if (ImGui::MenuItem(tr("Model..."))) addModelEntity();
-}
-
-// Game kind fields: read text values into an instance of the declared type, edit with widgets, and write back as text
-void Editor::drawObjectFields(Entity& e) {
-    const reflect::TypeInfo* type = entityType(e);
-    if (type && type->fields.empty()) return;
-    if (!sectionHeader(tr("Fields"), ImGuiTreeNodeFlags_DefaultOpen)) return;
-    if (!type) {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1.0f), tr("The game code has no '%s' type. The values are kept as they are."),
-                           e.type.c_str());
-        for (auto& [path, value] : e.fields) {
-            char buffer[256];
-            strncpy_s(buffer, value.c_str(), _TRUNCATE);
-            if (ImGui::InputText(propertyRow(path.c_str()).c_str(), buffer, sizeof(buffer))) {
-                value = buffer;
-                markChanged();
-            }
-        }
-        return;
-    }
-    reflect::Instance instance(*type);
-    std::string warnings;
-    reflect::fromText(*type, instance.data(), e.fields, &warnings);
-    const reflect::Instance defaults(*type);
-    // Multi-selection: other selected objects of this kind. Fields where they differ are marked, and a change goes to all of them
-    std::vector<Entity*> others;
-    for (u32 id : m_multi)
-        if (Entity* other = m_scene.find(id); other && other != &e && other->type == e.type) others.push_back(other);
-    const auto rootOf = [](const std::string& path) { return path.substr(0, path.find_first_of(".[")); };
-    // Compared as full text: scene files may leave out values equal to the defaults
-    const auto fullText = [type](const reflect::TextFields& fields) {
-        reflect::Instance copy(*type);
-        reflect::fromText(*type, copy.data(), fields);
-        reflect::TextFields out;
-        reflect::toText(*type, copy.data(), out);
-        return out;
-    };
-    const reflect::TextFields before = fullText(e.fields);
-    std::set<std::string> mixed;
-    for (const Entity* other : others) {
-        const reflect::TextFields text = fullText(other->fields);
-        for (const auto& field : before)
-            if (std::find(text.begin(), text.end(), field) == text.end()) mixed.insert(rootOf(field.first));
-    }
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::InputTextWithHint("##fieldSearch", tr("Search"), m_fieldSearch, sizeof(m_fieldSearch));
-    FieldContext context{&m_tablesPanel.index(), defaults.data()};
-    context.mixed = &mixed;
-    context.filter = m_fieldSearch;
-    if (drawFields(*type, instance.data(), &context)) {
-        reflect::TextFields fields;
-        reflect::toText(*type, instance.data(), fields);
-        for (Entity* other : others) {
-            reflect::TextFields text = fullText(other->fields);
-            for (const auto& field : fields) {
-                if (std::find(before.begin(), before.end(), field) != before.end()) continue; // not changed just now
-                auto it = std::find_if(text.begin(), text.end(), [&](const auto& f) { return f.first == field.first; });
-                if (it != text.end()) it->second = field.second;
-                else text.push_back(field);
-            }
-            other->fields = std::move(text);
-        }
-        e.fields = std::move(fields);
-        markChanged();
-    }
-    if (!warnings.empty()) ImGui::TextDisabled(tr("Undeclared fields: %s (removed on save)"), warnings.c_str());
-}
-
-void Editor::addEntity(const std::string& typeName) {
-    const reflect::TypeInfo* type = scene::findType(typeName, m_gameTypes);
-    if (!type) return;
-    pushUndo(capture());
-    const Vec3 forward = cameraForward();
-    Vec3 pos = m_cameraPos + forward * 12.0f;
-    if (forward.y < -0.05f) {
-        const f32 t = -m_cameraPos.y / forward.y;
-        if (t > 0.0f && t < 80.0f) pos = m_cameraPos + forward * t;
-    }
-    const bool solid = typeName == scene::kTypeSolid;
-    Entity& e = m_scene.add(type->name, solid ? tr("Box") : trData(type->label));
-    e.name += " " + std::to_string(e.id);
-    e.fields = scene::defaultFields(*type);
-    if (type->flags & reflect::kObjectMarker) {
-        e.position = {pos.x, std::max(pos.y, 0.0f) + 0.9f, pos.z};
-        e.color = 0xFF5ADCFF;
-    } else if (type->flags & reflect::kObjectArea) {
-        e.scale = {10, 4, 10};
-        e.position = {pos.x, std::max(pos.y, 0.0f) + 2.0f, pos.z};
-        e.color = 0xFF50C8FF;
-    } else {
-        e.scale = {2, 2, 2};
-        e.position = {pos.x, std::max(pos.y, 0.0f) + 1.0f, pos.z};
-        e.color = solid ? 0xFFD2C8C8 : typeName == scene::kTypeDecoration ? 0xFFDCAA78 : 0xFF8CD2F0;
-    }
-    if (typeName == scene::kTypeSprite) { // a sprite's color is its tint: white shows the image as it is; flat on z = 0 in 2D
-        e.color = 0xFFFFFFFF;
-        e.scale = {2, 2, 1};
-        if (m_project.settings.view2d) e.position.z = 0.0f;
-    }
-    if (typeName == scene::kTypeTerrain) setupNewTerrain(e);
-    if (typeName == scene::kTypeScatter) setupNewScatter(e);
-    m_selected = e.id;
-    setStatus(trf("Added: %s", e.name.c_str()));
-}
-
-std::string Editor::chooseModel() {
-    const std::string root = asset::ModelCache::assetsRoot();
-    const std::string path = openFileDialog(m_window->nativeHandle(), "", root + "\\models", kModelFilters, 2);
-    if (path.empty()) return {};
-    // Inside the assets folder, saved as a relative path (so the same scene file works on other PCs)
-    const std::string relative = relativeTo(root, path);
-    if (!relative.empty()) return relative;
-    setStatus(tr("The file is outside the assets folder. In multiplayer everyone needs it at the same path"));
-    return path;
-}
-
-void Editor::addModelEntity() {
-    const std::string path = chooseModel();
-    if (!path.empty()) addModelEntity(path, nullptr);
-}
-
-void Editor::addModelEntity(const std::string& path, const Vec3* at) {
-    const asset::Model* model = m_models->get(path);
-    if (!model) {
-        setStatus(trf("Could not load the model: %s", path.c_str()), true);
-        return;
-    }
-    addEntity(scene::kTypeSolid);
-    Entity* e = selected();
-    e->model = path;
-    e->scale = {1, 1, 1};
-    e->color = 0xFFFFFFFF;                       // show the material color as is
-    if (at) e->position = *at + Vec3{0.0f, 1.0f, 0.0f}; // where it was dropped
-    e->position.y += -1.0f - model->boundsMin.y; // touch the floor (addEntity raises it by 1)
-    const std::string file = fileName(path);
-    e->name = file.substr(0, file.find_last_of('.'));
-    setStatus(trf("Model added: %s", path.c_str()));
-}
-
-// Copies the selected objects and their children with the same structure
-void Editor::duplicateSelected() {
-    if (!selected()) return;
-    pushUndo(capture());
-    const std::vector<u32> roots = selectionRoots();
-    std::vector<u32> newRoots;
-    size_t total = 0;
-    std::string name;
-    for (u32 root : roots) {
-        const std::vector<u32> ids = scene::subtree(m_scene, root);
-        std::unordered_map<u32, u32> remap;
-        for (u32 id : ids) remap[id] = m_scene.nextId++;
-        std::vector<Entity> copies;
-        for (u32 id : ids) {
-            Entity copy = *m_scene.find(id);
-            const bool top = id == root;
-            copy.id = remap[id];
-            copy.parent = top ? copy.parent : remap[copy.parent];
-            if (top) {
-                copy.name += std::string(" ") + tr("copy");
-                copy.position.x += 1.0f;
-            }
-            copies.push_back(std::move(copy));
-        }
-        if (name.empty()) name = copies.front().name;
-        newRoots.push_back(copies.front().id);
-        total += ids.size();
-        m_scene.entities.insert(m_scene.entities.end(), copies.begin(), copies.end());
-    }
-    selectMany(newRoots, false);
-    if (roots.size() > 1) setStatus(trf("Duplicated %zu objects", roots.size()));
-    else setStatus(total > 1 ? trf("Duplicated: %s (with %zu children)", name.c_str(), total - 1) : trf("Duplicated: %s", name.c_str()));
-}
-
-// Saves the selected objects and their children as a prefab file (assets/prefabs/)
-void Editor::saveSelectionAsPrefab() {
-    const Entity* e = selected();
-    if (!e) return;
-    const std::string root = asset::ModelCache::assetsRoot();
-    createDirectories(root + "\\prefabs");
-    const std::string path = saveFileDialog(m_window->nativeHandle(), root + "\\prefabs\\" + e->name + ".prefab",
-                                            root + "\\prefabs", kPrefabFilters, 2, "prefab");
-    if (path.empty()) return;
-    const std::vector<u32> roots = selectionRoots();
-    if (!scene::savePrefab(m_scene, roots, path)) {
-        setStatus(trf("Could not save %s", path.c_str()), true);
-        return;
-    }
-    const std::string relative = relativeTo(root, path);
-    if (relative.empty()) setStatus(tr("The prefab is outside the assets folder. Only prefabs under assets/prefabs/ show in [Assets]"));
-    else setStatus(trf("Prefab saved: %s", relative.c_str()));
-}
-
-// Adds copies of a prefab's objects (like duplicate: later edits to the file don't change them)
-void Editor::placePrefab(const std::string& relative, const Vec3* at) {
-    scene::Scene prefab;
-    std::string error;
-    const std::string path = asset::ModelCache::assetsRoot() + "\\" + relative;
-    if (!scene::loadPrefab(prefab, path, &error)) {
-        setStatus(trf("Could not load the prefab: %s (%s)", relative.c_str(), error.c_str()), true);
-        return;
-    }
-    if (prefab.entities.empty()) return;
-    pushUndo(capture());
-    scene::Transform place;
-    if (at) {
-        place.position = *at;
-    } else { // on the floor in front of the camera, like addEntity
-        const Vec3 forward = cameraForward();
-        place.position = m_cameraPos + forward * 12.0f;
-        if (forward.y < -0.05f) {
-            const f32 t = -m_cameraPos.y / forward.y;
-            if (t > 0.0f && t < 80.0f) place.position = m_cameraPos + forward * t;
-        }
-        place.position.y = std::max(place.position.y, 0.0f);
-    }
-    const std::vector<u32> roots = scene::placePrefab(m_scene, prefab, place);
-    selectMany(roots, false);
-    setStatus(trf("Prefab placed: %s (%zu objects)", relative.c_str(), prefab.entities.size()));
-}
-
-// Deletes the selected objects and their children
-void Editor::deleteSelected() {
-    const Entity* e = selected();
-    if (!e) return;
-    pushUndo(capture());
-    const std::vector<u32> roots = selectionRoots();
-    std::vector<u32> ids;
-    for (u32 root : roots) {
-        const std::vector<u32> sub = scene::subtree(m_scene, root);
-        ids.insert(ids.end(), sub.begin(), sub.end());
-    }
-    if (roots.size() > 1) setStatus(trf("Deleted %zu objects", roots.size()));
-    else setStatus(ids.size() > 1 ? trf("Deleted: %s (with %zu children)", e->name.c_str(), ids.size() - 1) : trf("Deleted: %s", e->name.c_str()));
-    std::erase_if(m_scene.entities,
-                  [&](const Entity& x) { return std::find(ids.begin(), ids.end(), x.id) != ids.end(); });
-    m_selected = 0;
-    m_multi.clear();
-}
-
-void Editor::focusSelected() {
-    const Entity* e = selected();
-    if (!e) return;
-    const scene::Transform w = scene::worldTransform(m_scene, *e);
-    const f32 extent = std::max({w.scale.x, w.scale.y, w.scale.z});
-    m_cameraPos = w.position - cameraForward() * (std::min(extent, 60.0f) * 1.2f + 6.0f);
-}
-
-void Editor::newScene() {
-    pushUndo(capture());
-    scene::Scene fresh;
-    Entity& ground = fresh.add(scene::kTypeSolid, "Ground");
-    ground.position = {0, -0.5f, 0};
-    ground.scale = {120, 1, 120};
-    ground.color = 0xFF609676;
-    ground.flags = render::kInstanceChecker;
-    Entity& spawn = fresh.add(scene::kTypeSpawn, "Spawn 1");
-    spawn.position = {0, 0.9f, 0};
-    spawn.color = 0xFF5ADCFF;
-    m_scene = std::move(fresh);
-    m_scenePath.clear();
-    m_selected = 0;
-    setStatus(tr("New scene (Ctrl+Z to undo)"));
 }
 
 void Editor::openSceneDialog() {
@@ -3102,85 +1649,12 @@ bool Editor::loadScene(const std::string& path) {
     // If last time ended without saving or crashed, the autosave is newer
     const std::string autosave = path + ".autosave";
     m_recoverPath = fileExists(autosave) && fileWriteTime(autosave) > fileWriteTime(path) ? autosave : std::string();
-    m_undo.clear();
-    m_redo.clear();
     m_selected = 0;
     m_nameBufferId = 0;
     return true; // the tree and the scene switcher show it; no notice
 }
 
-bool Editor::saveScene() {
-    if (m_scenePath.empty()) return saveSceneAs();
-    if (std::string error; !m_models->saveScatters(error)) setStatus(trf("Could not save scatter layers: %s", error.c_str()), true);
-    if (std::string error; !m_models->saveTerrains(error)) setStatus(trf("Could not save heightmaps: %s", error.c_str()), true);
-    if (!scene::save(m_scene, m_scenePath)) {
-        setStatus(trf("Could not save: %s", m_scenePath.c_str()), true);
-        return false;
-    }
-    m_dirty = false;
-    m_sceneTime = fileWriteTime(m_scenePath);
-    m_sceneChangedWarned = false;
-    m_autosavePending = false;
-    removeFile(m_scenePath + ".autosave"); // saved, so the autosave isn't needed
-    setStatus(trf("Saved: %s", fileName(m_scenePath).c_str()));
-    return true;
-}
-
-bool Editor::saveSceneAs() {
-    const std::string path = saveFileDialog(m_window->nativeHandle(), m_scenePath, "", kSceneFilters, 2, "scene");
-    if (path.empty()) return false;
-    m_scenePath = path;
-    return saveScene();
-}
-
-Editor::Snapshot Editor::capture() const {
-    Snapshot s{m_scene.entities, m_scene.environment, m_scene.nextId, m_selected};
-    captureTerrains(s);
-    return s;
-}
-
-void Editor::restore(const Snapshot& s) {
-    m_scene.entities = s.entities;
-    m_scene.environment = s.environment;
-    m_scene.nextId = s.nextId;
-    m_selected = m_scene.find(s.selected) ? s.selected : 0;
-    m_nameBufferId = 0;
-    m_dirty = true;
-    restoreTerrains(s);
-}
-
-void Editor::pushUndo(Snapshot snapshot) {
-    if (snapshot.label.empty()) {
-        const Entity* e = selected();
-        snapshot.label = e ? trf("%s changed", e->name.c_str()) : std::string(tr("Scene changed"));
-    }
-    m_undoLabelFrame = ImGui::GetFrameCount();
-    m_undo.push_back(std::move(snapshot));
-    if (m_undo.size() > kUndoLimit) m_undo.erase(m_undo.begin());
-    m_redo.clear();
-    m_dirty = true;
-}
-
-void Editor::undo() {
-    if (m_undo.empty()) return;
-    m_redo.push_back(capture());
-    m_redo.back().label = m_undo.back().label;
-    restore(m_undo.back());
-    m_undo.pop_back();
-    setStatus(tr("Undo"));
-}
-
-void Editor::redo() {
-    if (m_redo.empty()) return;
-    m_undo.push_back(capture());
-    m_undo.back().label = m_redo.back().label;
-    restore(m_redo.back());
-    m_redo.pop_back();
-    setStatus(tr("Redo"));
-}
-
 void Editor::setStatus(const std::string& text, bool failed, NoticeOpen open) {
-    if (m_undoLabelFrame == ImGui::GetFrameCount() && !m_undo.empty()) m_undo.back().label = text; // names like duplicate/delete
     if (m_notices.size() >= 5) m_notices.erase(m_notices.begin());
     m_notices.push_back({text, m_time, failed, failed ? open : NoticeOpen::None});
 }
@@ -3242,7 +1716,7 @@ void Editor::tagCommandModules() {
         const char* module;
     };
     static constexpr ModuleOf kModuleOf[] = {
-        {"Hierarchy", "scene"}, {"Viewport", "scene"},     {"Inspector", "scene"}, {"Find in Hierarchy", "scene"},
+        {"Viewport", "scene"},
         {"Assets", "asset"},     {"Data", "data"},         {"Tuning", "data"},     {"Tables", "data"},
         {"Feedback", "feedback"}, {"Effects", "feedback"}, {"Sounds", "audio"},    {"State", "sim"},
         {"Previews", "render"},
@@ -3262,7 +1736,7 @@ bool Editor::projectHas(const char* module) const {
 
 void Editor::closePanelsOfMissingModules() {
     if (m_projectAllModules) return;
-    if (!projectHas("scene")) m_hierarchyOpen = m_sceneOpen = m_inspectorOpen = false;
+    if (!projectHas("scene")) m_sceneOpen = false;
     if (!projectHas("asset")) m_assetsOpen = false;
     if (!projectHas("data")) m_dataOpen = false;
     if (!projectHas("render")) m_previewOpen = false;
@@ -3396,7 +1870,6 @@ void Editor::startBuild(BuildKind kind) {
         setStatus(tr("This PC has no C++ compiler: building is for programmers. Use Get Latest Game Code."), true);
         return;
     }
-    if (kind == BuildKind::Export && m_dirty && !m_scenePath.empty() && !saveScene()) return;
     if (kind == BuildKind::Export && m_projectPanel.dirty() && !m_projectPanel.save(m_project)) return;
     m_buildPanel.start(kind, m_project, m_engineDirectory, m_time);
 }
@@ -3472,7 +1945,6 @@ void Editor::drawBuildLog() {
 }
 
 void Editor::saveAll() {
-    saveScene();
     m_tuningPanel.saveDirty();
     if (m_projectPanel.dirty()) m_projectPanel.save(m_project);
     std::string status;

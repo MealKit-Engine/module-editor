@@ -131,19 +131,16 @@ public:
     void renderLookdev(render::Renderer& renderer, f64 dt);
     void openLookdev() { openPreviewPage(PreviewPage::LookDev); } // --lookdev (automated capture)
     // Camera previews in the scene view (edit mode, Esc stops): look through the selected virtual camera / play a cutscene row
-    void lookThroughSelected() { m_lookThrough = m_selected; } // --look-through (automated capture)
+    void lookThrough(u32 cameraId) { m_lookThrough = cameraId; } // --look-through <id> (automated capture)
+    void setLookdevModel(const std::string& model) { m_assetSelected = model; } // --lookdev-model: as if picked in [Assets]
     // MkRender link (EditorLink.cpp): live service scene/ (state, play, stop, look)
     void addSceneLink();
     std::string linkScene(const std::string& file);
     live::Response handleSceneLink(const live::Request& req);
     bool previewCutscene(const std::string& name);            // --cutscene <name>, View > Preview Cutscene
     // Reflection probe baking: after the main screen 3D, before UI. Draws one cube face offscreen per frame and reads it in endFrame
-    void renderProbeBake(render::Renderer& renderer);
-    void bakeProbes(u32 onlyId = 0); // 0 = all reflection probes in the scene (--bake-probes)
     // Capture for color grading ([Environment] panel button): renders the scene view camera without the LUT to art/grading/<scene>.png, with a neutral LUT next to it.
     // Grade it in an external tool (DaVinci Resolve, Photoshop etc.), export as .cube, and put it under assets/lut/. After the main screen 3D, before UI
-    void renderGradeCapture(render::Renderer& renderer);
-    bool bakingProbes() const { return !m_probeQueue.empty(); }
     // Simulation state during play ([State] panel). An empty View when play ends.
     void setStateView(reflect::View view) { m_stateView = view; }
 
@@ -155,7 +152,6 @@ public:
     // Automated runs (--frames, --render-golden): turns off dynamic resolution (so images don't vary with GPU speed, same as the game's automated runs)
     void setAutomated(bool automated) { m_automated = automated; }
     // Graphics regression test (--render-golden): opens the scene and renders the whole window from a fixed camera (degrees) without UI
-    bool openSceneForShot(const std::string& path) { return loadScene(path); }
     void buildShot(Vec3 position, f32 yawDegrees, f32 pitchDegrees, f32 width, f32 height, render::FrameParams& frame,
                    render::DrawList& drawList);
     // Call after drawing 3D, before endFrame. frameActive = false if no renderer frame was opened.
@@ -194,74 +190,40 @@ public:
 
     void openPalette(const std::string& text); // for automated tests/screenshots (--palette)
     void queueCommand(const std::string& name) { m_queuedCommands.push_back(name); } // --command
-    void selectByIndex(int index, bool add = false); // for automated tests/screenshots (-2 = scene row)
 
 private:
     void applyRenderStyle(const game::ProjectSettings& settings);
-    struct Snapshot {
-        std::vector<scene::Entity> entities;
-        scene::Environment environment;
-        u32 nextId = 1;
-        u32 selected = 0;
-        std::string label; // name shown in the [Edit] > [History] window ("Ramp change", status message)
-        struct TerrainSamples {
-            std::string path;
-            asset::Heightmap map;
-        };
-        std::vector<TerrainSamples> terrains; // heightmaps of the scene's terrains (brush strokes are undone with the scene)
-        struct ScatterItems {
-            std::string path;
-            std::vector<asset::ScatterInstance> items;
-        };
-        std::vector<ScatterItems> scatters; // scatter layer instances
-    };
 
     void drawMenuBar();
     void drawStatusBar();
-    void drawHierarchy(bool editing);
-    void drawEntityNode(size_t index, const std::unordered_map<u32, std::vector<size_t>>& children);
-    void reparent(u32 entityId, u32 parentId); // changes the parent while keeping the world position (0 = top level)
-    void drawInspector(bool editing);
-    void drawEnvironment(); // inside the inspector, when the scene row is selected
     void saveAll();         // Ctrl+S: scene, tuning, project settings, tables
     void takePanelStatus(); // moves status messages left by panels to the status bar
     void drawState();
     void drawPopups();
     void drawPlayControls();
     void reportSimProblems();
-    void updateAutosave(f64 dt);
     void updateHotReload(f64 dt); // reload changed model/scene files (edit mode)
     void focusPanel(const char* window);
-    void focusInspector();
     void drawSceneWindow(unsigned int dockId); // scene view tab: sets m_viewport
     bool sceneMouseBlocked() const;
-    bool m_hierarchyOpen = true;
     bool m_sceneOpen = true; // closed only while editing: play opens it
-    bool m_inspectorOpen = true;
     bool m_sceneVisible = true;
     bool m_sceneHovered = false;
     int m_sceneFrontFrames = 0;
     void focusPanelNow(); // called right before that window's Begin
-    void drawGizmo();
     void drawBuildLog();
     void setupDefaultLayout(u32 dockId, LayoutPreset preset);
 
     void updateCamera(f64 dt);
-    void handlePicking();
 
     scene::Entity* selected();
     // Multi-select: m_selected is the primary selection (inspector/gizmo), m_multi the others selected with it.
     // If m_selected is changed elsewhere, m_multi is cleared next frame (when it differs from m_multiOwner)
     bool isSelected(u32 id) const;
-    std::vector<u32> selectionRoots() const; // selected objects that aren't descendants of other selected objects (primary first)
-    void toggleSelect(u32 id);               // Shift click
-    void selectMany(const std::vector<u32>& ids, bool add);
-    void moveOthersWith(const scene::Transform& before, const scene::Transform& after); // by as much as the gizmo moved the primary selection
     std::vector<u32> m_multi;
     u32 m_multiOwner = 0;
     bool m_boxSelecting = false;
     Vec2 m_boxStart;
-    void addEntity(const std::string& type);
     const reflect::TypeInfo* entityType(const scene::Entity& e) const; // nullptr for unknown kinds (no game code)
     bool isMarker(const scene::Entity& e) const;
     bool isArea(const scene::Entity& e) const;
@@ -271,20 +233,11 @@ private:
     std::string viewStatePath() const;
     void loadViewState();
     void saveViewState() const;
-    const char* entityIcon(const scene::Entity& e) const;
     std::unordered_set<u32> m_hidden, m_locked;
-    char m_treeSearch[96] = {};
-    bool m_treeSearchFocus = false; // Ctrl+F
     u32 m_treeRevealed = 0;         // last selection expanded and shown in the tree
-    std::vector<const reflect::TypeInfo*> allTypes() const; // built-in kinds + game kinds (by label)
-    void drawAddMenuItems();
-    void drawObjectFields(scene::Entity& e);
-    void addModelEntity();
-    void addModelEntity(const std::string& path, const Vec3* at); // at: floor point to place on (nullptr = in front of the camera)
     // [Assets] window (EditorAssets.cpp)
     void drawAssetBrowser();
     void drawAssetFolder(const std::string& root, const std::string& relative);
-    void handleAssetDrop();
     void renameAsset(const std::string& from, const std::string& to);
     bool m_assetsOpen = true;
     int m_assetsFront = 0; // frames left to bring the tab to the front
@@ -296,25 +249,12 @@ private:
     double m_assetScanTime = -1000.0;
     std::string m_assetRenameFrom;
     char m_assetRenameBuffer[260] = {};
-    std::string chooseModel(); // file dialog → path relative to assets (empty string on cancel)
-    void duplicateSelected();
     // Prefabs (scene/Scene.h): save the selection to assets/prefabs/, place copies (at: floor point, nullptr = in front of the camera)
-    void saveSelectionAsPrefab();
-    void placePrefab(const std::string& relative, const Vec3* at);
-    void deleteSelected();
-    void focusSelected();
-    void newScene();
     void openSceneDialog();
     void openReplayDialog();
     void saveScenario(u32 tick);
-    bool saveScene();
-    bool saveSceneAs();
     bool loadScene(const std::string& path);
 
-    Snapshot capture() const;
-    void restore(const Snapshot& snapshot);
-    void pushUndo(Snapshot snapshot);
-    void drawHistory();
     // [Scenes] window (scene list in assets/scenes, set start scene, open) and [File] > [Recent Scenes] (per project build\editor\recent_scenes.txt)
     void drawSceneList();
     void openSceneFile(const std::string& path); // unsaved changes are kept as an autosave before opening
@@ -327,13 +267,9 @@ private:
     std::vector<std::pair<u32, scene::Transform>> m_spawnBackup;
     void moveSpawnsHere();
     std::vector<std::string> m_recentScenes; // absolute paths, most recent first  // [Edit] > [History]: undo list, click to go to that point
-    bool m_historyOpen = false;
-    int m_undoLabelFrame = -1; // this frame's setStatus becomes the name of the undo just pushed
     bool m_scaleLock = false;  // inspector scale ratio lock
     bool transformRow(const char* label, const char* id, f32 v[3], f32 speed, f32 lo, f32 hi, const char* format,
                       f32 defaultValue, bool* lockRatio = nullptr);
-    void undo();
-    void redo();
     void markChanged() { m_changed = true; }
     // Status bar + notification at the viewport's bottom right. Failures stay until closed, clicking opens that window (build log/log)
     enum class NoticeOpen : u8 { None, Log, BuildLog };
@@ -440,7 +376,6 @@ private:
     render::Viewport m_viewport;
     f32 m_toolbarHeight = 0.0f; // scene tab's tool bar row above m_viewport (0 during play)
 
-    int m_gizmoOp = 0; // 0 move, 1 rotate, 2 scale
     bool m_gizmoLocal = false;
     bool m_snapOn = false;   // toolbar snap: when on, snaps without Ctrl (Ctrl inverts)
     bool m_showGrid = true;  // edit screen floor grid (spaced by the snap move unit)
@@ -449,35 +384,13 @@ private:
     // First object the ray hits (excluding hidden/locked/skip). 0 if none
     u32 raycast(Vec3 origin, Vec3 dir, f32* distance, const std::vector<u32>& skip = {}) const;
     void pickBounds(const scene::Entity& e, const scene::Transform& w, Vec3* center, Vec3* half) const;
-    void dropToFloor();             // places selected objects on the object below (or y = 0 if none)
-    void alignSelection(int axis);  // moves the rest to the primary selection's position on that axis
-    void distributeSelection();     // even spacing along the most spread-out axis
 
     // Terrain editing (EditorTerrain.cpp)
     asset::Terrain* terrainOf(const scene::Entity& e) const; // nullptr if not a terrain or its heightmap is unreadable
-    void setupNewTerrain(scene::Entity& e);
-    void drawTerrainInspector(scene::Entity& e);
-    bool handleTerrainBrush();
-    void setupNewScatter(scene::Entity& e);
-    void drawScatterInspector(scene::Entity& e);
-    bool handleScatterBrush(scene::Entity& e);
     bool m_scatterErase = false;
     u64 m_scatterSeed = 1;
-    void captureTerrains(Snapshot& s) const;
-    void restoreTerrains(const Snapshot& s);
-    bool m_brushOn = false;
-    int m_brush = 0; // asset::TerrainBrush
-    f32 m_brushRadius = 6.0f;
-    f32 m_brushStrength = 0.3f;
-    bool m_brushStroke = false;
-    bool m_brushHit = false;
-    Vec3 m_brushPoint;
     u16 m_flattenTo = 0;
 
-    std::vector<Snapshot> m_undo;
-    std::vector<Snapshot> m_redo;
-    Snapshot m_pending;
-    bool m_editActive = false;
     bool m_changed = false;
 
     struct TreeAction {
@@ -491,9 +404,6 @@ private:
     std::string m_folderDialogFrom; // "Rename Folder..." dialog
     bool m_folderDialogOpen = false;
     char m_folderBuffer[128] = {};
-    void drawTreeFolders(const std::string& prefix, const std::vector<size_t>& roots, const std::unordered_map<u32, std::vector<size_t>>& children);
-    void setFolder(u32 entity, const std::string& folder);
-    void renameFolder(const std::string& from, const std::string& to);
     TreeAction m_treeAction; // structure change chosen in the scene tree (handled after drawing the whole tree)
 
     char m_nameBuffer[128] = {};
@@ -522,17 +432,6 @@ private:
     f64 m_hotReloadTimer = 0.0;
     game::RenderStyleState m_renderStyle;
     bool m_automated = false;
-    std::vector<u32> m_probeQueue;     // probe object ids to bake (from the front)
-    u32 m_probeFace = 0;               // face being drawn now (0..5)
-    bool m_probeCapturePending = false; // endFrame read the face drawn last frame into m_probeCapture
-    rhi::RenderTarget m_probeTarget;
-    u32 m_probeTargetSize = 0;
-    Image m_probeCapture;
-    std::vector<f32> m_probeFaces; // 6 faces × size² × linear rgb
-    bool m_gradeRequested = false, m_gradeCapturePending = false; // grading capture: button pressed / drawn last frame
-    rhi::RenderTarget m_gradeTarget;
-    u32 m_gradeTargetSize[2] = {};
-    Image m_gradeCapture;
     mutable std::vector<render::ReflectionProbe> m_probeList; // filled every frame by buildSceneView
     mutable std::vector<render::PointLight> m_lightList;      // scene point lights (buildSceneView/probe baking)
     f64 m_animTime = 0.0; // skinned model preview clock (runs in edit mode, 0 for graphics regression tests)
@@ -653,7 +552,6 @@ private:
     DebugPage m_debugPage = DebugPage::Log;
     int m_debugFrontFrames = 0;
     bool m_compactApplied = false;
-    bool updateFieldHandles(); // viewport handles of gizmo= fields; true while they own the mouse
     u32 m_handleEntity = 0;
     std::string m_handleField;
     struct Badge {

@@ -25,51 +25,21 @@ namespace {
 
 void Editor::buildCommands() {
     const auto editing = [this] { return m_mode == Mode::Edit; };
-    const auto hasSelection = [this] { return m_mode == Mode::Edit && m_selected != 0; };
     const auto canBuild = [this] { return !m_project.directory.empty() && !m_buildPanel.running(); };
     const auto always = [] { return true; };
     m_commands = {
-        {"New Scene", ImGuiMod_Ctrl | ImGuiKey_N, 0, editing, [this] { newScene(); }},
         {"Open...", ImGuiMod_Ctrl | ImGuiKey_O, 0, editing, [this] { openSceneDialog(); }},
         {"Save", ImGuiMod_Ctrl | ImGuiKey_S, 0, editing, [this] { saveAll(); }},
         {"Scenes", 0, 0, always, [this] { m_sceneListOpen = !m_sceneListOpen; }},
         {"Open Replay...", 0, 0, [this] { return m_mode == Mode::Edit && m_gameLoaded; },
          [this] { openReplayDialog(); }},
-        {"Save As...", 0, 0, editing, [this] { saveSceneAs(); }},
         {"Settings...", 0, 0, always, [this] { m_settingsOpen = !m_settingsOpen; }},
         {"Project Settings...", 0, 0, [this] { return m_mode == Mode::Edit && !m_project.directory.empty(); },
          [this] { openSettingsPage(SettingsPage::Project); }},
         {"Modules", 0, 0, [this] { return !m_project.directory.empty(); }, [this] { m_modulesOpen = !m_modulesOpen; }},
-        {"Undo", ImGuiMod_Ctrl | ImGuiKey_Z, 0,
-         [this] { return m_dataFocused ? dataCanStep(true) : m_mode == Mode::Edit && !m_undo.empty(); },
-         [this] { m_dataFocused ? dataStep(true) : undo(); }},
-        {"Redo", ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z,
-         [this] { return m_dataFocused ? dataCanStep(false) : m_mode == Mode::Edit && !m_redo.empty(); },
-         [this] { m_dataFocused ? dataStep(false) : redo(); }},
-        {"History", ImGuiMod_Ctrl | ImGuiKey_H, 0, always, [this] { m_historyOpen = !m_historyOpen; }},
-        {"Select All", ImGuiMod_Ctrl | ImGuiKey_A, 0, editing, [this] {
-             std::vector<u32> ids;
-             for (const scene::Entity& e : m_scene.entities)
-                 if (!isHidden(e) && !isLocked(e)) ids.push_back(e.id);
-             selectMany(ids, false);
-         }},
-        {"Duplicate", ImGuiMod_Ctrl | ImGuiKey_D, 0, hasSelection, [this] { duplicateSelected(); }},
-        {"Save as Prefab...", 0, 0, hasSelection, [this] { saveSelectionAsPrefab(); }},
-        {"Delete", ImGuiKey_Delete, 0, hasSelection, [this] { deleteSelected(); }},
-        {"Find in Hierarchy", ImGuiMod_Ctrl | ImGuiKey_F, 0, editing, [this] {
-             m_hierarchyOpen = true;
-             m_treeSearchFocus = true;
-         }},
-        {"Drop to Floor", ImGuiKey_End, 0, hasSelection, [this] { dropToFloor(); }},
-        {"Align X", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(0); }},
-        {"Align Y", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(1); }},
-        {"Align Z", 0, 0, [this] { return m_mode == Mode::Edit && !m_multi.empty(); }, [this] { alignSelection(2); }},
-        {"Distribute Evenly", 0, 0, [this] { return m_mode == Mode::Edit && m_multi.size() >= 2; },
-         [this] { distributeSelection(); }},
-        {"Focus Selected", ImGuiKey_F, 0, hasSelection, [this] { focusSelected(); }},
-        {"Move W", ImGuiKey_W, 0, editing, [this] { m_gizmoOp = 0; }},
-        {"Rotate E", ImGuiKey_E, 0, editing, [this] { m_gizmoOp = 1; }},
-        {"Scale R", ImGuiKey_R, 0, editing, [this] { m_gizmoOp = 2; }},
+        {"Undo", ImGuiMod_Ctrl | ImGuiKey_Z, 0, [this] { return m_dataFocused && dataCanStep(true); }, [this] { dataStep(true); }},
+        {"Redo", ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, [this] { return m_dataFocused && dataCanStep(false); },
+         [this] { dataStep(false); }},
         {"Play From Here", ImGuiMod_Shift | ImGuiKey_F5, 0,
          [this] { return m_mode == Mode::Edit && m_gameLoaded && m_playPlayers == 1; }, [this] {
              m_playFromHere = true;
@@ -134,9 +104,7 @@ void Editor::buildCommands() {
          [this] { openInExplorer(m_project.directory); }},
         {"Build Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Build); }},
         {"Assets", 0, 0, always, [this] { m_assetsOpen = !m_assetsOpen; }},
-        {"Hierarchy", 0, 0, always, [this] { m_hierarchyOpen = !m_hierarchyOpen; }},
         {"Viewport", 0, 0, editing, [this] { m_sceneOpen = !m_sceneOpen; }},
-        {"Inspector", 0, 0, always, [this] { m_inspectorOpen = !m_inspectorOpen; }},
         {"Performance", 0, 0, always, [this] { toggleDebugPage(DebugPage::Performance); }},
         {"Memory", 0, 0, always, [this] { toggleDebugPage(DebugPage::Memory); }},
         {"Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Log); }},
@@ -261,13 +229,6 @@ void Editor::drawCommandPalette() {
         add(tr(c.name), shortcutText(c), c.run, std::max(fuzzyScore(tr(c.name), q), fuzzyScore(c.name, q)));
     }
     if (m_mode == Mode::Edit) {
-        for (const scene::Entity& e : m_scene.entities) {
-            const u32 id = e.id;
-            add(e.name, e.type, [this, id] {
-                m_selected = id;
-                focusSelected();
-            }, std::max(fuzzyScore(e.name, q), fuzzyScore(e.type, q)));
-        }
         const std::string sceneDir = m_project.directory.empty() ? std::string() : m_project.directory + "\\assets\\scenes";
         if (!sceneDir.empty())
             for (const std::string& f : listFiles(sceneDir, ".scene")) {
@@ -278,11 +239,6 @@ void Editor::drawCommandPalette() {
     for (const ToolInfo& t : m_tools)
         if (t.problem == ToolInfo::Problem::None) add(t.name, tr("Tools"), [this, &t] { launchTool(t, m_project.directory); }, fuzzyScore(t.name, q));
     if (q[0]) { // long lists only once something is typed
-        if (m_mode == Mode::Edit)
-            for (const reflect::TypeInfo* t : allTypes()) {
-                const std::string name = trData(t->label), kind = t->name;
-                add(name, tr("Add"), [this, kind] { addEntity(kind); }, std::max(fuzzyScore(name, q), fuzzyScore(kind, q)));
-            }
         for (const std::string& file : m_paletteAssets)
             add(file, tr("Asset"), [this, file] { revealAsset(file); }, fuzzyScore(file, q));
         for (int d = 0; d < m_tablesPanel.docCount(); ++d) {

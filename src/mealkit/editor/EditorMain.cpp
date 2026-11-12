@@ -7,7 +7,7 @@
 //                                             join window mode (opened by editor multiplayer play; the rest are the same game options as the shipping exe)
 //
 // Game code: <project>\build\Editor\bin\<name>_game.dll. When rebuilt, it's swapped in automatically in edit mode (hot reload).
-// Editor controls: right drag + WASD/QE camera, click select, W/E/R move/rotate/scale, Ctrl+S save, Ctrl+Z undo, F5 play,
+// Editor controls: right drag + WASD/QE camera (scenes are edited in MkRender), Ctrl+S save, F5 play,
 //              Ctrl+R game code build, Ctrl+B shipping build
 
 #include "mealkit/asset/ModelCache.h"
@@ -61,8 +61,6 @@ struct Options {
     // For automated tests/screenshots
     u32 frames = 0; // run this many frames and exit
     std::string capturePath;
-    int select = -1; // entity index to select at start (-2 = scene row, --select scene)
-    std::vector<int> selectMore; // --select 3,4,5: later indices are selected too (multi-select)
     bool play = false;
     bool playMenus = false; // --play-menus: play from the game's first screen
     std::string replayPath; // --replay <file>: watch the replay right at start
@@ -79,10 +77,10 @@ struct Options {
     bool compact = false;
     bool assetGrid = false;
     bool sounds = false;          // start with the [Sound] window open
-    bool bakeProbes = false;      // --bake-probes: bake all reflection probes in the scene (6 frames each, with --frames)
-    bool lookThrough = false;     // --look-through: the scene view looks through the selected virtual camera (with --select)
+    u32 lookThrough = 0;          // --look-through <id>: the scene view looks through that virtual camera
+    std::string lookdevModel;     // --lookdev-model <models/x.glb>: the model shown in [Lookdev] (as if picked in [Assets])
     std::string cutscene;         // --cutscene <name>: plays a cutscenes.table row in the scene view
-    bool lookdev = false;         // --lookdev: start with the [Lookdev] window open (selected object's model, with --select)
+    bool lookdev = false;         // --lookdev: start with the [Lookdev] window open (the model picked in [Assets], or --lookdev-model)
     bool feedback = false;        // start with the [Feedback] window open
     std::string palette;          // --palette <text>: start with the command palette open with this text
     std::vector<std::string> commands; // --command "<English name>": run a command from the command table right after start (can be given multiple times)
@@ -95,49 +93,7 @@ struct Options {
     bool builtinManager = false;        // --builtin-manager: the in-editor project manager instead of the installed MealKit Manager
     bool uiCheck = false;    // --ui-check: compare the layout of screens exported from Penpot with the Penpot boxes and exit (no window)
     std::string uiRender, uiRenderOut; // --ui-render <ui/x.ui> <png>: draw just one screen, save, and exit (pixel comparison)
-    std::string goldenShots, goldenOut; // --render-golden <shots.txt> <folder>: draw reference scenes without UI, save, and exit (graphics regression test)
 };
-
-// Scene list for the graphics regression test (engine/tests/golden/shots.txt): "name scene x y z yaw pitch" lines (angles in degrees, # comments)
-struct GoldenShot {
-    std::string name, scene;
-    Vec3 position;
-    f32 yaw = 0.0f, pitch = 0.0f;
-    std::string lighting; // lighting model (pbr, toon, unlit). Project setting if empty
-};
-
-// Scene lighting model: pbr / toon / unlit at the end of the line (project setting as is if absent)
-bool goldenLighting(const std::string& name, render::LightingModel& out) {
-    const char* const names[render::kLightingModelCount] = {"pbr", "toon", "unlit"};
-    for (u32 i = 0; i < render::kLightingModelCount; ++i)
-        if (name == names[i]) {
-            out = static_cast<render::LightingModel>(i);
-            return true;
-        }
-    return false;
-}
-
-bool loadGoldenShots(const std::string& path, std::vector<GoldenShot>& out) {
-    std::string text;
-    if (!readTextFile(path, text)) return false;
-    size_t start = 0;
-    while (start < text.size()) {
-        size_t end = text.find('\n', start);
-        if (end == std::string::npos) end = text.size();
-        std::string line = text.substr(start, end - start);
-        start = end + 1;
-        if (const size_t hash = line.find('#'); hash != std::string::npos) line.resize(hash);
-        std::istringstream in(line);
-        GoldenShot s;
-        if (in >> s.name >> s.scene >> s.position.x >> s.position.y >> s.position.z >> s.yaw >> s.pitch) {
-            in >> s.lighting;
-            render::LightingModel model;
-            if (!s.lighting.empty() && !goldenLighting(s.lighting, model)) return false;
-            out.push_back(s);
-        }
-    }
-    return !out.empty();
-}
 
 bool parseArgs(int argc, char** argv, Options& o) {
     for (int i = 1; i < argc; ++i) {
@@ -155,10 +111,6 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--view-mode" && next(v)) o.viewMode = static_cast<u32>(std::atoi(v)); // render::DebugView number (automated capture)
         else if (a == "--frames" && next(v)) o.frames = static_cast<u32>(std::atoi(v));
         else if (a == "--capture" && next(v)) o.capturePath = v;
-        else if (a == "--select" && next(v)) {
-            o.select = std::string(v) == "scene" ? -2 : std::atoi(v);
-            for (const char* c = strchr(v, ','); c; c = strchr(c + 1, ',')) o.selectMore.push_back(std::atoi(c + 1));
-        }
         else if (a == "--play") o.play = true;
         else if (a == "--play-menus") o.play = o.playMenus = true;
         else if (a == "--replay" && next(v)) o.replayPath = v;
@@ -176,11 +128,11 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--asset-grid") o.assetGrid = true;
         else if (a == "--sounds") o.sounds = true;
         else if (a == "--lookdev") o.lookdev = true;
-        else if (a == "--look-through") o.lookThrough = true;
+        else if (a == "--look-through" && next(v)) o.lookThrough = static_cast<u32>(std::atoi(v));
+        else if (a == "--lookdev-model" && next(v)) o.lookdevModel = v;
         else if (a == "--cutscene" && next(v)) o.cutscene = v;
         else if (a == "--palette" && next(v)) o.palette = v;
         else if (a == "--command" && next(v)) o.commands.push_back(v);
-        else if (a == "--bake-probes") o.bakeProbes = true;
         else if (a == "--feedback") o.feedback = true;
         else if (a == "--ui") o.uiTab = true;
         else if (a == "--scene" && next(v)) o.scenePath = v;
@@ -197,13 +149,12 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--builtin-manager") o.builtinManager = true;
         else if (a == "--ui-check") o.uiCheck = true;
         else if (a == "--ui-render" && i + 2 < argc) o.uiRender = argv[++i], o.uiRenderOut = argv[++i];
-        else if (a == "--render-golden" && i + 2 < argc) o.goldenShots = argv[++i], o.goldenOut = argv[++i];
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
         else {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
-                "  automation: --frames n --capture png --select i --play [--players n] --replay rec --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --lookdev --look-through --cutscene <name> --palette <text> --command <name> --bake-probes --feedback --ui --ui-check --ui-render <ui/x.ui> <png>\n"
+                "  automation: --frames n --capture png --play [--players n] --replay rec --bot --export --build-game --upgrade\n"
+                "              --project-settings --tables --sounds --lookdev [--lookdev-model <model>] --look-through <id> --cutscene <name> --palette <text> --command <name> --feedback --ui --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
                 "  without --project: starts MealKit Manager if installed (%%LOCALAPPDATA%%\\MealKit\\manager), --builtin-manager for the old one\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
@@ -284,7 +235,7 @@ int main(int argc, char** argv) {
 
     Window window;
     if (!window.create({"MealKit Editor", opt.windowWidth, opt.windowHeight, editor::kEditorCaptionColor})) return 1;
-    if (!opt.projectDir.empty() && !opt.frames && opt.goldenShots.empty()) window.setPlacement(editor::loadPreferences().window); // automated runs keep a fixed size
+    if (!opt.projectDir.empty() && !opt.frames) window.setPlacement(editor::loadPreferences().window); // automated runs keep a fixed size
     render::Renderer renderer;
     if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer, opt.gpuCapture,
                         userDataDirectory() + "/MealKit Editor/cache"}))
@@ -334,10 +285,8 @@ int main(int argc, char** argv) {
     editor.setEngineTables(input::engineTables()); // engine tables shown in the [Tables] panel: input bindings (sound events are in MkAudio)
     editor.setEngineDirectory(engineDirectory());
     editor.setToolPaths(opt.toolPaths);
-    editor.setAutomated(opt.frames > 0 || !opt.goldenShots.empty());
+    editor.setAutomated(opt.frames > 0);
     editor.setProject(project);
-    if (opt.select != -1) editor.selectByIndex(opt.select);
-    for (int i : opt.selectMore) editor.selectByIndex(i, true);
     if (!opt.palette.empty()) editor.openPalette(opt.palette);
     for (const std::string& c : opt.commands) editor.queueCommand(c);
     if (opt.viewMode < static_cast<u32>(render::DebugView::Count)) editor.setDebugView(static_cast<render::DebugView>(opt.viewMode));
@@ -351,10 +300,10 @@ int main(int argc, char** argv) {
     if (opt.compact) editor.setCompact();
     if (opt.assetGrid) editor.openAssetGrid();
     if (opt.sounds) editor.openSounds();
+    if (!opt.lookdevModel.empty()) editor.setLookdevModel(opt.lookdevModel);
     if (opt.lookdev) editor.openLookdev();
-    if (opt.lookThrough) editor.lookThroughSelected(); // with --select <virtual camera id>
+    if (opt.lookThrough) editor.lookThrough(opt.lookThrough);
     if (!opt.cutscene.empty()) editor.previewCutscene(opt.cutscene);
-    if (opt.bakeProbes) editor.bakeProbes();
     if (opt.feedback) editor.openFeedback();
     if (opt.uiTab) editor.openUiPanel();
     if (opt.play) editor.requestPlay();
@@ -421,53 +370,11 @@ int main(int argc, char** argv) {
     f64 fetchTimer = 0.0;
     u32 frame = 0;
 
-    // --render-golden: draw a few frames per scene (after models/atlases are uploaded) and save the last frame as <name>.png. Needs the game DLL's scene kinds
-    std::vector<GoldenShot> goldenShots;
-    int goldenExit = 0;
-    if (!opt.goldenShots.empty()) {
-        if (!loadGoldenShots(opt.goldenShots, goldenShots)) MEALKIT_FATAL("Cannot read golden shots: %s", opt.goldenShots.c_str());
-        if (!host.loaded()) MEALKIT_FATAL("--render-golden needs the game code (build the editor first)");
-        createDirectories(opt.goldenOut);
-    }
-    constexpr u32 kGoldenFrames = 4;
-    size_t goldenIndex = 0;
-    u32 goldenFrame = 0;
-
     while (window.pumpMessages() && !editor.quitRequested()) {
         const f64 now = nowSeconds();
         const f64 dt = std::min(now - lastTime, 0.25);
         lastTime = now;
         if (window.consumeResize()) renderer.resize(window.width(), window.height());
-
-        if (!goldenShots.empty()) { // graphics regression test: fixed camera only, no editor UI
-            const GoldenShot& shot = goldenShots[goldenIndex];
-            if (goldenFrame == 0 && !editor.openSceneForShot(findAssetFile(shot.scene))) {
-                std::printf("GOLDEN %s cannot open %s\n", shot.name.c_str(), shot.scene.c_str());
-                goldenExit = 1;
-                break;
-            }
-            render::LightingModel lighting = static_cast<render::LightingModel>(project.settings.lightingModel);
-            goldenLighting(shot.lighting, lighting);
-            renderer.setLightingModel(lighting);
-            const std::string png = opt.goldenOut + "/" + shot.name + ".png";
-            if (goldenFrame + 1 == kGoldenFrames) renderer.requestCapture(png.c_str());
-            render::FrameParams params;
-            drawList.clear();
-            editor.buildShot(shot.position, shot.yaw, shot.pitch, static_cast<f32>(renderer.width()),
-                             static_cast<f32>(renderer.height()), params, drawList);
-            if (renderer.beginFrame(params)) {
-                drawList.submit(renderer);
-                renderer.endFrame();
-            }
-            if (++goldenFrame == kGoldenFrames) {
-                std::printf("GOLDEN %s %ux%u -> %s\n", shot.name.c_str(), renderer.width(), renderer.height(),
-                            fileExists(png) ? png.c_str() : "failed");
-                if (!fileExists(png)) goldenExit = 1;
-                goldenFrame = 0;
-                if (++goldenIndex == goldenShots.size()) break;
-            }
-            continue;
-        }
 
         editor.update(dt);
 
@@ -555,13 +462,11 @@ int main(int argc, char** argv) {
         const bool active = !window.minimized() && renderer.beginFrame(frameParams);
         if (active) drawList.submit(renderer);
         if (active) editor.renderLookdev(renderer, dt); // offscreen: after the main screen 3D, before UI
-        if (active && !playing) editor.renderProbeBake(renderer);
-        if (active && !playing) editor.renderGradeCapture(renderer);
         if (active && playing && play.active()) play.renderUi(renderer);
         editor.renderUi(active);
         if (active) renderer.endFrame();
 
-        if (!editor.building() && !editor.bakingProbes()) ++frame;
+        if (!editor.building()) ++frame;
         MEALKIT_FRAME_MARK();
         if (last) break;
     }
@@ -580,5 +485,5 @@ int main(int argc, char** argv) {
     host.unload();
     editor.shutdown();
     renderer.shutdown();
-    return goldenExit; // 0 unless --render-golden
+    return 0;
 }
