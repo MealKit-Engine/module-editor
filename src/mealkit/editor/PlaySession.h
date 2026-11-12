@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mealkit/render/Fwd.h"
 #include "mealkit/core/Types.h"
 #include "mealkit/game/FrameStats.h"
 #include "mealkit/game/Frontend.h"
@@ -25,10 +26,6 @@ class ModelCache;
 namespace net {
 class LockstepSession;
 }
-namespace render {
-class DrawList;
-class Renderer;
-} // namespace render
 } // namespace mealkit
 
 // One round of editor play: lockstep session (solo or host), join windows, game instance.
