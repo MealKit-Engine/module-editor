@@ -375,6 +375,7 @@ int main(int argc, char** argv) {
         const bool loaded = host.load(dllPath, loadError);
         if (host.loaded()) {
             editor.setGameTypes(host.module()->objectTypes());
+            scene::writeObjectKinds(project.directory + "\\build\\editor\\kinds.txt", host.module()->objectTypes());
             editor.setTuningType(host.module()->tuningType());
             editor.setViewTuningType(host.module()->viewTuningType ? host.module()->viewTuningType() : nullptr);
             static const reflect::TableList kNoTables;
