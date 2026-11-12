@@ -548,6 +548,19 @@ bool Editor::openInDesigner(const std::string& uiFile) {
     return false;
 }
 
+static const ToolInfo* findSceneTool(const std::vector<ToolInfo>& tools) {
+    for (const ToolInfo& t : tools)
+        if (t.problem == ToolInfo::Problem::None && std::find(t.opens.begin(), t.opens.end(), ".scene") != t.opens.end()) return &t;
+    return nullptr;
+}
+
+bool Editor::hasSceneTool() const { return findSceneTool(m_tools) != nullptr; }
+
+bool Editor::openInSceneTool(const std::string& sceneFile) {
+    const ToolInfo* t = findSceneTool(m_tools);
+    return t && launchTool(*t, m_project.directory, sceneFile);
+}
+
 // The mouse is on a window other than the scene view
 bool Editor::sceneMouseBlocked() const { return ImGui::GetIO().WantCaptureMouse && !m_sceneHovered; }
 
@@ -1987,6 +2000,12 @@ void Editor::drawSceneList() {
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button(tr("New Scene"))) newScene();
+    if (hasSceneTool()) {
+        ImGui::SameLine();
+        ImGui::BeginDisabled(picked.empty());
+        if (ImGui::Button(tr("Open in MkRender"))) openInSceneTool("scenes/" + fileName(picked));
+        ImGui::EndDisabled();
+    }
     ImGui::TextDisabled("%s", tr("★ marks the scene the game starts with (mealkit.project)"));
     ImGui::EndDisabled();
     ImGui::End();
@@ -3302,6 +3321,7 @@ void Editor::setProject(const ProjectInfo& project) {
     m_live.addTopic("stats"); // performance numbers in the editor status bar (game::FrameStats::json)
     audio::addLiveService(m_live, [this] { return m_audio; }); // MkAudio: playback in the editor, reload, status
     ui::addLiveService(m_live, [this] { return m_gameUi; }); // MkUI Designer: the play session's screens and view-model values
+    addSceneLink(); // MkRender: play/stop/look through the saved scene
     m_tools = findTools(m_toolPaths);
     m_projectPanel.revert(project);
     // Don't ask for the engine repo itself (no engine)

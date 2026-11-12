@@ -124,12 +124,18 @@ public:
         m_uiFrontFrames = 30;
     }
     bool openInDesigner(const std::string& uiFile); // MkUI Designer with the project (and the screen "ui/x.ui"); false if not installed
+    bool openInSceneTool(const std::string& sceneFile); // MkRender (the tool whose manifest opens .scene) with the project and a scene (relative to assets)
+    bool hasSceneTool() const;
     void setGameUi(ui::System* gameUi) { m_gameUi = gameUi; } // PlaySession while playing, nullptr when it stops
     // Offscreen image for the [Lookdev] window: after the main screen 3D, before UI (only when the window is open)
     void renderLookdev(render::Renderer& renderer, f64 dt);
     void openLookdev() { openPreviewPage(PreviewPage::LookDev); } // --lookdev (automated capture)
     // Camera previews in the scene view (edit mode, Esc stops): look through the selected virtual camera / play a cutscene row
     void lookThroughSelected() { m_lookThrough = m_selected; } // --look-through (automated capture)
+    // MkRender link (EditorLink.cpp): live service scene/ (state, play, stop, look)
+    void addSceneLink();
+    std::string linkScene(const std::string& file);
+    live::Response handleSceneLink(const live::Request& req);
     bool previewCutscene(const std::string& name);            // --cutscene <name>, View > Preview Cutscene
     // Reflection probe baking: after the main screen 3D, before UI. Draws one cube face offscreen per frame and reads it in endFrame
     void renderProbeBake(render::Renderer& renderer);

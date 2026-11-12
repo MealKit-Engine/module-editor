@@ -219,6 +219,7 @@ void Editor::drawAssetBrowser() {
                 }
                 if (ImGui::MenuItem(tr("Show in Explorer"))) openInExplorer(folder);
                 if (ImGui::MenuItem(tr("Find Uses"))) findAssetUses(relative);
+                if (lowerExtension(name) == ".scene" && hasSceneTool() && ImGui::MenuItem(tr("Open in MkRender"))) openInSceneTool(relative);
                 ImGui::EndPopup();
             }
             ImGui::PopID();
