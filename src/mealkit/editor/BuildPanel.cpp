@@ -9,6 +9,7 @@
 
 #include <imgui.h>
 
+#include <cstdio>
 #include <vector>
 
 namespace mealkit::editor {
@@ -38,6 +39,7 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
         m_log = std::string("> build.bat ") + arg + "\n";
     }
     m_kind = kind;
+    m_step = m_steps = 0;
     m_scroll = true;
     if (kind != BuildKind::GameCode) m_open = true; // game code builds open only on failure
     if (!m_process.start(command, project.buildRoot())) {
@@ -62,6 +64,12 @@ bool BuildPanel::poll(const ProjectInfo& project, f64 now) {
         if (line.find("Note: including file:") != std::string::npos ||
             line.find("참고: 포함 파일:") != std::string::npos) // i18n-ignore (Korean MSVC output)
             continue;
+        // ninja's progress "[n/N] ..." (the engine editor build first, then the game: N restarts with each)
+        int n = 0, total = 0;
+        if (line.size() > 4 && line[0] == '[' && std::sscanf(line.c_str(), "[%d/%d]", &n, &total) == 2 && total > 0) {
+            m_step = n;
+            m_steps = total;
+        }
         m_log += line;
         m_scroll = true;
     }
@@ -96,6 +104,10 @@ bool BuildPanel::drawStatus(f64 now) const {
                        : m_kind == BuildKind::Upgrade ? tr("Upgrading project... %.0fs")
                                                       : tr("Release build... %.0fs"),
                        now - m_start);
+    if (m_steps > 0) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d/%d", m_step, m_steps);
+    }
     return true;
 }
 

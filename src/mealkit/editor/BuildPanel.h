@@ -45,6 +45,7 @@ private:
     bool m_open = false;
     bool m_scroll = false;
     f64 m_start = 0.0;
+    int m_step = 0, m_steps = 0; // ninja's last "[n/N]" line, shown beside the elapsed time
     std::string m_status;
     std::string m_codeEditor;
 };
