@@ -309,7 +309,6 @@ void Editor::renameAsset(const std::string& from, const std::string& toRaw) {
         if (!readTextFile(path, text)) continue;
         const size_t n = replacePath(text, from, to);
         if (n == 0) continue;
-        if (path == m_scenePath && m_dirty) continue; // the unsaved open scene is fixed in memory below and written on save
         writeTextFile(path, text);
         ++changedFiles;
         changedRefs += n;

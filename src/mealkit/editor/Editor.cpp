@@ -580,11 +580,6 @@ void Editor::updateHotReload(f64 dt) {
     if (m_scenePath.empty()) return;
     const unsigned long long time = fileWriteTime(m_scenePath);
     if (time == m_sceneTime || time == 0) return;
-    if (m_dirty) { // don't overwrite if there are edits (saving overwrites the disk side)
-        if (!m_sceneChangedWarned) setStatus(tr("The scene file changed on disk; you have unsaved changes"));
-        m_sceneChangedWarned = true;
-        return;
-    }
     const u32 selected = m_selected;
     if (loadScene(m_scenePath)) {
         if (m_scene.find(selected)) m_selected = selected; // keep the selection if the same id exists
@@ -632,35 +627,6 @@ void Editor::drawPopups() {
         startBuild(BuildKind::Upgrade);
     }
 
-    if (!m_recoverPath.empty() && !ImGui::IsPopupOpen(trl("Recover Autosave###Recover")))
-        ImGui::OpenPopup(trl("Recover Autosave###Recover"));
-    if (ImGui::BeginPopupModal(trl("Recover Autosave###Recover"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted(tr("There are unsaved changes (the autosave is newer than the scene file)."));
-        ImGui::TextDisabled("%s", m_recoverPath.c_str());
-        ImGui::TextUnformatted(tr("Load the autosave? The scene file does not change until you save."));
-        if (ImGui::Button(tr("Recover"), ImVec2(120, 0))) {
-            scene::Scene recovered;
-            std::string error;
-            if (scene::load(recovered, m_recoverPath, &error)) {
-                m_scene = std::move(recovered);
-                m_selected = 0;
-                m_nameBufferId = 0;
-                m_dirty = true;
-                setStatus(tr("Autosave recovered - save to write it to the scene file"));
-            } else {
-                setStatus(trf("Could not read the autosave: %s", error.c_str()), true);
-            }
-            m_recoverPath.clear();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(tr("Discard"), ImVec2(120, 0))) {
-            removeFile(m_recoverPath);
-            m_recoverPath.clear();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
 }
 
 void Editor::renderUi(bool frameActive) { m_imgui.render(*m_renderer, frameActive); }
@@ -830,13 +796,6 @@ bool Editor::takeStopRequest() {
 bool Editor::gameKeyboardAllowed() const { return m_mode == Mode::Play && !ImGui::GetIO().WantCaptureKeyboard; }
 
 bool Editor::gameMouseAllowed() const { return m_mode == Mode::Play && !sceneMouseBlocked(); }
-
-void Editor::saveBackupIfDirty() {
-    if (!m_dirty) return;
-    const std::string base = m_scenePath.empty() ? executableDirectory() + "\\untitled.scene" : m_scenePath;
-    const std::string path = base + ".autosave";
-    if (scene::save(m_scene, path)) MEALKIT_INFO("Unsaved scene changes written to %s", path.c_str());
-}
 
 // ---------------------------------------------------------------- UI
 
@@ -1070,10 +1029,10 @@ void Editor::drawStatusBar() {
         if (ImGui::BeginMenuBar()) {
             // Space between groups instead of divider characters
             const auto gap = [] { ImGui::Dummy(ImVec2(ImGui::GetFontSize() * 0.75f, 0.0f)); };
-            // The open scene and its unsaved mark; clicking it while editing lists the project's scenes to switch to
+            // The open scene; clicking it while editing lists the project's scenes to switch to
             {
                 const std::string name = m_scenePath.empty() ? tr("Untitled") : fileName(m_scenePath);
-                ImGui::TextDisabled("%s%s", name.c_str(), m_dirty ? " *" : "");
+                ImGui::TextDisabled("%s", name.c_str());
                 if (m_mode == Mode::Edit && !m_project.directory.empty()) {
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -1117,7 +1076,6 @@ void Editor::drawStatusBar() {
 }
 
 void Editor::openSceneFile(const std::string& path) {
-    saveBackupIfDirty();
     loadScene(path);
 }
 
@@ -1594,7 +1552,6 @@ bool Editor::isArea(const Entity& e) const {
 void Editor::openSceneDialog() {
     const std::string path = openFileDialog(m_window->nativeHandle(), m_scenePath, "", kSceneFilters, 2);
     if (path.empty()) return;
-    saveBackupIfDirty();
     loadScene(path);
 }
 
@@ -1661,14 +1618,7 @@ bool Editor::loadScene(const std::string& path) {
     loadViewState();
     m_sceneTime = fileWriteTime(path);
     rememberRecentScene(path);
-    m_sceneChangedWarned = false;
-    m_dirty = false;
-    m_autosavePending = false;
-    // If last time ended without saving or crashed, the autosave is newer
-    const std::string autosave = path + ".autosave";
-    m_recoverPath = fileExists(autosave) && fileWriteTime(autosave) > fileWriteTime(path) ? autosave : std::string();
     m_selected = 0;
-    m_nameBufferId = 0;
     return true; // the tree and the scene switcher show it; no notice
 }
 
@@ -1681,7 +1631,6 @@ void Editor::updateTitle() {
     std::string title = std::string("MealKit Editor ") + kEngineVersion + " - ";
     if (!m_project.name().empty()) title += m_project.name() + " - ";
     title += m_scenePath.empty() ? std::string(tr("Untitled")) : fileName(m_scenePath);
-    if (m_dirty) title += " *";
     if (m_tuningPanel.dirty()) title += std::string("  (") + tr("Tuning") + " *)";
     if (m_projectPanel.dirty()) title += std::string("  (") + tr("Project Settings") + " *)";
     if (m_mode == Mode::Play) title += std::string("  [") + tr("Playing") + "]";

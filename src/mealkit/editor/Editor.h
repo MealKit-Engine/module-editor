@@ -186,7 +186,6 @@ public:
     bool gameKeyboardAllowed() const; // whether the UI isn't using the keyboard during play
     bool gameMouseAllowed() const;    // whether the mouse is over the viewport during play
     bool quitRequested() const { return m_quit; }
-    void saveBackupIfDirty();
 
     void openPalette(const std::string& text); // for automated tests/screenshots (--palette)
     void queueCommand(const std::string& name) { m_queuedCommands.push_back(name); } // --command
@@ -257,7 +256,7 @@ private:
 
     // [Scenes] window (scene list in assets/scenes, set start scene, open) and [File] > [Recent Scenes] (per project build\editor\recent_scenes.txt)
     void drawSceneList();
-    void openSceneFile(const std::string& path); // unsaved changes are kept as an autosave before opening
+    void openSceneFile(const std::string& path);
     void rememberRecentScene(const std::string& path);
     void loadRecentScenes();
     bool m_sceneListOpen = false;
@@ -323,7 +322,6 @@ private:
 
     scene::Scene m_scene;
     std::string m_scenePath;
-    bool m_dirty = false;
     u32 m_selected = 0; // entity id (0 = none)
     // Camera previews (camera/Brain.h): the scene view shows m_previewPose instead of the editor camera while one runs
     void updateCameraPreview(f64 dt, f32 aspect);
@@ -407,7 +405,6 @@ private:
     TreeAction m_treeAction; // structure change chosen in the scene tree (handled after drawing the whole tree)
 
     char m_nameBuffer[128] = {};
-    u32 m_nameBufferId = 0;
     std::string m_title;
     bool m_layoutReset = false;
     LayoutPreset m_layoutPreset = LayoutPreset::Edit;
@@ -427,8 +424,6 @@ private:
     bool m_playClientBots = true;
     bool m_playMenus = false;
     std::string m_message;     // notification window contents
-    std::string m_recoverPath; // autosave file to ask about recovering
-    f64 m_autosaveTimer = 0.0;
     f64 m_hotReloadTimer = 0.0;
     game::RenderStyleState m_renderStyle;
     bool m_automated = false;
@@ -443,8 +438,6 @@ private:
     LookdevPanel m_lookdev; // [Lookdev] window: the selected object's model under fixed lighting on a stand
     bool m_lookdevOpen = false; // project settings lighting model/toon ramp (passed again when hot reload changes them)
     unsigned long long m_sceneTime = 0; // scene file time at open/save (whether it changed outside)
-    bool m_sceneChangedWarned = false;
-    bool m_autosavePending = false; // something changed since the last autosave
 
     ProjectInfo m_project;              // project settings saved on disk
     ProjectSettingsPanel m_projectPanel; // [Project Settings] window
@@ -542,7 +535,6 @@ private:
     bool m_previewOpen = true;
     PreviewPage m_previewPage = PreviewPage::LookDev; // Ui is not a page any more (the [UI] workspace); kept so saved numbers stay the same
     int m_previewFrontFrames = 0;
-    bool m_revertSceneArmed = false; // a second click reverts: the scene's undo steps don't survive it
 
     void openDebugPage(DebugPage page);
     void toggleDebugPage(DebugPage page);

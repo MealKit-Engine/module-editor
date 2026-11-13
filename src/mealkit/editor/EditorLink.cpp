@@ -73,7 +73,6 @@ std::string Editor::linkScene(const std::string& file) {
         if (c == '/') c = '\\';
     if (!(path.size() > 1 && path[1] == ':')) path = m_project.directory + "\\assets\\" + path;
     if (!fileExists(path)) return "no scene file " + file;
-    if (m_dirty) return "the editor has unsaved changes in " + fileName(m_scenePath) + ": save or revert them there first";
     if (!loadScene(path)) return "cannot open " + file;
     return {};
 }
@@ -86,7 +85,8 @@ live::Response Editor::handleSceneLink(const live::Request& req) {
         if (scene.rfind(assets, 0) == 0) scene = scene.substr(assets.size());
         for (char& c : scene)
             if (c == '\\') c = '/';
-        return reply(200, std::string("{\"mode\":\"") + mode + "\",\"scene\":" + live::jsonString(scene) + ",\"dirty\":" + (m_dirty ? "true" : "false") +
+        // "dirty" stays in the reply for the protocol (MealKit-Contract "Scene service"): the editor no longer edits scenes
+        return reply(200, std::string("{\"mode\":\"") + mode + "\",\"scene\":" + live::jsonString(scene) + ",\"dirty\":false" +
                               ",\"game\":" + (m_gameLoaded ? "true" : "false") + ",\"players\":" + std::to_string(m_playPlayers) + "}");
     }
     if (req.method != "POST") return fail(404, "not found");

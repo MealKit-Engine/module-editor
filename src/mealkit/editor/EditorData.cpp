@@ -181,7 +181,7 @@ void Editor::runTestInput() {
         queueCommand(rest);
     } else if (verb == "print") {
         const Entity* e = selected();
-        std::printf("INPUT selected=%u multi=%zu sceneDirty=%d undo=%zu tuningDirty=%d folder=%s x=%.3f viewport=%.0f,%.0f,%.0f,%.0f fields=", m_selected, m_multi.size(), m_dirty ? 1 : 0, size_t{0},
+        std::printf("INPUT selected=%u multi=%zu sceneDirty=%d undo=%zu tuningDirty=%d folder=%s x=%.3f viewport=%.0f,%.0f,%.0f,%.0f fields=", m_selected, m_multi.size(), 0, size_t{0},
                     m_tuningPanel.docDirty(0) ? 1 : 0, e ? e->folder.c_str() : "", e ? static_cast<double>(e->position.x) : 0.0, static_cast<double>(m_viewport.x),
                     static_cast<double>(m_viewport.y), static_cast<double>(m_viewport.width), static_cast<double>(m_viewport.height));
         if (e)
@@ -482,17 +482,14 @@ void Editor::drawPreviewHub() {
 
 // Status bar: how many documents differ from their files; clicking lists them with save and revert
 void Editor::drawUnsavedStatus() {
-    int count = (m_dirty ? 1 : 0) + (m_tuningPanel.docDirty(0) ? 1 : 0) + (m_tuningPanel.docDirty(1) ? 1 : 0) + (m_projectPanel.dirty() ? 1 : 0);
+    int count = (m_tuningPanel.docDirty(0) ? 1 : 0) + (m_tuningPanel.docDirty(1) ? 1 : 0) + (m_projectPanel.dirty() ? 1 : 0);
     for (int i = 0; i < m_tablesPanel.docCount(); ++i) count += m_tablesPanel.docDirty(i) ? 1 : 0;
     if (count > 0) {
         ImGui::TextColored(color::kWarning, "%s", trf("Unsaved: %d", count).c_str());
         if (ImGui::IsItemClicked()) ImGui::OpenPopup("##unsaved");
         ImGui::SameLine();
     }
-    if (!ImGui::BeginPopup("##unsaved")) {
-        m_revertSceneArmed = false;
-        return;
-    }
+    if (!ImGui::BeginPopup("##unsaved")) return;
     if (count == 0) ImGui::TextDisabled("%s", tr("Everything is saved."));
     const auto row = [](const std::string& name, const std::function<void()>& save, const std::function<void()>& revert, const char* revertLabel) {
         ImGui::PushID(name.c_str());

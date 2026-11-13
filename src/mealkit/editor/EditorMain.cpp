@@ -469,7 +469,6 @@ int main(int argc, char** argv) {
         if (last) break;
     }
 
-    editor.saveBackupIfDirty();
     stopGame();
     editor.setAudio(nullptr);
     editor.setFeedback(nullptr);

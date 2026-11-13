@@ -31,7 +31,7 @@ struct FieldContext {
 //   range  slider bounds for numbers (seconds for Ticks). Soft: Ctrl+click can type a value outside them
 //   step   drag speed. Without it, the speed follows the size of the value
 //   unit   text after a number
-//   gizmo  "radius" on an f32 field of a scene object: a sphere around the selected object in the scene view, with a handle to drag
+//   gizmo  "radius" on an f32 field of a scene object: rings with a handle in MkRender's viewport (passed on in build/editor/kinds.txt)
 //   showIf "teams>0", "teams" or "sound": hides the field unless the other top-level field passes (> < = !, or not zero/empty)
 //   required  an empty string is marked and goes to the [Problems] list
 //   pick   searchable list for a string field: "sound" (sound events) or "<folder under assets>:<extension>" (file names without the extension)
@@ -41,7 +41,6 @@ struct FieldLabel {
     std::string group;
     std::string unit;
     std::string pick;
-    std::string gizmo;
     std::string showIf;
     bool required = false;
     f32 min = 0.0f, max = 0.0f, step = 0.0f;

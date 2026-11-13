@@ -543,7 +543,7 @@ FieldLabel splitFieldLabel(const char* label) {
         if (key == "group") out.group = value;
         else if (key == "unit") out.unit = value;
         else if (key == "pick") out.pick = value;
-        else if (key == "gizmo") out.gizmo = value;
+        else if (key == "gizmo") {} // MkRender draws it from the kinds file
         else if (key == "showIf") out.showIf = value;
         else if (part == "required") out.required = true;
         else if (key == "step") out.step = std::strtof(value.c_str(), nullptr);
