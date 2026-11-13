@@ -882,12 +882,12 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu(tr("Project"))) {
         commandMenuItem("Settings..."); // project settings, preferences, tools and shortcuts are its pages
         ImGui::Separator();
-        // Back to the project list: the installed MealKit Manager, else this editor's own project manager. The editor stays open
+        // Back to the project list: MealKit Manager. The editor stays open
         if (ImGui::MenuItem(tr("Project Manager"))) {
             const std::string manager = editorUserDirectory() + "\\manager\\MealKitManager.exe";
-            const bool started = fileExists(manager) ? launchDetached(manager, "--engine \"" + m_engineDirectory + "\"", m_engineDirectory)
-                                                     : launchDetached(executableDirectory() + "\\MealKitEditor.exe", "--builtin-manager", m_engineDirectory);
-            if (!started) setStatus(tr("Could not start the project manager"), true);
+            if (!fileExists(manager)) setStatus(tr("MealKit Manager is not installed"), true);
+            else if (!launchDetached(manager, "--engine \"" + m_engineDirectory + "\"", m_engineDirectory))
+                setStatus(tr("Could not start MealKit Manager"), true);
         }
         commandMenuItem("Open Project Folder");
         commandMenuItem("Open Release Folder");

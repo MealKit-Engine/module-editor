@@ -25,7 +25,6 @@
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/PlaySession.h"
 #include "mealkit/editor/Project.h"
-#include "mealkit/editor/ProjectManager.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/editor/Tools.h"
 #include "mealkit/editor/UiCheck.h"
@@ -90,7 +89,6 @@ struct Options {
     bool listTools = false;             // --list-tools: print found tools and exit (no window)
     u32 windowWidth = 1600;             // --window WxH: window size (checking layouts at other sizes)
     u32 windowHeight = 900;
-    bool builtinManager = false;        // --builtin-manager: the in-editor project manager instead of the installed MealKit Manager
     bool uiCheck = false;    // --ui-check: compare the layout of screens exported from Penpot with the Penpot boxes and exit (no window)
     std::string uiRender, uiRenderOut; // --ui-render <ui/x.ui> <png>: draw just one screen, save, and exit (pixel comparison)
 };
@@ -146,7 +144,6 @@ bool parseArgs(int argc, char** argv, Options& o) {
                 o.windowHeight = static_cast<u32>(h);
             }
         }
-        else if (a == "--builtin-manager") o.builtinManager = true;
         else if (a == "--ui-check") o.uiCheck = true;
         else if (a == "--ui-render" && i + 2 < argc) o.uiRender = argv[++i], o.uiRenderOut = argv[++i];
         else if (!a.empty() && a[0] != '-') o.scenePath = a;
@@ -156,7 +153,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
                 "  automation: --frames n --capture png --play [--players n] --replay rec --bot --export --build-game --upgrade\n"
                 "              --project-settings --tables --sounds --lookdev [--lookdev-model <model>] --look-through <id> --cutscene <name> --palette <text> --command <name> --feedback --ui --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
-                "  without --project: starts MealKit Manager if installed (%%LOCALAPPDATA%%\\MealKit\\manager), --builtin-manager for the old one\n"
+                "  without --project: starts MealKit Manager (%%LOCALAPPDATA%%\\MealKit\\manager), which lists, makes and opens projects\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
                 "                 + game options (--join <addr:port> --scene <file> --tuning <file> --bot ...)\n");
             return false;
@@ -183,14 +180,9 @@ std::string engineDirectory() {
     return dir;
 }
 
-// Projects chosen in the project manager open in a new process (the editor state starts clean)
-bool relaunchWithProject(const std::string& directory) {
-    std::string exe = executableDirectory() + "\\MealKitEditor.exe";
-    return launchDetached(exe, "--project \"" + directory + "\"", directory);
-}
 
 // Opening without a project launches the hub app MealKit Manager from its separate repo (MealKit-Manager, build.bat install).
-// Passes this engine folder with --engine to add it to Manager's engine list. false if not present (in-editor project manager)
+// Passes this engine folder with --engine to add it to Manager's engine list. false if it isn't installed
 bool startManager(const std::string& engineDir) {
     const std::string exe = editor::editorUserDirectory() + "\\manager\\MealKitManager.exe";
     if (!fileExists(exe)) return false;
@@ -237,8 +229,16 @@ int main(int argc, char** argv) {
         return editor::runUiCheck(project.directory, language);
     }
 
-    // Automated runs (--frames) always use the in-editor manager (so tests don't vary by whether it's installed)
-    if (opt.projectDir.empty() && !opt.builtinManager && !opt.frames && startManager(engineDir)) return 0;
+    // Without a project the editor hands over to MealKit Manager (the project list lives there, docs/DECISIONS.md 2026-11-12)
+    if (opt.projectDir.empty()) {
+        if (!opt.frames && startManager(engineDir)) return 0;
+        const char* message = "MealKit Manager is not installed. It lists, makes and opens projects:\n"
+                              "install it from its download (or MealKit-Manager build.bat install),\n"
+                              "or open a project directly: MealKitEditor --project <folder>";
+        std::printf("%s\n", message);
+        if (!opt.frames) showErrorDialog("MealKit Editor", message);
+        return 1;
+    }
 
     Window window;
     if (!window.create({"MealKit Editor", opt.windowWidth, opt.windowHeight, editor::kEditorCaptionColor})) return 1;
@@ -248,15 +248,6 @@ int main(int argc, char** argv) {
                         userDataDirectory() + "/MealKit Editor/cache"}))
         MEALKIT_FATAL("Renderer initialization failed.\n%s", renderer.initError());
 
-    // ---- Pick a project
-    if (opt.projectDir.empty()) {
-        const std::string chosen =
-            editor::runProjectManager(window, renderer, engineDir, opt.frames, opt.capturePath);
-        if (!chosen.empty() && !relaunchWithProject(chosen))
-            MEALKIT_ERROR("Could not start the editor for %s", chosen.c_str());
-        renderer.shutdown();
-        return 0;
-    }
     editor::ProjectInfo project;
     std::string error;
     if (!editor::loadProject(opt.projectDir, project, &error)) MEALKIT_FATAL("Cannot open project: %s", error.c_str());
