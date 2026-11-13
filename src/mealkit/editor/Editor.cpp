@@ -1002,16 +1002,23 @@ void Editor::drawMenuBar() {
     }
     const f32 width = ImGui::GetFrameHeight() * 2.2f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX() + 8.0f, (ImGui::GetWindowWidth() - width) * 0.5f));
-    const ImVec4 color = editing ? ImVec4(0.18f, 0.48f, 0.26f, 1.0f) : ImVec4(0.62f, 0.20f, 0.18f, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Button, color);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x * 1.25f, color.y * 1.25f, color.z * 1.25f, 1.0f));
+    // docs/TOOL_DESIGN.md 3.2: no colored fills. Editing: a neutral pill with a positive-green play glyph;
+    // playing is the active state, so the accent fills the button behind the stop glyph
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec4 fill = editing ? style.Colors[ImGuiCol_Button] : ImVec4(0x3B / 255.0f, 0x63 / 255.0f, 0xFB / 255.0f, 1.0f);
+    const ImVec4 hover = editing ? style.Colors[ImGuiCol_ButtonHovered] : ImVec4(0x4B / 255.0f, 0x75 / 255.0f, 1.0f, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button, fill);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hover);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFrameHeight() * 0.5f); // pill
     ImGui::BeginDisabled(editing && !m_gameLoaded); // can't play without the game DLL
     if (ImGui::Button("##playStop", ImVec2(width, 0.0f))) {
         if (editing) m_playRequest = true;
         else m_stopRequest = true;
     }
-    drawGlyph(ImGui::GetWindowDrawList(), editing ? icon::kPlay : icon::kStop, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetFontSize() * 0.82f, ImGui::GetColorU32(ImGuiCol_Text));
+    drawGlyph(ImGui::GetWindowDrawList(), editing ? icon::kPlay : icon::kStop, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetFontSize() * 0.82f,
+              editing ? ImGui::GetColorU32(ImVec4(0x2D / 255.0f, 0xB5 / 255.0f, 0x74 / 255.0f, 1.0f)) : ImGui::GetColorU32(ImGuiCol_Text));
     ImGui::EndDisabled();
+    ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("%s", editing && !m_gameLoaded ? m_gameStatus.c_str() : editing ? tr("Play (F5)") : tr("Stop (F5)"));

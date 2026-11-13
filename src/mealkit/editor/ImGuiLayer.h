@@ -6,7 +6,7 @@
 namespace mealkit::editor {
 
 // Title bar color of editor windows (0xRRGGBB). Matches the ImGui menu bar color (MenuBarBg in applyStyle)
-constexpr u32 kEditorCaptionColor = 0x111113; // gray 1 of docs/TOOL_DESIGN.md 3.1, the gutter
+constexpr u32 kEditorCaptionColor = 0x111111; // gray 1 of docs/TOOL_DESIGN.md 3.1, the gutter
 
 // Icon glyphs (Windows default fonts Segoe Fluent Icons / Segoe MDL2 Assets merged into the default font). Mixed with text: "\xEE\x9C\x90 New"
 namespace icon {
