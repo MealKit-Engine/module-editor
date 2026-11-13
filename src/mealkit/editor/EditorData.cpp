@@ -289,7 +289,7 @@ void Editor::drawDebugHub() {
         case DebugPage::Performance: {
             // Off shows the real frame cost instead of the monitor refresh interval
             bool vsync = m_renderer->vsync();
-            if (ImGui::Checkbox(tr("Vertical Sync"), &vsync)) m_renderer->setVsync(vsync);
+            if (checkbox(tr("Vertical Sync"), &vsync)) m_renderer->setVsync(vsync);
             // Only when RenderDoc/PIX was loaded with --gpu-capture
             if (const char* tool = rhi::gpuCaptureTool()) {
                 ImGui::SameLine();

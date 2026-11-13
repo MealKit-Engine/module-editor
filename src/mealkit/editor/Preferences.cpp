@@ -1,5 +1,6 @@
 #include "mealkit/editor/Preferences.h"
 
+#include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/Strings.h"
 #include "mealkit/platform/Paths.h"
@@ -105,8 +106,8 @@ bool PreferencesPanel::drawContent(Preferences& p) {
     changed |= drawSnapSettings(p);
     ImGui::SeparatorText(tr("Interface"));
     changed |= ImGui::SliderFloat(tr("Text size"), &p.uiScale, 0.75f, 2.0f, "%.2fx");
-    changed |= ImGui::Checkbox(tr("Compact rows"), &p.compact);
-    changed |= ImGui::Checkbox(tr("Save the window layout per project"), &p.projectLayout);
+    changed |= checkbox(tr("Compact rows"), &p.compact);
+    changed |= checkbox(tr("Save the window layout per project"), &p.projectLayout);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Takes effect the next time a project opens"));
     ImGui::SeparatorText(tr("Files"));
     int seconds = static_cast<int>(p.autosaveSeconds);

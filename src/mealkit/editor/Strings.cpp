@@ -4,9 +4,11 @@
 #include "mealkit/editor/Project.h"
 #include "mealkit/platform/Paths.h"
 
+#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -22,6 +24,9 @@ struct Table {
 
 std::unordered_map<std::string, Table> g_tables;
 Table* g_current = nullptr;
+bool g_override = false; // --lang: the run keeps that language
+std::filesystem::file_time_type g_settingsTime{};
+std::chrono::steady_clock::time_point g_nextCheck{};
 std::unordered_set<std::string> g_missing; // warn only once
 
 std::string unescape(const std::string& s) {
@@ -85,6 +90,29 @@ Table& current() {
     return *g_current;
 }
 
+// The language line of user settings (MealKit Manager and the Mk tools write the same file); the default if none
+std::string savedLanguage() {
+    std::string settings;
+    if (!readTextFile(settingsPath(), settings)) return kDefaultLanguage;
+    const size_t at = settings.find("language ");
+    if (at == std::string::npos) return kDefaultLanguage;
+    const size_t end = settings.find_first_of("\r\n", at);
+    return settings.substr(at + 9, end == std::string::npos ? std::string::npos : end - at - 9);
+}
+
+std::filesystem::file_time_type settingsTime() {
+    const std::string path = settingsPath();
+    std::error_code ec;
+    const auto t = std::filesystem::last_write_time(std::filesystem::path(std::u8string(path.begin(), path.end())), ec);
+    return ec ? std::filesystem::file_time_type{} : t;
+}
+
+void useLanguage(const std::string& code) {
+    bool known = false;
+    for (const Language& lang : kLanguages) known |= code == lang.code;
+    g_current = &tableFor(known ? code.c_str() : kDefaultLanguage);
+}
+
 } // namespace
 
 void initStrings(const std::string& engineDirectory, const std::string& language) {
@@ -96,19 +124,22 @@ void initStrings(const std::string& engineDirectory, const std::string& language
         if (readTextFile(path, file)) parseTable(file, t);
         else MEALKIT_WARN("Editor strings not found: %s", path.c_str());
     }
-    std::string settings;
-    std::string code = kDefaultLanguage;
-    if (readTextFile(settingsPath(), settings)) {
-        const size_t at = settings.find("language ");
-        if (at != std::string::npos) {
-            size_t end = settings.find_first_of("\r\n", at);
-            code = settings.substr(at + 9, end == std::string::npos ? std::string::npos : end - at - 9);
-        }
-    }
-    if (!language.empty()) code = language;
-    bool known = false;
-    for (const Language& lang : kLanguages) known |= code == lang.code;
-    g_current = &tableFor(known ? code.c_str() : kDefaultLanguage);
+    g_override = !language.empty();
+    g_settingsTime = settingsTime();
+    useLanguage(g_override ? language : savedLanguage());
+}
+
+bool followLanguage() {
+    if (g_override) return false;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < g_nextCheck) return false;
+    g_nextCheck = now + std::chrono::seconds(1);
+    const auto t = settingsTime();
+    if (t == g_settingsTime) return false;
+    g_settingsTime = t;
+    const std::string before = currentLanguage();
+    useLanguage(savedLanguage());
+    return before != currentLanguage();
 }
 
 const char* currentLanguage() { return current().code.c_str(); }
@@ -128,6 +159,8 @@ void setLanguage(const char* code) {
         if (!line.empty() && line.rfind("language ", 0) != 0) out += line + "\n";
     }
     writeTextFile(settingsPath(), std::string("language ") + code + "\n" + out);
+    g_override = false;
+    g_settingsTime = settingsTime();
 }
 
 const char* tr(const char* text) {

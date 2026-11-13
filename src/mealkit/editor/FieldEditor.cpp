@@ -326,7 +326,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
         label = hidden.c_str();
     }
     switch (v.kind) {
-    case Kind::Bool: changed = ImGui::Checkbox(label, static_cast<bool*>(data)); break;
+    case Kind::Bool: changed = checkbox(label, static_cast<bool*>(data)); break;
     case Kind::Int:
     case Kind::UInt:
         if (!v.enumNames.empty()) { // MEALKIT_ENUM: pick a name

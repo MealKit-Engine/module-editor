@@ -124,7 +124,7 @@ void TuningPanel::drawDoc(Doc& doc, bool liveInMultiplayer, bool playing, bool m
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
     ImGui::InputTextWithHint("##search", tr("Search"), m_search, sizeof(m_search));
     ImGui::SameLine();
-    ImGui::Checkbox(tr("Only changed"), &m_onlyChanged);
+    checkbox(tr("Only changed"), &m_onlyChanged);
     const reflect::Instance defaults(*type);
     FieldContext context{&index, defaults.data()};
     context.filter = m_search;

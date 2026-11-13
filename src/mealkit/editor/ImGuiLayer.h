@@ -83,4 +83,8 @@ inline constexpr const char* kAccept = "\xEE\x9C\xBE"; // U+E73E
 
 using ImGuiLayer = debug::ImGuiLayer;
 
+// Every checkbox and radio button goes through these, never ImGui::Checkbox/RadioButton (docs/TOOL_DESIGN.md 3.2, Controls.cpp)
+bool checkbox(const char* label, bool* v);
+bool radioButton(const char* label, bool active);
+
 } // namespace mealkit::editor

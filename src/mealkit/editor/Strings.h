@@ -25,6 +25,9 @@ void initStrings(const std::string& engineDirectory, const std::string& language
 const char* currentLanguage();
 // Changes the language and saves it to user settings. tr() pointers already returned stay valid (kept separately per language).
 void setLanguage(const char* code);
+// Once a second, rereads the language in user settings when the file changed (MealKit Manager or an Mk tool changed the suite language).
+// True when the language changed. Does nothing in a --lang run.
+bool followLanguage();
 
 const char* tr(const char* text);            // text shown on screen
 const char* trl(const char* label);          // ImGui name: "translation###source"

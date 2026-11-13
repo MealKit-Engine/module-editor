@@ -242,6 +242,7 @@ void Editor::savePanelState() const {
 void Editor::update(f64 dt) {
     m_animTime += dt;
     MEALKIT_ZONE("Editor UI");
+    if (followLanguage()) MEALKIT_INFO("Language changed by another suite program: %s", currentLanguage());
     mem::endFrame(); // the previous frame is drawn, so its frame arena allocations are done
     m_time += dt;
     if (m_perf.update(dt, {m_renderer})) {
@@ -996,16 +997,16 @@ void Editor::drawMenuBar() {
                 if (ImGui::Selectable(counts[i], i == players)) m_playPlayers = static_cast<u32>(i + 1);
             ImGui::Separator();
             ImGui::BeginDisabled(m_playPlayers == 1);
-            ImGui::Checkbox(tr("Bots in player windows"), &m_playClientBots);
+            checkbox(tr("Bots in player windows"), &m_playClientBots);
             ImGui::EndDisabled();
             ImGui::BeginDisabled(m_playPlayers != 1);
-            ImGui::Checkbox(tr("Start at the first screen"), &m_playMenus);
+            checkbox(tr("Start at the first screen"), &m_playMenus);
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("%s", tr("Solo play of a game with menus starts at its title and menus, like the game's exe"));
             commandMenuItem("Play From Here");
             ImGui::Separator();
-            ImGui::Checkbox(tr("Shadow check"), &m_shadowCheck);
+            checkbox(tr("Shadow check"), &m_shadowCheck);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
                 ImGui::SetTooltip("%s", tr("Runs a second simulation with the same inputs during play and compares every tick.\n"
                                         "On a mismatch it stops and shows the first diverging tick and state fields (2x simulation CPU)"));

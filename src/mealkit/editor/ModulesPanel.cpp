@@ -433,7 +433,7 @@ void ModulesPanel::drawToolbar(bool busy, bool editing) {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Show every tag"));
     }
     ImGui::SameLine();
-    ImGui::Checkbox(tr("Compact"), &m_compact);
+    checkbox(tr("Compact"), &m_compact);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("One line per module"));
     if (const int updates = updateCount(); updates > 0) {
         ImGui::SameLine();

@@ -145,7 +145,7 @@ void BalancePanel::drawContent(const ProjectInfo& project) {
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
     inputString("##find", m_filter);
     ImGui::SameLine();
-    ImGui::Checkbox(tr("Only values that change"), &m_changedOnly);
+    checkbox(tr("Only values that change"), &m_changedOnly);
     const bool ab = !m_compare.empty();
     if (!ImGui::BeginTable("##balance", ab ? 6 : 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY)) return;
     ImGui::TableSetupScrollFreeze(0, 1);
