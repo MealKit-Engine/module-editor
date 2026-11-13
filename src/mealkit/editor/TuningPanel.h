@@ -56,6 +56,12 @@ private:
         bool dirty = false;   // differs from the file
         bool changed = false; // not yet passed to the running game
         UndoStack<reflect::TextFields> undo;
+        // D8 tuning A/B presets: presets are assets/<stem>.<name>.tuning beside the file ([Balance] compares them too)
+        reflect::Instance saved;  // values in the file, the base of "Compare with: File"
+        reflect::TextFields savedText; // the same as text while the DLL is swapped
+        std::string slot[2];      // A and B: preset name, empty = the file
+        int active = -1;          // slot shown now (-1 = neither applied yet)
+        bool compareFile = false; // dots and "Only changed" against the file instead of the defaults
     };
 
     void setDocType(Doc& doc, const reflect::TypeInfo* type);
@@ -64,6 +70,11 @@ private:
     bool save(Doc& doc);
     std::string writePlayCopy(const Doc& doc, const char* fileName);
     static bool takeChanged(Doc& doc);
+    std::string presetPath(const Doc& doc, const std::string& name) const;
+    std::vector<std::string> presets(const Doc& doc) const;
+    bool applyFile(Doc& doc, const std::string& path); // values from a tuning file, undoable; false if unreadable
+    void applySlot(Doc& doc, int slot);
+    void drawPresets(Doc& doc);
     void drawDoc(Doc& doc, bool liveInMultiplayer, bool playing, bool multiplayer, const data::TableIndexList& index);
 
     std::string m_projectDir;
@@ -72,6 +83,7 @@ private:
     std::string m_status;
     char m_search[64] = {};
     bool m_onlyChanged = false;
+    char m_presetName[48] = {};
 };
 
 } // namespace mealkit::editor
