@@ -416,7 +416,10 @@ void Editor::drawSettingsHub() {
                 openInExplorer(defaultToolsFolder());
             }
             ImGui::SameLine();
-            if (iconButton(icon::kRefresh, tr("Rescan Tools"))) m_tools = findTools(m_toolPaths);
+            if (iconButton(icon::kRefresh, tr("Rescan Tools"))) {
+                m_tools = findTools(m_toolPaths);
+                m_installableTools = notInstalledTools(m_tools);
+            }
             break;
         case SettingsPage::Shortcuts: drawShortcutHelp(); break;
         }

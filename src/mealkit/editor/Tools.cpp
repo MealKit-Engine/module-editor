@@ -32,4 +32,20 @@ bool launchTool(const ToolInfo& tool, const std::string& projectDirectory, const
     return launchDetached(tool.exe, "--project \"" + projectDirectory + "\"" + (file.empty() ? "" : " --file \"" + file + "\""), tool.folder);
 }
 
+std::vector<mkcontract::AvailableTool> notInstalledTools(const std::vector<ToolInfo>& found) {
+    std::vector<mkcontract::AvailableTool> out;
+    for (mkcontract::AvailableTool& a : mkcontract::readAvailableTools()) {
+        bool have = false;
+        for (const ToolInfo& t : found) have |= t.name == a.name;
+        if (!have) out.push_back(std::move(a));
+    }
+    return out;
+}
+
+bool openManagerTools() {
+    const std::string manager = editorUserDirectory() + "\\manager\\MealKitManager.exe";
+    if (!fileExists(manager)) return false;
+    return launchDetached(manager, "--tools", editorUserDirectory() + "\\manager");
+}
+
 } // namespace mealkit::editor

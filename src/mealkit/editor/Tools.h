@@ -23,5 +23,9 @@ std::vector<ToolInfo> findTools(const std::vector<std::string>& extraFolders = {
 std::string defaultToolsFolder();
 // Opens the tool with the project folder, and a file (asset path such as "ui/menu.ui") for a tool whose manifest opens its extension
 bool launchTool(const ToolInfo& tool, const std::string& projectDirectory, const std::string& file = {});
+// Tools MealKit Manager can install here (mkcontract available_tools.txt) that aren't among the found ones: the [Tools] menu offers them
+std::vector<mkcontract::AvailableTool> notInstalledTools(const std::vector<ToolInfo>& found);
+// Starts the installed MealKit Manager on its Tools page. false when there is none
+bool openManagerTools();
 
 } // namespace mealkit::editor

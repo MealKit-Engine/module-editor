@@ -571,6 +571,7 @@ private:
     void drawUiWorkspace();
     live::Server m_live;   // live connection (contract between tools, starts when a project opens)
     std::vector<ToolInfo> m_tools; // [Tools] menu (searched when a project opens and on [Rescan])
+    std::vector<mkcontract::AvailableTool> m_installableTools; // what MealKit Manager could install besides them (shown greyed, opens the Manager)
     std::vector<std::string> m_toolPaths;
     bool m_viewTableDirty = false;
     f64 m_viewTableTimer = 0.0;

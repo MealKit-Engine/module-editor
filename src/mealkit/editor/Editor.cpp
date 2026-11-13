@@ -967,7 +967,7 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     // Tool suite (editor/Tools.h): opens MealKit tools from separate repos with this project
-    if (!m_tools.empty() && !m_project.directory.empty() && ImGui::BeginMenu(tr("Tools"))) { // installing and rescanning are in [Settings]
+    if ((!m_tools.empty() || !m_installableTools.empty()) && !m_project.directory.empty() && ImGui::BeginMenu(tr("Tools"))) { // installing and rescanning are in [Settings]
         for (const ToolInfo& t : m_tools) {
             const std::string label = t.version.empty() ? t.name : t.name + "  " + t.version;
             if (ImGui::MenuItem(label.c_str(), nullptr, false, t.problem == ToolInfo::Problem::None))
@@ -978,6 +978,17 @@ void Editor::drawMenuBar() {
                 else if (t.problem == ToolInfo::Problem::MissingExe)
                     ImGui::SetTooltip("%s", trf("Program not found: %s", t.exe.c_str()).c_str());
                 else ImGui::SetTooltip("%s", t.folder.c_str());
+            }
+        }
+        // Not installed yet: MealKit Manager installs tools (its Tools page)
+        if (!m_installableTools.empty()) {
+            if (!m_tools.empty()) ImGui::Separator();
+            for (const mkcontract::AvailableTool& a : m_installableTools) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                const bool clicked = ImGui::MenuItem(trf("%s (install in MealKit Manager...)", a.name.c_str()).c_str());
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered() && !a.summary.empty()) ImGui::SetTooltip("%s", a.summary.c_str());
+                if (clicked && !openManagerTools()) setStatus(tr("Could not start MealKit Manager"), true);
             }
         }
         ImGui::EndMenu();
@@ -1797,6 +1808,7 @@ void Editor::setProject(const ProjectInfo& project) {
     ui::addLiveService(m_live, [this] { return m_gameUi; }); // MkUI Designer: the play session's screens and view-model values
     addSceneLink(); // MkRender: play/stop/look through the saved scene
     m_tools = findTools(m_toolPaths);
+    m_installableTools = notInstalledTools(m_tools);
     m_projectPanel.revert(project);
     // Don't ask for the engine repo itself (no engine)
     const game::ProjectSettings& s = project.settings;
