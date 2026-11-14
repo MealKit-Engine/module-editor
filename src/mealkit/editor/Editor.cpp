@@ -1866,6 +1866,51 @@ void Editor::setProject(const ProjectInfo& project) {
         MEALKIT_WARN("Project template is from engine %s, this engine is %s - tools\\upgrade_project.ps1 can update it",
                      s.engineVersion.empty() ? "(unknown)" : s.engineVersion.c_str(), kEngineVersion);
     startLayoutCheck();
+    startEngineCheck();
+}
+
+// Is this editor's own engine build out of date (engine sources changed after its last build)? Asked when a project opens. If it is,
+// a game code build would first relink the mealkit.dll this process holds and fail, so game code builds go to the restart prompt instead.
+// Compared with the build folder's .ninja_log, which every engine build rewrites (CMake's glob check runs each time), so a rebuild clears it
+// even when nothing had to relink. A ninja dry run can't tell: with CONFIGURE_DEPENDS globs it always plans a CMake rerun.
+void Editor::startEngineCheck() {
+    m_engineStale = false;
+    if (m_engineDirectory.empty() || fileExists(m_engineDirectory + "\\INSTALLED") || !hasCompiler()) return;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path engine = fs::path(std::u8string(m_engineDirectory.begin(), m_engineDirectory.end()));
+    const fs::path log = engine / "build" / editorBuildName() / ".ninja_log";
+    if (!fs::exists(log, ec)) return;
+    const fs::file_time_type built = fs::last_write_time(log, ec);
+    if (ec) return;
+    fs::path newest;
+    auto consider = [&](const fs::path& p) {
+        const fs::file_time_type t = fs::last_write_time(p, ec);
+        if (!ec && t > built && newest.empty()) newest = p;
+    };
+    for (const char* file : {"VERSION", "modules.lock", "CMakeLists.txt"}) consider(engine / file);
+    for (const char* folder : {"engine", "modules", "cmake"}) {
+        for (fs::recursive_directory_iterator it(engine / folder, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end && newest.empty(); it.increment(ec)) {
+            const fs::path name = it->path().filename();
+            if (it->is_directory(ec)) {
+                if (name == ".git" || name == "build" || name == "tests") it.disable_recursion_pending();
+                continue;
+            }
+            const fs::path ext = it->path().extension();
+            if (ext == ".h" || ext == ".hpp" || ext == ".cpp" || ext == ".inl" || ext == ".hlsl" || ext == ".hlsli" || ext == ".cmake" ||
+                name == "CMakeLists.txt" || name == "module.txt")
+                consider(it->path());
+        }
+        ec.clear();
+    }
+    if (newest.empty()) return;
+    const std::u8string changed = newest.u8string();
+    MEALKIT_WARN("The engine changed since its editor build (%s): a game code build needs the engine rebuilt first",
+                 std::string(changed.begin(), changed.end()).c_str());
+    m_engineStale = true;
+    m_gameStatus = tr("The engine changed: restart the editor to rebuild it");
+    m_engineRestartPrompt = true;
 }
 
 // Folder layout check (docs/CODING_MODEL.md "Project folder layout"): the rules live in one place, the engine's tools\check_layout.ps1, and give the same result as check.ps1/Export
@@ -1932,6 +1977,10 @@ void Editor::startBuild(BuildKind kind) {
         return;
     }
     if (kind == BuildKind::Export && m_projectPanel.dirty() && !m_projectPanel.save(m_project)) return;
+    if (kind == BuildKind::GameCode && m_engineStale) { // it would relink the engine this editor holds (startEngineCheck)
+        m_engineRestartPrompt = true;
+        return;
+    }
     m_buildPanel.start(kind, m_project, m_engineDirectory, m_time);
 }
 
@@ -1961,10 +2010,9 @@ void Editor::pollBuild() {
 
 // The engine changed while this editor runs: its mealkit.dll is in use, so the build can't relink it. Offer to close, rebuild and reopen
 void Editor::drawEngineRestartPrompt() {
-    if (m_engineRestartPrompt) {
-        ImGui::OpenPopup("##engineRestart");
-        m_engineRestartPrompt = false;
-    }
+    // Stays asked until a button answers it: another modal (the project upgrade offer) may be up, and a popup opened during the
+    // first frames is closed again by the startup window focus changes
+    if (m_engineRestartPrompt && !ImGui::GetTopMostPopupModal()) ImGui::OpenPopup("##engineRestart");
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (!ImGui::BeginPopupModal("##engineRestart", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) return;
@@ -1975,11 +2023,15 @@ void Editor::drawEngineRestartPrompt() {
     ImGui::PopTextWrapPos();
     ImGui::Spacing();
     if (ImGui::Button(tr("Save, Restart and Rebuild"))) {
+        m_engineRestartPrompt = false;
         restartAndRebuild();
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button(tr("Later"))) ImGui::CloseCurrentPopup();
+    if (ImGui::Button(tr("Later"))) {
+        m_engineRestartPrompt = false;
+        ImGui::CloseCurrentPopup();
+    }
     ImGui::EndPopup();
 }
 

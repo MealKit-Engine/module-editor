@@ -314,6 +314,7 @@ private:
     void pollBuild();
     void startLayoutCheck();
     void pollLayoutCheck();
+    void startEngineCheck(); // engine sources newer than the engine's last editor build? (then game code builds would fail)
 
     Window* m_window = nullptr;
     render::Renderer* m_renderer = nullptr;
@@ -459,6 +460,7 @@ private:
     bool m_gameCodeFailed = false;
     bool m_gameLoaded = false;
     bool m_engineRestartPrompt = false; // a build failed because the engine needs rebuilding under this editor
+    bool m_engineStale = false;         // the engine's editor build is out of date: game code builds go to the restart prompt
     void drawEngineRestartPrompt();
     bool restartAndRebuild(); // tools\rebuild_editor.ps1: waits for this editor to exit, builds the engine, reopens the project
     bool m_noGameHintClosed = false; // the "not built yet" card over the scene view was closed (until the project opens again)
