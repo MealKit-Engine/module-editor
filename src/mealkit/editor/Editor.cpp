@@ -493,9 +493,12 @@ void Editor::drawSceneWindow(unsigned int dockId) {
         ImGui::SetNextWindowPos(main->WorkPos);
         ImGui::SetNextWindowSize(main->WorkSize);
         ImGui::SetNextWindowViewport(main->ID);
+        // In front of the full-screen dock-space host (which would otherwise take every click and the keyboard focus),
+        // focused when it first appears so the game gets the keys
+        const ImGuiWindow* shown = ImGui::FindWindowByName("##SceneMaximized");
+        if (!shown || !shown->WasActive) ImGui::SetNextWindowFocus();
         m_sceneVisible = ImGui::Begin("##SceneMaximized", nullptr, sceneFlags | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
-                                                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                                                                   ImGuiWindowFlags_NoBringToFrontOnFocus);
+                                                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
     } else {
         if (central) {
             const ImGuiWindow* existing = ImGui::FindWindowByName(kSceneWindow);
