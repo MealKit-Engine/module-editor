@@ -79,6 +79,8 @@ inline constexpr const char* kClose = "\xEE\x9C\x91"; // U+E711 (close, dismiss)
 inline constexpr const char* kRemove = "\xEE\x9C\xB8"; // U+E738 (remove from a list)
 inline constexpr const char* kClear = "\xEE\xA2\x94"; // U+E894
 inline constexpr const char* kAccept = "\xEE\x9C\xBE"; // U+E73E
+inline constexpr const char* kMaximize = "\xEE\xA4\xA2"; // U+E922 (the viewport fills the window)
+inline constexpr const char* kRestore = "\xEE\xA4\xA3"; // U+E923 (back to the layout)
 } // namespace icon
 
 using ImGuiLayer = debug::ImGuiLayer;

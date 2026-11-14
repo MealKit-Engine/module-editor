@@ -81,6 +81,7 @@ void Editor::buildCommands() {
         {"Preview Cutscene", 0, 0, always, [this] { openPreviewPage(PreviewPage::Cutscene); }},
         {"Effects", 0, 0, always, [this] { toggleDataPage(DataPage::Effects, 0); }},
         {"Reset Layout", 0, 0, always, [this] { m_layoutReset = true; }},
+        {"Maximize Viewport", 0, 0, [this] { return m_sceneOpen; }, [this] { m_sceneMaximized = !m_sceneMaximized; }},
         {"Open MkUI", 0, 0, [this] { return !m_project.directory.empty(); }, [this] {
              if (!openInDesigner({})) setStatus(tr("MkUI is not installed (see [Settings] > Tools)"), true);
          }},

@@ -105,6 +105,7 @@ private:
     std::string m_userFolder;       // where solo play recordings are kept (replays; not kept if empty)
     u32 m_keepReplays = 0;
     bool m_replayStopped = false;   // the replay diverged from the recording and paused (bug reports pause at the end tick)
+    u32 m_shownTick = 0;            // the tick on screen last frame (paused: the game's frame time is only the ticks stepped)
     bool m_bugReport = false;       // playing a bug report zip
 };
 

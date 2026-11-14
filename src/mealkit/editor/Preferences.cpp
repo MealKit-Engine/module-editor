@@ -17,7 +17,7 @@ namespace {
 std::string settingsPath() { return editorUserDirectory() + "\\editor_settings.txt"; }
 
 const char* const kKeys[] = {"cameraSpeed", "uiScale",  "autosaveSeconds", "externalEditor",
-                             "projectLayout", "snapMove", "snapRotate", "snapScale", "compact", "colorPickerSize", "window"};
+                             "projectLayout", "snapMove", "snapRotate", "snapScale", "compact", "colorPickerSize", "gameAspect", "window"};
 
 bool ownKey(const std::string& key) {
     for (const char* k : kKeys)
@@ -50,6 +50,7 @@ Preferences loadPreferences() {
         else if (key == "snapMove") p.snapMove = std::clamp(static_cast<f32>(atof(value.c_str())), 0.01f, 100.0f);
         else if (key == "snapRotate") p.snapRotate = std::clamp(static_cast<f32>(atof(value.c_str())), 0.1f, 180.0f);
         else if (key == "snapScale") p.snapScale = std::clamp(static_cast<f32>(atof(value.c_str())), 0.001f, 10.0f);
+        else if (key == "gameAspect") p.gameAspect = static_cast<u32>(strtoul(value.c_str(), nullptr, 10));
         else if (key == "colorPickerSize") p.colorPickerSize = std::clamp(static_cast<f32>(atof(value.c_str())), 9.0f, 24.0f);
         else if (key == "window") {
             int x = 0, y = 0, w = 0, h = 0, maximized = 0;
@@ -73,9 +74,9 @@ bool savePreferences(const Preferences& p) {
     char buf[512];
     snprintf(buf, sizeof(buf),
              "cameraSpeed %g\nuiScale %g\nautosaveSeconds %u\nexternalEditor %s\nprojectLayout %d\nsnapMove %g\n"
-             "snapRotate %g\nsnapScale %g\ncompact %d\ncolorPickerSize %g\n",
+             "snapRotate %g\nsnapScale %g\ncompact %d\ncolorPickerSize %g\ngameAspect %u\n",
              p.cameraSpeed, p.uiScale, p.autosaveSeconds, p.externalEditor.c_str(), p.projectLayout ? 1 : 0, p.snapMove,
-             p.snapRotate, p.snapScale, p.compact ? 1 : 0, p.colorPickerSize);
+             p.snapRotate, p.snapScale, p.compact ? 1 : 0, p.colorPickerSize, p.gameAspect);
     out += buf;
     if (p.window.width > 0) {
         snprintf(buf, sizeof(buf), "window %d %d %d %d %d\n", p.window.x, p.window.y, p.window.width, p.window.height, p.window.maximized ? 1 : 0);

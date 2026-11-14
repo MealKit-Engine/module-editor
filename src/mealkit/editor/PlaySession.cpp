@@ -20,6 +20,8 @@
 #include "mealkit/game/GameMain.h"
 #include "mealkit/game/GameOptions.h"
 #include "mealkit/game/InputRecord.h"
+#include "mealkit/game/ProjectSettings.h"
+#include "mealkit/game/SimDebug.h"
 #include "mealkit/input/Actions.h"
 #include "mealkit/session/Session.h"
 #include "mealkit/platform/Socket.h"
@@ -292,7 +294,15 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     editor.setGameUi(&m_front.ui()); // the [UI] workspace shows the game's screens and values while playing
     // Solo play: tuning changes apply immediately. With multiple players they'd differ per peer and desync, so they aren't applied.
     if (editor.takeTuningChanged() && !multiplayer()) m_game->setTuning(editor.tuningData());
-    m_game->update(ctx, dt);
+    // Paused: the presentation stops with the simulation (frame time 0), and a step (F7) gives it that tick's time. Rewinding
+    // gives none
+    f64 gameDt = dt;
+    if (game::SimDebug* debug = m_game->debug(); debug && m_game->started()) {
+        const game::Timeline t = debug->timeline();
+        if (t.paused) gameDt = t.view > m_shownTick ? static_cast<f64>(t.view - m_shownTick) * static_cast<f64>(game::tickDt()) : 0.0;
+        m_shownTick = t.view;
+    }
+    m_game->update(ctx, gameDt);
     if (m_audio) m_audio->setOcclusionWorld(m_game->started() ? m_game->physics() : nullptr);
     m_game->debugUi(ctx); // inside the editor's ImGui frame (the game DLL uses the same ImGui from mealkit.dll)
     editor.setStateView(m_game->stateView());

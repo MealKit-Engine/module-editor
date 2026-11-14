@@ -273,6 +273,7 @@ private:
     // Status bar + notification at the viewport's bottom right. Failures stay until closed, clicking opens that window (build log/log)
     enum class NoticeOpen : u8 { None, Log, BuildLog };
     // Command table (EditorCommands.cpp): shared by menus, shortcuts, palette, and F1. name is the English source (tr key)
+    bool m_sceneMaximized = false; // the viewport fills the window, the docked panels hidden (Unity's maximized tab)
     struct Command {
         const char* name;
         int chord;  // ImGuiKeyChord (0 = no shortcut)

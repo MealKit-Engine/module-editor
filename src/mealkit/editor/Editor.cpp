@@ -311,7 +311,9 @@ void Editor::update(f64 dt) {
         ImGui::PopStyleVar(2);
         // The gaps between docked panels are painted in WindowBg: make them the dark gutter so panels read as separate without lines
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
-        ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+        // Maximized viewport: the dock space keeps its panels but shows none (drawSceneWindow draws the viewport over it)
+        if (!m_sceneOpen) m_sceneMaximized = false;
+        ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f), m_sceneMaximized ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
         ImGui::PopStyleColor();
         ImGui::End();
     }
@@ -455,6 +457,20 @@ void Editor::focusPanel(const char* window) {
     m_focusFrames = 3; // focus doesn't take on the first frame when the docking node doesn't exist yet, so request it for a few frames
 }
 
+namespace {
+// Play view sizes (the Unity Game view's aspect list): the game gets the largest rectangle of that shape that fits the tab,
+// centred, with black bars around it. A resolution keeps its shape and shows the scale it is drawn at
+struct GameAspect {
+    const char* label; // the first is "Free Aspect" (translated where shown)
+    f32 w, h;          // 0: fill the tab
+    bool resolution;
+};
+const GameAspect kGameAspects[] = {{"Free Aspect", 0, 0, false},   {"16:9", 16, 9, false},          {"16:10", 16, 10, false},
+                                   {"4:3", 4, 3, false},           {"21:9", 21, 9, false},          {"1920x1080", 1920, 1080, true},
+                                   {"1280x720", 1280, 720, true},  {"2560x1440", 2560, 1440, true}, {"1080x1920", 1080, 1920, true}};
+constexpr u32 kGameAspectCount = sizeof(kGameAspects) / sizeof(kGameAspects[0]);
+} // namespace
+
 // The scene view is a dock tab with a clear background: the 3D picture stays on the back buffer (offscreen targets have no shadows) and fits this window's area.
 // Docked windows are opaque, so it only works docked: let go while floating, it returns to the center.
 void Editor::drawSceneWindow(unsigned int dockId) {
@@ -467,16 +483,32 @@ void Editor::drawSceneWindow(unsigned int dockId) {
         ImGui::GetBackgroundDrawList()->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_MenuBarBg));
         return;
     }
-    if (central) {
-        const ImGuiWindow* existing = ImGui::FindWindowByName(kSceneWindow);
-        if (!existing || (!existing->DockIsActive && !ImGui::IsMouseDown(ImGuiMouseButton_Left))) ImGui::SetNextWindowDockID(central->ID, ImGuiCond_Always);
-    }
-    if (m_sceneFrontFrames > 0) {
-        --m_sceneFrontFrames;
-        ImGui::SetNextWindowFocus();
-    }
+    const ImGuiWindowFlags sceneFlags = ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+                                        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoNavInputs; // with nav inputs, focus here would make ImGui claim the keyboard from the game
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    m_sceneVisible = ImGui::Begin(iconTitle(icon::kCube, kSceneWindow).c_str(), m_mode == Mode::Edit ? &m_sceneOpen : nullptr, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoNavInputs); // with nav inputs, focus here would make ImGui claim the keyboard from the game
+    if (m_sceneMaximized) {
+        // Maximized (Unity: double-click the tab): a window over the whole work area in place of the docked tab, which
+        // stays in its node while the dock space shows nothing
+        const ImGuiViewport* main = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(main->WorkPos);
+        ImGui::SetNextWindowSize(main->WorkSize);
+        ImGui::SetNextWindowViewport(main->ID);
+        m_sceneVisible = ImGui::Begin("##SceneMaximized", nullptr, sceneFlags | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+                                                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                                                   ImGuiWindowFlags_NoBringToFrontOnFocus);
+    } else {
+        if (central) {
+            const ImGuiWindow* existing = ImGui::FindWindowByName(kSceneWindow);
+            if (!existing || (!existing->DockIsActive && !ImGui::IsMouseDown(ImGuiMouseButton_Left))) ImGui::SetNextWindowDockID(central->ID, ImGuiCond_Always);
+        }
+        if (m_sceneFrontFrames > 0) {
+            --m_sceneFrontFrames;
+            ImGui::SetNextWindowFocus();
+        }
+        m_sceneVisible = ImGui::Begin(iconTitle(icon::kCube, kSceneWindow).c_str(), m_mode == Mode::Edit ? &m_sceneOpen : nullptr, sceneFlags);
+        // A double click on the tab maximizes the viewport (after Begin the last item is the window's tab)
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_sceneMaximized = true;
+    }
     ImGui::PopStyleVar();
     m_sceneHovered = m_sceneVisible && ImGui::IsWindowHovered();
     if (m_sceneVisible) { // behind another tab it keeps its last size, so a playing game doesn't resize
@@ -488,14 +520,70 @@ void Editor::drawSceneWindow(unsigned int dockId) {
             m_toolbarHeight = std::floor(ImGui::GetFrameHeight() + 8.0f);
             ImDrawList* draw = ImGui::GetWindowDrawList();
             draw->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + m_toolbarHeight), ImGui::GetColorU32(ImGuiCol_WindowBg));
-            if (m_mode == Mode::Play)
+            // Maximize / restore at the row's right end; a double click on the row's empty part restores too
+            const f32 toggleWidth = ImGui::GetFrameHeight();
+            {
+                const ImVec2 back = ImGui::GetCursorScreenPos();
+                ImGui::SetCursorScreenPos(ImVec2(pos.x + size.x - toggleWidth - 6.0f, pos.y + (m_toolbarHeight - ImGui::GetFrameHeight()) * 0.5f));
+                if (iconButton(m_sceneMaximized ? icon::kRestore : icon::kMaximize,
+                               m_sceneMaximized ? tr("Restore the layout (double-click the bar)") : tr("Maximize the viewport (double-click its tab)")))
+                    m_sceneMaximized = !m_sceneMaximized;
+                ImGui::SetCursorScreenPos(back);
+                const ImVec2 mouse = ImGui::GetMousePos();
+                if (m_sceneMaximized && ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
+                    mouse.y >= pos.y && mouse.y < pos.y + m_toolbarHeight)
+                    m_sceneMaximized = false;
+            }
+            if (m_mode == Mode::Play) {
+                // The play view size at the row's right end
+                if (m_prefs.gameAspect >= kGameAspectCount) m_prefs.gameAspect = 0;
+                const GameAspect& now = kGameAspects[m_prefs.gameAspect];
+                const f32 comboWidth = ImGui::GetFontSize() * 8.0f;
+                const ImVec2 back = ImGui::GetCursorScreenPos();
+                ImGui::SetCursorScreenPos(ImVec2(pos.x + size.x - toggleWidth - comboWidth - 14.0f, pos.y + (m_toolbarHeight - ImGui::GetFrameHeight()) * 0.5f));
+                ImGui::SetNextItemWidth(comboWidth);
+                if (ImGui::BeginCombo("##gameAspect", m_prefs.gameAspect == 0 ? tr("Free Aspect") : now.label)) {
+                    for (u32 i = 0; i < kGameAspectCount; ++i) {
+                        const GameAspect& a = kGameAspects[i];
+                        if (ImGui::Selectable(i == 0 ? tr("Free Aspect") : a.label, i == m_prefs.gameAspect)) {
+                            m_prefs.gameAspect = i;
+                            savePreferences(m_prefs);
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Play view size: the game gets this shape, centred in the tab"));
+                ImGui::SetCursorScreenPos(back);
                 draw->AddText(ImVec2(pos.x + 10.0f, pos.y + (m_toolbarHeight - ImGui::GetFontSize()) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled),
                               m_playStatus.empty() ? tr("Playing") : m_playStatus.c_str());
+            }
             pos.y += m_toolbarHeight;
             size.y -= m_toolbarHeight;
         }
+        // Play: the chosen shape, centred, black bars around it (the 3D picture and the game UI use only this rectangle)
+        if (m_mode == Mode::Play && m_prefs.gameAspect > 0 && m_prefs.gameAspect < kGameAspectCount && size.x > 1.0f && size.y > 1.0f) {
+            const GameAspect& a = kGameAspects[m_prefs.gameAspect];
+            const f32 want = a.w / a.h;
+            ImVec2 fit = size;
+            if (size.x / size.y > want) fit.x = std::floor(size.y * want);
+            else fit.y = std::floor(size.x / want);
+            const ImVec2 at(std::floor(pos.x + (size.x - fit.x) * 0.5f), std::floor(pos.y + (size.y - fit.y) * 0.5f));
+            ImDrawList* bars = ImGui::GetWindowDrawList();
+            const ImU32 black = IM_COL32(0, 0, 0, 255);
+            bars->AddRectFilled(pos, ImVec2(pos.x + size.x, at.y), black);
+            bars->AddRectFilled(ImVec2(pos.x, at.y + fit.y), ImVec2(pos.x + size.x, pos.y + size.y), black);
+            bars->AddRectFilled(ImVec2(pos.x, at.y), ImVec2(at.x, at.y + fit.y), black);
+            bars->AddRectFilled(ImVec2(at.x + fit.x, at.y), ImVec2(pos.x + size.x, at.y + fit.y), black);
+            if (a.resolution) { // the scale a fixed resolution is drawn at
+                char scale[32];
+                snprintf(scale, sizeof(scale), "%.2fx", static_cast<f64>(fit.x / a.w));
+                bars->AddText(ImVec2(at.x + 6.0f, at.y + 4.0f), IM_COL32(255, 255, 255, 160), scale);
+            }
+            pos = at;
+            size = fit;
+        }
         m_viewport = {pos.x, pos.y, std::max(size.x, 1.0f), std::max(size.y, 1.0f)};
-        ImGuizmo::SetAlternativeWindow(ImGui::FindWindowByName(kSceneWindow)); // GetCurrentWindow reads DLL data
+        ImGuizmo::SetAlternativeWindow(ImGui::FindWindowByName(m_sceneMaximized ? "##SceneMaximized" : kSceneWindow)); // GetCurrentWindow reads DLL data
     }
     ImGui::End();
 }
@@ -881,6 +969,7 @@ void Editor::drawMenuBar() {
     }
     if (ImGui::BeginMenu(tr("Window"))) {
         commandMenuItem("Viewport", &m_sceneOpen);
+        commandMenuItem("Maximize Viewport", &m_sceneMaximized);
         if (projectHas("ui")) commandMenuItem("UI", &m_uiWorkspaceOpen);
         ImGui::Separator();
         commandMenuItem("Assets", &m_assetsOpen);
@@ -1177,7 +1266,7 @@ void Editor::drawViewportToolbar() {
                                    ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     const f32 cubeSize = std::floor(ImGui::GetFrameHeight() * 3.0f); // axis gizmo in the picture's top right corner
     ImGui::SetNextWindowPos(ImVec2(m_viewport.x, m_viewport.y - m_toolbarHeight));
-    ImGui::SetNextWindowSize(ImVec2(m_viewport.width, m_toolbarHeight));
+    ImGui::SetNextWindowSize(ImVec2(m_viewport.width - ImGui::GetFrameHeight() - 12.0f, m_toolbarHeight)); // the maximize button at the end
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 4.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     if (ImGui::Begin("##ViewportToolbar", nullptr, flags)) {

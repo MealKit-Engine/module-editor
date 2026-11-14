@@ -20,6 +20,7 @@ struct Preferences {
     f32 snapRotate = 15.0f;           // rotate (degrees)
     f32 snapScale = 0.1f;             // scale
     f32 colorPickerSize = 10.0f;      // color picker width in font heights
+    u32 gameAspect = 0;               // play view size preset (Editor kGameAspects): 0 fills the scene tab
     WindowPlacement window;           // editor window when it was last closed
 };
 
