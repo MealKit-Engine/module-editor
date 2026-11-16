@@ -1092,7 +1092,7 @@ void Editor::drawMenuBar() {
             checkbox(tr("Bots in player windows"), &m_playClientBots);
             ImGui::EndDisabled();
             ImGui::BeginDisabled(m_playPlayers != 1);
-            checkbox(tr("Start at the first screen"), &m_playMenus);
+            if (checkbox(tr("Start at the first screen"), &m_prefs.playMenus)) savePreferences(m_prefs);
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("%s", tr("Solo play of a game with menus starts at its title and menus, like the game's exe"));

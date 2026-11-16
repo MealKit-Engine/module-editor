@@ -21,6 +21,7 @@ struct Preferences {
     f32 snapScale = 0.1f;             // scale
     f32 colorPickerSize = 10.0f;      // color picker width in font heights
     u32 gameAspect = 0;               // play view size preset (Editor kGameAspects): 0 fills the scene tab
+    bool playMenus = true;            // solo play starts at the game's first screen (games with menus), like its exe
     WindowPlacement window;           // editor window when it was last closed
 };
 
