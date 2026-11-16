@@ -303,6 +303,7 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
         m_shownTick = t.view;
     }
     m_game->update(ctx, gameDt);
+    if (m_match->takeQuit()) m_left = true; // the game's [Quit] stops play, not the editor
     if (m_audio) m_audio->setOcclusionWorld(m_game->started() ? m_game->physics() : nullptr);
     m_game->debugUi(ctx); // inside the editor's ImGui frame (the game DLL uses the same ImGui from mealkit.dll)
     editor.setStateView(m_game->stateView());
