@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <system_error>
+#include <vector>
 
 namespace mealkit::editor {
 namespace fs = std::filesystem;
@@ -115,18 +116,29 @@ bool GameModuleHost::olderThanEngine(const std::string& dllPath, const std::stri
     const std::string bin = executableDirectory();
     u64 engine = fileWriteTime(toUtf8(fromUtf8(bin).parent_path() / "engine" / "mealkit.lib"));
     if (engine == 0) engine = fileWriteTime(engineLibraryPath()); // layouts without an import lib (Linux: libmealkit.so)
-    // When only headers changed (struct layout, inline functions), game code must be recompiled even if exports are the same
+    // When only headers changed (struct layout, inline functions), game code must be recompiled even if exports are the same.
+    // Header folders as the game's compile line has them: the kernel (engine/core/<part>/include), engine modules (modules/<name>/include)
+    // and the pinned MkRender/MkUI/MkAudio/MkContract headers (third_party/mk*/include). The layout moved from engine/src in 2026-11-08;
+    // a scan of a folder that no longer exists silently finds nothing, so every root is listed from what is on disk.
     std::error_code ec;
-    const fs::path headers = fromUtf8(engineDirectory) / "engine" / "src" / "mealkit";
-    for (fs::recursive_directory_iterator it(headers, ec), end; !ec && it != end; it.increment(ec)) {
-        const fs::path& path = it->path();
-        // editor headers and the RHI backends' internal ones (rhi/dx12, rhi/vulkan) aren't used by game code
-        if ((it.depth() == 0 && path.filename() == "editor") || (it.depth() == 1 && path.parent_path().filename() == "rhi" && it->is_directory())) {
-            it.disable_recursion_pending();
-            continue;
+    const fs::path root = fromUtf8(engineDirectory);
+    std::vector<fs::path> includeRoots;
+    for (const fs::path& group : {root / "engine" / "core", root / "modules", root / "third_party"}) {
+        for (fs::directory_iterator it(group, ec), end; !ec && it != end; it.increment(ec)) {
+            const std::string name = it->path().filename().string();
+            if (group.filename() == "modules" && name == "editor") continue; // editor headers aren't used by game code
+            if (group.filename() == "third_party" && name.rfind("mk", 0) != 0) continue; // libraries without engine types (Jolt, ImGui ...) change with a version bump
+            includeRoots.push_back(it->path() / "include");
         }
-        if (path.extension() != ".h") continue;
-        engine = std::max<u64>(engine, fileWriteTime(toUtf8(path)));
+        ec.clear();
+    }
+    for (const fs::path& include : includeRoots) {
+        for (fs::recursive_directory_iterator it(include, fs::directory_options::follow_directory_symlink, ec), end; !ec && it != end; it.increment(ec)) {
+            const fs::path& path = it->path();
+            if (path.extension() != ".h") continue;
+            engine = std::max<u64>(engine, fileWriteTime(toUtf8(path)));
+        }
+        ec.clear();
     }
     return engine != 0 && game < engine;
 }
