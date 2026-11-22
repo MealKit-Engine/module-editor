@@ -45,6 +45,53 @@ const char* assetIcon(const std::string& name) {
     return icon::kFlag;
 }
 
+// Kinds for the filter combo; 0 matches everything
+constexpr int kAssetKindCount = 7;
+const char* assetKindName(int kind) {
+    static const char* names[kAssetKindCount] = {"All kinds", "Models", "Scenes and prefabs", "Tables and text", "Sounds", "Images", "Other"};
+    return names[kind];
+}
+
+int assetKindOf(const std::string& name) {
+    const std::string ext = lowerExtension(name);
+    auto in = [&](std::initializer_list<const char*> list) {
+        for (const char* e : list)
+            if (ext == e) return true;
+        return false;
+    };
+    if (in({".glb", ".gltf"})) return 1;
+    if (in({".scene", ".prefab"})) return 2;
+    if (in({".table", ".tuning", ".events", ".bindings", ".fx", ".ui", ".txt", ".csv"})) return 3;
+    if (in({".wav", ".ogg", ".mp3", ".flac"})) return 4;
+    if (in({".png", ".jpg", ".jpeg", ".tga", ".hdr", ".dds", ".ktx", ".ktx2", ".cube"})) return 5;
+    return 6;
+}
+
+bool containsNoCase(const std::string& text, const char* needle) {
+    const std::string n(needle);
+    if (n.empty()) return true;
+    auto it = std::search(text.begin(), text.end(), n.begin(), n.end(), [](char a, char b) {
+        return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+    });
+    return it != text.end();
+}
+
+std::vector<std::string> readLines(const std::string& path) {
+    std::vector<std::string> out;
+    std::string text;
+    if (!readTextFile(path, text)) return out;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t end = text.find('\n', pos);
+        if (end == std::string::npos) end = text.size();
+        std::string line = text.substr(pos, end - pos);
+        pos = end + 1;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty()) out.push_back(line);
+    }
+    return out;
+}
+
 // Text files that can reference paths (scenes, tuning, UI, tables, effects, sound events, input)
 bool referenceFile(const std::string& name) {
     const std::string ext = lowerExtension(name);
@@ -97,9 +144,47 @@ void Editor::revealAsset(const std::string& relative) {
     const size_t slash = relative.rfind('/');
     m_assetFolder = slash == std::string::npos ? std::string() : relative.substr(0, slash);
     m_assetSelected = relative;
+    m_assetView = AssetView::Folder;
+    m_assetSearch[0] = 0;
+    m_assetKind = 0;
     m_assetsOpen = true;
     m_assetsFront = 3;
     m_assetScanTime = -1000.0;
+}
+
+void Editor::loadAssetLists() {
+    m_assetListsLoaded = true;
+    m_assetFavorites.clear();
+    m_assetRecent.clear();
+    if (m_project.directory.empty()) return;
+    const std::string dir = m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor" MEALKIT_SEP;
+    m_assetFavorites = readLines(dir + "asset_favorites.txt");
+    m_assetRecent = readLines(dir + "asset_recent.txt");
+}
+
+void Editor::saveAssetLists() const {
+    if (m_project.directory.empty()) return;
+    const std::string dir = m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor" MEALKIT_SEP;
+    std::string favorites, recent;
+    for (const std::string& p : m_assetFavorites) favorites += p + "\n";
+    for (const std::string& p : m_assetRecent) recent += p + "\n";
+    createDirectories(m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor");
+    writeTextFile(dir + "asset_favorites.txt", favorites);
+    writeTextFile(dir + "asset_recent.txt", recent);
+}
+
+// Used = opened with a double-click or dragged out of the browser. Newest first, 12 kept
+void Editor::rememberRecentAsset(const std::string& relative) {
+    if (relative.empty()) return;
+    std::erase(m_assetRecent, relative);
+    m_assetRecent.insert(m_assetRecent.begin(), relative);
+    if (m_assetRecent.size() > 12) m_assetRecent.resize(12);
+    saveAssetLists();
+}
+
+void Editor::toggleAssetFavorite(const std::string& relative) {
+    if (std::erase(m_assetFavorites, relative) == 0) m_assetFavorites.push_back(relative);
+    saveAssetLists();
 }
 
 void Editor::drawAssetFolder(const std::string& root, const std::string& relative) {
@@ -116,7 +201,10 @@ void Editor::drawAssetFolder(const std::string& root, const std::string& relativ
         if (directories(root + MEALKIT_SEP + toNative(child)).empty()) flags |= ImGuiTreeNodeFlags_Leaf;
         if (m_assetFolder == child) flags |= ImGuiTreeNodeFlags_Selected;
         const bool open = ImGui::TreeNodeEx(child.c_str(), flags, "%s  %s", icon::kFolder, d.c_str());
-        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) m_assetFolder = child;
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+            m_assetFolder = child;
+            m_assetView = AssetView::Folder;
+        }
         if (open) {
             drawAssetFolder(root, child);
             ImGui::TreePop();
@@ -141,10 +229,18 @@ void Editor::drawAssetBrowser() {
         m_assetScanTime = now;
         m_assetDirs.clear();
         m_assetFiles.clear();
+        m_assetAll.clear(); // read again below only while searching
     }
-    // Left: folders
+    if (!m_assetListsLoaded) loadAssetLists();
+    // Left: favorites, recent, then folders
     if (beginListPane("##folders", ImGui::GetFontSize() * 13.0f)) {
-        if (ImGui::Selectable((std::string(icon::kFolder) + "  assets").c_str(), m_assetFolder.empty())) m_assetFolder.clear();
+        if (ImGui::Selectable((std::string(icon::kStarFilled) + "  " + tr("Favorites")).c_str(), m_assetView == AssetView::Favorites)) m_assetView = AssetView::Favorites;
+        if (ImGui::Selectable((std::string(icon::kLog) + "  " + tr("Recent")).c_str(), m_assetView == AssetView::Recent)) m_assetView = AssetView::Recent;
+        ImGui::Separator();
+        if (ImGui::Selectable((std::string(icon::kFolder) + "  assets").c_str(), m_assetView == AssetView::Folder && m_assetFolder.empty())) {
+            m_assetFolder.clear();
+            m_assetView = AssetView::Folder;
+        }
         drawAssetFolder(root, {});
     }
     ImGui::EndChild();
@@ -152,7 +248,43 @@ void Editor::drawAssetBrowser() {
     // Right: files (drag models/prefabs into the scene view, double-click scenes to open)
     if (ImGui::BeginChild("##files")) {
         const std::string folder = m_assetFolder.empty() ? root : root + MEALKIT_SEP + toNative(m_assetFolder);
-        ImGui::TextDisabled("assets/%s", m_assetFolder.c_str());
+        // Path bar: every part is a button that goes up to that folder
+        if (m_assetView == AssetView::Folder) {
+            if (ImGui::SmallButton("assets")) m_assetFolder.clear();
+            std::string walked;
+            std::string rest = m_assetFolder;
+            std::string goTo;
+            bool jump = false;
+            while (!rest.empty()) {
+                const size_t slash = rest.find('/');
+                const std::string part = rest.substr(0, slash);
+                rest = slash == std::string::npos ? std::string() : rest.substr(slash + 1);
+                walked += (walked.empty() ? "" : "/") + part;
+                ImGui::SameLine(0.0f, 2.0f);
+                ImGui::TextDisabled("/");
+                ImGui::SameLine(0.0f, 2.0f);
+                ImGui::PushID(walked.c_str());
+                if (ImGui::SmallButton(part.c_str())) {
+                    goTo = walked;
+                    jump = true;
+                }
+                ImGui::PopID();
+            }
+            if (jump) m_assetFolder = goTo;
+        } else {
+            ImGui::TextDisabled("%s", m_assetView == AssetView::Favorites ? tr("Favorites") : tr("Recent"));
+        }
+        // Search (all folders when not empty) and the kind filter
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+        ImGui::InputTextWithHint("##assetSearch", tr("Search all assets"), m_assetSearch, sizeof(m_assetSearch));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 11.0f);
+        if (beginCombo("##assetKind", tr(assetKindName(m_assetKind)))) {
+            for (int k = 0; k < kAssetKindCount; ++k)
+                if (ImGui::Selectable(tr(assetKindName(k)), m_assetKind == k)) m_assetKind = k;
+            ImGui::EndCombo();
+        }
+        const bool searching = m_assetSearch[0] != 0;
         // Slider at the far left = list, further right = grid with bigger pictures
         const f32 sliderWidth = ImGui::GetFontSize() * 8.0f;
         ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - sliderWidth));
@@ -171,14 +303,32 @@ void Editor::drawAssetBrowser() {
             for (const std::string& m : m_assetMissing) ImGui::TextWrapped("%s", trf("Missing in this scene: %s", m.c_str()).c_str());
             ImGui::PopStyleColor();
         }
-        auto listed = m_assetFiles.find(folder);
-        if (listed == m_assetFiles.end()) listed = m_assetFiles.emplace(folder, listFiles(folder)).first;
-        const std::vector<std::string> files = listed->second; // copy: double-clicking a scene can change the lists
-        for (const std::string& name : files) {
+        // What is listed: the folder's files, or every match across assets while searching, or the favorites / recent lists
+        std::vector<std::string> entries;
+        if (searching || m_assetView != AssetView::Folder) {
+            if (searching && m_assetAll.empty() && directoryExists(root)) collectFiles(root, {}, m_assetAll);
+            const std::vector<std::string>& source = searching ? m_assetAll : (m_assetView == AssetView::Favorites ? m_assetFavorites : m_assetRecent);
+            for (const std::string& r : source)
+                if (!searching || containsNoCase(r, m_assetSearch)) entries.push_back(r);
+        } else {
+            auto listed = m_assetFiles.find(folder);
+            if (listed == m_assetFiles.end()) listed = m_assetFiles.emplace(folder, listFiles(folder)).first;
+            for (const std::string& name : listed->second) entries.push_back(m_assetFolder.empty() ? name : m_assetFolder + "/" + name);
+        }
+        if (entries.empty()) ImGui::TextDisabled("%s", tr("Nothing to show"));
+        size_t shown = 0;
+        for (const std::string& relative : entries) {
+            const size_t slashAt = relative.rfind('/');
+            const std::string name = slashAt == std::string::npos ? relative : relative.substr(slashAt + 1);
             if (name.size() > 9 && name.compare(name.size() - 9, 9, ".autosave") == 0) continue;
-            const std::string relative = m_assetFolder.empty() ? name : m_assetFolder + "/" + name;
+            if (m_assetKind != 0 && assetKindOf(name) != m_assetKind) continue;
+            if (m_assetView != AssetView::Folder && !searching && !fileExists(root + MEALKIT_SEP + toNative(relative))) continue; // deleted since
+            ++shown;
+            const std::string itemFolder = slashAt == std::string::npos ? root : root + MEALKIT_SEP + toNative(relative.substr(0, slashAt));
+            const bool favorite = std::find(m_assetFavorites.begin(), m_assetFavorites.end(), relative) != m_assetFavorites.end();
             ImGui::PushID(relative.c_str());
-            const std::string label = std::string(assetIcon(name)) + "  " + name;
+            const bool plainFolder = !searching && m_assetView == AssetView::Folder;
+            const std::string label = std::string(favorite ? icon::kStarFilled : assetIcon(name)) + "  " + (plainFolder ? name : relative);
             const f32 textHeight = ImGui::GetTextLineHeight();
             const ImVec2 cellPos = ImGui::GetCursorScreenPos(); // the Selectable's rectangle reaches past this by half the item spacing
             const std::string shownLabel = cell > 0.0f ? "##cell" : label;
@@ -186,13 +336,15 @@ void Editor::drawAssetBrowser() {
                                   cell > 0.0f ? ImVec2(cell, cell + textHeight) : ImVec2(0.0f, 0.0f))) {
                 m_assetSelected = relative;
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    rememberRecentAsset(relative);
                     if (lowerExtension(name) == ".scene") { // edited in MkRender when installed, else opened here to look at and play
-                        if (!openInSceneTool(relative)) openSceneFile(folder + MEALKIT_SEP + name);
+                        if (!openInSceneTool(relative)) openSceneFile(itemFolder + MEALKIT_SEP + name);
                     }
                 }
             }
             if (ImGui::BeginDragDropSource()) { // to pick= fields (objects are placed in MkRender)
                 ImGui::SetDragDropPayload(kAssetPayload, relative.c_str(), relative.size() + 1);
+                if (m_assetRecent.empty() || m_assetRecent.front() != relative) rememberRecentAsset(relative);
                 ImGui::Text("%s  %s", assetIcon(name), relative.c_str());
                 ImGui::EndDragDropSource();
             }
@@ -217,7 +369,13 @@ void Editor::drawAssetBrowser() {
                     m_assetRenameFrom = relative;
                     snprintf(m_assetRenameBuffer, sizeof(m_assetRenameBuffer), "%s", relative.c_str());
                 }
-                if (ImGui::MenuItem(tr("Show in Explorer"))) openInExplorer(folder);
+                if (ImGui::MenuItem(favorite ? tr("Remove from Favorites") : tr("Add to Favorites"))) toggleAssetFavorite(relative);
+                if (ImGui::MenuItem(tr("Show in Explorer"))) openInExplorer(itemFolder);
+                if (!plainFolder && ImGui::MenuItem(tr("Show in Folder"))) {
+                    m_assetView = AssetView::Folder;
+                    m_assetSearch[0] = 0;
+                    revealAsset(relative);
+                }
                 if (ImGui::MenuItem(tr("Find Uses"))) findAssetUses(relative);
                 if (lowerExtension(name) == ".scene" && hasSceneTool() && ImGui::MenuItem(tr("Open in MkRender"))) openInSceneTool(relative);
                 ImGui::EndPopup();

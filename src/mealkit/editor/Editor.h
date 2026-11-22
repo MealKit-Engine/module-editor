@@ -248,6 +248,18 @@ private:
     double m_assetScanTime = -1000.0;
     std::string m_assetRenameFrom;
     char m_assetRenameBuffer[260] = {};
+    // Search, kind filter, favorites and recently used (favorites and recent kept per project in build\editor\asset_favorites.txt / asset_recent.txt)
+    enum class AssetView { Folder, Favorites, Recent };
+    AssetView m_assetView = AssetView::Folder;
+    char m_assetSearch[64] = {};
+    int m_assetKind = 0; // 0 = all kinds, see assetKindName in EditorAssets.cpp
+    std::vector<std::string> m_assetFavorites, m_assetRecent; // relative to assets; recent newest first
+    std::vector<std::string> m_assetAll; // every file under assets, read with the once-a-second scan (for search)
+    bool m_assetListsLoaded = false;
+    void loadAssetLists();
+    void saveAssetLists() const;
+    void rememberRecentAsset(const std::string& relative);
+    void toggleAssetFavorite(const std::string& relative);
     // Prefabs (scene/Scene.h): save the selection to assets/prefabs/, place copies (at: floor point, nullptr = in front of the camera)
     void openSceneDialog();
     void openReplayDialog();
