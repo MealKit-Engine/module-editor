@@ -65,7 +65,7 @@ std::string fromPath(const std::filesystem::path& path) {
 std::vector<std::string> readRequires(const std::string& moduleDir) {
     std::vector<std::string> names;
     std::string text;
-    if (!readTextFile(moduleDir + "\\module.txt", text)) return names;
+    if (!readTextFile(moduleDir + MEALKIT_SEP "module.txt", text)) return names;
     size_t start = 0;
     while (start < text.size()) {
         size_t end = text.find('\n', start);
@@ -85,37 +85,37 @@ struct IconGlyph {
     const char* glyph;
 };
 constexpr IconGlyph kIconGlyphs[] = {
-    {"gameplay", "\xEE\x9F\xBC"}, // U+E7FC game controller
-    {"game", "\xEE\x9F\xBC"},
-    {"timer", "\xEE\xA4\x96"},    // U+E916 stopwatch
-    {"combat", "\xEE\xA8\x98"},   // U+EA18 shield
-    {"health", "\xEE\xAD\x91"},   // U+EB51 heart
-    {"ai", "\xEE\xA6\x9A"},       // U+E99A robot
-    {"map", "\xEE\x9C\x87"},      // U+E707 map pin
-    {"save", "\xEE\x9D\x8E"},     // U+E74E save
-    {"ui", "\xEE\x9F\xB4"},       // U+E7F4 screen
-    {"audio", "\xEE\x9D\xA7"},    // U+E767 volume
-    {"render", "\xEE\x9E\x90"},   // U+E790 color
-    {"rhi", "\xEE\x9E\x90"},
-    {"camera", "\xEE\x9C\xA2"},   // U+E722 camera
-    {"physics", "\xEF\x85\x98"},  // U+F158 3D cube
-    {"net", "\xEE\xA5\xA8"},      // U+E968 network
-    {"online", "\xEE\x9D\xB4"},   // U+E774 globe
-    {"input", "\xEE\x9D\xA5"},    // U+E765 keyboard
-    {"data", "\xEE\xA3\xAF"},     // U+E8EF (icon::kData)
-    {"asset", "\xEE\xA2\xB7"},    // U+E8B7 folder
-    {"scene", "\xEE\xA3\xBD"},    // U+E8FD (icon::kTree)
-    {"debug", "\xEE\xAF\xA8"},    // U+EBE8 bug
-    {"tool", "\xEE\xA4\x8F"},     // U+E90F wrench
-    {"editor", "\xEE\xA4\x8F"},
-    {"settings", "\xEE\x9C\x93"}, // U+E713 gear
-    {"loc", "\xEE\xA3\x81"},      // U+E8C1 characters
-    {"feedback", "\xEE\xA5\x85"}, // U+E945 lightning bolt
-    {"live", "\xEE\xA2\x95"},     // U+E895 sync
-    {"session", "\xEE\x9C\x96"},  // U+E716 people
-    {"sim", "\xEE\xA7\xB5"},      // U+E9F5 (icon::kState)
+    {"gameplay", "\xEE\x9A\x8A"}, // game controller
+    {"game", "\xEE\x9A\x8A"},
+    {"timer", "\xEE\xB6\x88"},    // stopwatch
+    {"combat", "\xEF\x9A\xBE"},   // shield
+    {"health", "\xEF\x91\xB9"},   // heart
+    {"ai", "\xEE\x86\xB8"},       // robot
+    {"map", "\xEF\x93\xB8"},      // map pin
+    {"save", "\xEF\x99\xBF"},     // save
+    {"ui", "\xEF\x8D\x99"},       // screen
+    {"audio", "\xEE\xAD\x82"},    // volume
+    {"render", "\xEF\x8B\xB5"},   // color
+    {"rhi", "\xEF\x8B\xB5"},
+    {"camera", "\xEF\x89\x94"},   // camera
+    {"physics", "\xEE\x90\xBB"},  // 3D cube
+    {"net", "\xEE\x9A\xB6"},      // network
+    {"online", "\xEF\x91\x9A"},   // globe
+    {"input", "\xEF\x92\xB8"},    // keyboard
+    {"data", "\xEF\x9D\x9D"},     // (icon::kData)
+    {"asset", "\xEF\x90\x98"},    // folder
+    {"scene", "\xEF\x9E\xAE"},    // (icon::kTree)
+    {"debug", "\xEE\x88\x86"},    // bug
+    {"tool", "\xEE\xBA\x86"},     // wrench
+    {"editor", "\xEE\xBA\x86"},
+    {"settings", "\xEF\x9A\xA9"}, // gear
+    {"loc", "\xEF\x93\xB3"},      // characters
+    {"feedback", "\xEE\x98\x98"}, // lightning bolt
+    {"live", "\xEF\x86\x90"},     // sync
+    {"session", "\xEF\x96\xA8"},  // people
+    {"sim", "\xEE\x91\x93"},      // (icon::kState)
 };
-constexpr const char* kPuzzle = "\xEE\xAA\x86"; // U+EA86 puzzle piece
+constexpr const char* kPuzzle = "\xEE\xA2\xBD"; // puzzle_piece puzzle piece
 
 ImU32 textColor(bool disabled) { return ImGui::GetColorU32(disabled ? ImGuiCol_TextDisabled : ImGuiCol_Text); }
 
@@ -168,12 +168,12 @@ const char* moduleGlyph(const std::string& icon, const std::string& tags, const 
 
 void ModulesPanel::run(const std::string& label, const std::string& arguments, Job job) {
     if (m_process.running()) return;
-    const std::string script = m_engineDir + "\\tools\\module.ps1";
+    const std::string script = m_engineDir + MEALKIT_SEP "tools" MEALKIT_SEP "module.ps1";
     if (!fileExists(script)) {
         m_status = trf("Module tool not found: %s", script.c_str());
         return;
     }
-    const std::string command = "powershell -NoProfile -ExecutionPolicy Bypass -File " + quotePath(script) + " " + arguments +
+    const std::string command = std::string(powershellProgram()) + " -NoProfile -ExecutionPolicy Bypass -File " + quotePath(script) + " " + arguments +
                                 " -Project " + quotePath(m_projectDir);
     m_output.clear();
     m_label = label;
@@ -296,8 +296,8 @@ void ModulesPanel::readDetails(const std::string& name) {
     m_details.name = name;
     const auto found = std::find_if(m_items.begin(), m_items.end(), [&](const Item& i) { return i.name == name; });
     if (found == m_items.end()) return;
-    const std::string projectModules = m_projectDir + "\\modules\\";
-    const std::string dir = found->installed ? projectModules + name : found->engine ? m_engineDir + "\\modules\\" + name : std::string();
+    const std::string projectModules = m_projectDir + MEALKIT_SEP "modules" MEALKIT_SEP;
+    const std::string dir = found->installed ? projectModules + name : found->engine ? m_engineDir + MEALKIT_SEP "modules" MEALKIT_SEP + name : std::string();
     if (!dir.empty()) m_details.needs = readRequires(dir);
     for (const std::string& need : m_details.needs) {
         const auto have = std::find_if(m_items.begin(), m_items.end(), [&](const Item& i) { return i.name == need; });
@@ -605,10 +605,10 @@ void ModulesPanel::drawDetails(bool canChange) {
         ImGui::Spacing();
         ImGui::TextColored(color::kWarning, "%s", trf("%d .new file(s) to merge", static_cast<int>(m_details.newFiles.size())).c_str());
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("You changed these files, so the update wrote its version next to them as .new"));
-        const std::string dir = m_projectDir + "\\modules\\" + item.name + "\\";
+        const std::string dir = m_projectDir + MEALKIT_SEP "modules" MEALKIT_SEP + item.name + MEALKIT_SEP;
         for (const std::string& rel : m_details.newFiles) {
             std::string native = rel;
-            std::replace(native.begin(), native.end(), '/', '\\');
+            native = nativePath(native);
             ImGui::PushID(rel.c_str());
             ImGui::BulletText("%s", rel.c_str());
             ImGui::SameLine();
@@ -656,13 +656,13 @@ void ModulesPanel::drawDetails(bool canChange) {
     }
     ImGui::EndDisabled();
     if (item.installed) {
-        const std::string docs = m_projectDir + "\\modules\\" + item.name + "\\docs";
+        const std::string docs = m_projectDir + MEALKIT_SEP "modules" MEALKIT_SEP + item.name + MEALKIT_SEP "docs";
         next();
-        ImGui::BeginDisabled(!fileExists(docs + "\\index.md"));
-        if (iconButton(icon::kDocument, tr("Docs"))) openInExplorer(docs + "\\index.md");
+        ImGui::BeginDisabled(!fileExists(docs + MEALKIT_SEP "index.md"));
+        if (iconButton(icon::kDocument, tr("Docs"))) openInExplorer(docs + MEALKIT_SEP "index.md");
         ImGui::EndDisabled();
         next();
-        if (iconButton(icon::kFolderOpen, tr("Open Folder"))) openInExplorer(m_projectDir + "\\modules\\" + item.name);
+        if (iconButton(icon::kFolderOpen, tr("Open Folder"))) openInExplorer(m_projectDir + MEALKIT_SEP "modules" MEALKIT_SEP + item.name);
     }
     if (item.repo.rfind("https://", 0) == 0) {
         next();
@@ -741,7 +741,7 @@ void ModulesPanel::drawPopups() {
                 for (size_t i = 0; i < shown; ++i) {
                     const RemoveCheck::Use& use = check.uses[i];
                     ImGui::PushID(static_cast<int>(i));
-                    if (ImGui::SmallButton((use.file + ":" + std::to_string(use.line)).c_str())) openInExplorer(m_projectDir + "\\" + use.file);
+                    if (ImGui::SmallButton((use.file + ":" + std::to_string(use.line)).c_str())) openInExplorer(m_projectDir + MEALKIT_SEP + use.file);
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Open the file"));
                     ImGui::SameLine();
                     ImGui::TextDisabled("%s", use.text.c_str());

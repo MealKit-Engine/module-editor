@@ -209,7 +209,7 @@ const std::vector<std::string>& pickChoices(const std::string& pick) {
     } else {
         const size_t colon = pick.find(':');
         const std::string folder = pick.substr(0, colon), extension = colon == std::string::npos ? std::string() : pick.substr(colon + 1);
-        for (const std::string& file : listFiles(projectRoot() + "\\assets\\" + folder)) {
+        for (const std::string& file : listFiles(projectRoot() + MEALKIT_SEP "assets" MEALKIT_SEP + folder)) {
             if (extension.empty()) entry.names.push_back(file);
             else if (file.size() > extension.size() && file.compare(file.size() - extension.size(), extension.size(), extension) == 0)
                 entry.names.push_back(file.substr(0, file.size() - extension.size()));

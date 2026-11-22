@@ -25,7 +25,7 @@ void copyValues(const reflect::Instance& from, reflect::Instance& to) {
 } // namespace
 
 std::string TuningPanel::docPath(const Doc& doc) const {
-    return m_projectDir.empty() ? std::string() : m_projectDir + "\\assets\\" + doc.file;
+    return m_projectDir.empty() ? std::string() : m_projectDir + MEALKIT_SEP "assets" MEALKIT_SEP + doc.file;
 }
 
 void TuningPanel::setDocType(Doc& doc, const reflect::TypeInfo* type) {
@@ -104,9 +104,9 @@ void TuningPanel::saveDirty() {
 
 std::string TuningPanel::writePlayCopy(const Doc& doc, const char* fileName) {
     if (!doc.value.type() || m_projectDir.empty()) return {};
-    const std::string dir = m_projectDir + "\\build\\" + editorBuildName() + "\\play";
+    const std::string dir = m_projectDir + MEALKIT_SEP "build" MEALKIT_SEP + editorBuildName() + MEALKIT_SEP "play";
     createDirectories(dir);
-    const std::string path = dir + "\\" + fileName;
+    const std::string path = dir + MEALKIT_SEP + fileName;
     return reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, text::kTuning, "editor play (unsaved values)")
                ? path
                : std::string();
@@ -121,7 +121,7 @@ bool TuningPanel::takeChanged(Doc& doc) {
 std::string TuningPanel::presetPath(const Doc& doc, const std::string& name) const {
     std::string stem = doc.file;
     stem.resize(stem.size() - 7); // ".tuning"
-    return m_projectDir + "\\assets\\" + stem + "." + name + ".tuning";
+    return m_projectDir + MEALKIT_SEP "assets" MEALKIT_SEP + stem + "." + name + ".tuning";
 }
 
 // Names of assets/<stem>.<name>.tuning
@@ -130,7 +130,7 @@ std::vector<std::string> TuningPanel::presets(const Doc& doc) const {
     if (m_projectDir.empty()) return out;
     std::string prefix = doc.file;
     prefix.resize(prefix.size() - 6); // keeps the dot: "game."
-    for (const std::string& f : listFiles(m_projectDir + "\\assets", ".tuning"))
+    for (const std::string& f : listFiles(m_projectDir + MEALKIT_SEP "assets", ".tuning"))
         if (f.size() > prefix.size() + 7 && f.rfind(prefix, 0) == 0) out.push_back(f.substr(prefix.size(), f.size() - prefix.size() - 7));
     return out;
 }

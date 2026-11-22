@@ -13,8 +13,8 @@ namespace {
 constexpr f32 kFovY = 30.0f * 3.14159265f / 180.0f;
 
 std::string nativeAssetPath(std::string relative) {
-    std::replace(relative.begin(), relative.end(), '/', '\\');
-    return asset::ModelCache::assetsRoot() + "\\" + relative;
+    relative = nativePath(relative);
+    return asset::ModelCache::assetsRoot() + MEALKIT_SEP + relative;
 }
 
 } // namespace

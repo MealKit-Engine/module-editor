@@ -50,7 +50,10 @@ const char* const kBottomWindows[] = {"Assets###Assets", "Debug###Debug"};
 bool containsNoCase(const std::string& text, const char* needle) {
     const size_t n = strlen(needle);
     for (size_t i = 0; i + n <= text.size(); ++i)
-        if (_strnicmp(text.data() + i, needle, n) == 0) return true;
+        if (std::equal(needle, needle + n, text.data() + i, [](char a, char b) {
+                return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+            }))
+            return true;
     return false;
 }
 
@@ -160,7 +163,7 @@ std::string relativeTo(const std::string& root, const std::string& path) {
                        [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
         return s;
     };
-    const std::string prefix = root + "\\";
+    const std::string prefix = root + MEALKIT_SEP;
     if (lower(path).rfind(lower(prefix), 0) != 0) return {};
     std::string relative = path.substr(prefix.size());
     std::replace(relative.begin(), relative.end(), '\\', '/');
@@ -176,7 +179,8 @@ bool Editor::init(Window& window, render::Renderer& renderer, const std::string&
     m_renderer = &renderer;
     m_sprites = std::make_unique<render::SpriteTextures>(renderer);
     m_models = &models;
-    if (!m_imgui.init(window, renderer, executableDirectory() + "\\mealkit_editor.ini")) {
+    const std::string iconFont = m_engineDirectory + MEALKIT_SEP "third_party" MEALKIT_SEP "fluent-icons" MEALKIT_SEP "FluentSystemIcons-Regular.ttf";
+    if (!m_imgui.init(window, renderer, executableDirectory() + MEALKIT_SEP "mealkit_editor.ini", iconFont)) {
         MEALKIT_ERROR("Editor UI initialization failed");
         return false;
     }
@@ -935,7 +939,7 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         // Back to the project list: MealKit Manager. The editor stays open
         if (ImGui::MenuItem(tr("Project Manager"))) {
-            const std::string manager = editorUserDirectory() + "\\manager\\MealKitManager.exe";
+            const std::string manager = editorUserDirectory() + MEALKIT_SEP "manager" MEALKIT_SEP "MealKitManager" + exeSuffix();
             if (!fileExists(manager)) setStatus(tr("MealKit Manager is not installed"), true);
             else if (!launchDetached(manager, "--engine \"" + m_engineDirectory + "\"", m_engineDirectory))
                 setStatus(tr("Could not start MealKit Manager"), true);
@@ -958,7 +962,7 @@ void Editor::drawMenuBar() {
         commandMenuItem("Scenes", &m_sceneListOpen);
         ImGui::Separator();
         if (hasSceneTool() && ImGui::MenuItem(tr("Open in MkRender"), nullptr, false, !m_scenePath.empty())) {
-            const std::string assets = m_project.directory + "\\assets\\";
+            const std::string assets = m_project.directory + MEALKIT_SEP "assets" MEALKIT_SEP;
             openInSceneTool(m_scenePath.rfind(assets, 0) == 0 ? m_scenePath.substr(assets.size()) : m_scenePath);
         }
         ImGui::Separator();
@@ -991,11 +995,11 @@ void Editor::drawMenuBar() {
             ImGui::Separator();
             commandMenuItem("Reset Layout");
             // Layouts the user saved (per user, in the editor's folder)
-            const std::string saved = editorUserDirectory() + "\\layouts";
+            const std::string saved = editorUserDirectory() + MEALKIT_SEP "layouts";
             const std::vector<std::string> layouts = listFiles(saved, ".ini");
             if (!layouts.empty()) ImGui::Separator();
             for (const std::string& f : layouts)
-                if (ImGui::MenuItem(f.substr(0, f.size() - 4).c_str())) m_layoutLoad = saved + "\\" + f;
+                if (ImGui::MenuItem(f.substr(0, f.size() - 4).c_str())) m_layoutLoad = saved + MEALKIT_SEP + f;
             ImGui::Separator();
             ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
             ImGui::InputTextWithHint("##layoutName", tr("Layout name"), m_layoutName, sizeof(m_layoutName));
@@ -1003,7 +1007,7 @@ void Editor::drawMenuBar() {
             ImGui::BeginDisabled(!data::validRowId(m_layoutName));
             if (ImGui::SmallButton(tr("Save"))) {
                 createDirectories(saved);
-                ImGui::SaveIniSettingsToDisk((saved + "\\" + m_layoutName + ".ini").c_str());
+                ImGui::SaveIniSettingsToDisk((saved + MEALKIT_SEP + m_layoutName + ".ini").c_str());
                 m_layoutName[0] = 0;
             }
             ImGui::EndDisabled();
@@ -1133,9 +1137,9 @@ void Editor::drawStatusBar() {
                     }
                     if (ImGui::IsItemClicked()) ImGui::OpenPopup("##sceneSwitch");
                     if (ImGui::BeginPopup("##sceneSwitch")) {
-                        const std::string folder = m_project.directory + "\\assets\\scenes";
+                        const std::string folder = m_project.directory + MEALKIT_SEP "assets" MEALKIT_SEP "scenes";
                         for (const std::string& f : listFiles(folder, ".scene"))
-                            if (ImGui::Selectable(f.c_str(), f == name) && f != name) openSceneFile(folder + "\\" + f);
+                            if (ImGui::Selectable(f.c_str(), f == name) && f != name) openSceneFile(folder + MEALKIT_SEP + f);
                         ImGui::EndPopup();
                     }
                 }
@@ -1175,7 +1179,7 @@ void Editor::openSceneFile(const std::string& path) {
 void Editor::loadRecentScenes() {
     m_recentScenes.clear();
     std::string text;
-    if (m_project.directory.empty() || !readTextFile(m_project.directory + "\\build\\editor\\recent_scenes.txt", text)) return;
+    if (m_project.directory.empty() || !readTextFile(m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor" MEALKIT_SEP "recent_scenes.txt", text)) return;
     size_t pos = 0;
     while (pos < text.size()) {
         size_t end = text.find('\n', pos);
@@ -1194,8 +1198,8 @@ void Editor::rememberRecentScene(const std::string& path) {
     if (m_recentScenes.size() > 8) m_recentScenes.resize(8);
     std::string text;
     for (const std::string& p : m_recentScenes) text += p + "\n";
-    createDirectories(m_project.directory + "\\build\\editor");
-    writeTextFile(m_project.directory + "\\build\\editor\\recent_scenes.txt", text);
+    createDirectories(m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor");
+    writeTextFile(m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor" MEALKIT_SEP "recent_scenes.txt", text);
 }
 
 // [File] > [Scenes]: scenes in assets/scenes. Set the start scene (★, mealkit.project scene); double-click to open
@@ -1206,12 +1210,12 @@ void Editor::drawSceneList() {
         ImGui::End();
         return;
     }
-    const std::string folder = m_project.directory + "\\assets\\scenes";
+    const std::string folder = m_project.directory + MEALKIT_SEP "assets" MEALKIT_SEP "scenes";
     static std::string picked;
     ImGui::BeginDisabled(m_mode != Mode::Edit);
     std::string open;
     for (const std::string& name : listFiles(folder, ".scene")) {
-        const std::string path = folder + "\\" + name;
+        const std::string path = folder + MEALKIT_SEP + name;
         const std::string relative = "scenes/" + name;
         const bool start = relative == m_project.settings.scene;
         const std::string label = std::string(start ? "★ " : "   ") + name + (path == m_scenePath ? std::string("  ") + tr("(open)") : "");
@@ -1572,7 +1576,7 @@ bool Editor::isLocked(const Entity& e) const {
 
 std::string Editor::viewStatePath() const {
     if (m_project.directory.empty() || m_scenePath.empty()) return {};
-    return m_project.directory + "\\build\\editor\\" + fileName(m_scenePath) + ".view";
+    return m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor" MEALKIT_SEP + fileName(m_scenePath) + ".view";
 }
 
 // Two lines "hidden 3 5" / "locked 7" + camera bookmarks "camera <1~9> x y z yaw pitch"
@@ -1628,7 +1632,7 @@ void Editor::saveViewState() const {
                  b.position.z, b.yaw, b.pitch);
         text += line;
     }
-    createDirectories(m_project.directory + "\\build\\editor");
+    createDirectories(m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor");
     writeTextFile(path, text);
 }
 
@@ -1740,14 +1744,14 @@ void Editor::readProjectModules() {
     m_projectAllModules = true;
     if (m_project.directory.empty()) return;
     std::string dir = m_project.directory;
-    std::replace(dir.begin(), dir.end(), '/', '\\');
-    std::string samples = m_engineDirectory + "\\samples\\";
-    std::replace(samples.begin(), samples.end(), '/', '\\');
+    dir = nativePath(dir);
+    std::string samples = m_engineDirectory + MEALKIT_SEP "samples" MEALKIT_SEP;
+    samples = nativePath(samples);
     const auto lower = [](std::string s) {
         for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         return s;
     };
-    if (!m_engineDirectory.empty() && lower(dir + "\\").rfind(lower(samples), 0) == 0) return; // the engine's samples: every module
+    if (!m_engineDirectory.empty() && lower(dir + MEALKIT_SEP).rfind(lower(samples), 0) == 0) return; // the engine's samples: every module
     m_projectAllModules = false;
     std::error_code ec;
     const std::string root = m_project.directory + "/modules";
@@ -1822,7 +1826,7 @@ void Editor::setProject(const ProjectInfo& project) {
     { // recent palette items, per project
         std::string text;
         m_paletteRecent.clear();
-        if (readTextFile(project.directory + "\\build\\editor\\palette_recent.txt", text)) {
+        if (readTextFile(project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor" MEALKIT_SEP "palette_recent.txt", text)) {
             size_t start = 0;
             for (size_t end = text.find('\n'); end != std::string::npos; start = end + 1, end = text.find('\n', start))
                 if (end > start) m_paletteRecent.push_back(text.substr(start, end - start));
@@ -1834,10 +1838,10 @@ void Editor::setProject(const ProjectInfo& project) {
         ImGui::GetIO().IniFilename = nullptr;
         m_layoutReset = true;
     } else if (m_prefs.projectLayout && !project.directory.empty()) {
-        const std::string folder = project.directory + "\\build\\editor";
+        const std::string folder = project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor";
         createDirectories(folder);
-        if (!m_imgui.setIniPath(folder + "\\layout.ini")) m_layoutReset = true;
-        m_panelStatePath = folder + "\\panels.txt";
+        if (!m_imgui.setIniPath(folder + MEALKIT_SEP "layout.ini")) m_layoutReset = true;
+        m_panelStatePath = folder + MEALKIT_SEP "panels.txt";
         loadPanelState();
     }
     m_tablesPanel.setProjectDirectory(project.directory);
@@ -1875,7 +1879,7 @@ void Editor::setProject(const ProjectInfo& project) {
 // even when nothing had to relink. A ninja dry run can't tell: with CONFIGURE_DEPENDS globs it always plans a CMake rerun.
 void Editor::startEngineCheck() {
     m_engineStale = false;
-    if (m_engineDirectory.empty() || fileExists(m_engineDirectory + "\\INSTALLED") || !hasCompiler()) return;
+    if (m_engineDirectory.empty() || fileExists(m_engineDirectory + MEALKIT_SEP "INSTALLED") || !hasCompiler()) return;
     namespace fs = std::filesystem;
     std::error_code ec;
     const fs::path engine = fs::path(std::u8string(m_engineDirectory.begin(), m_engineDirectory.end()));
@@ -1916,10 +1920,10 @@ void Editor::startEngineCheck() {
 // Folder layout check (docs/CODING_MODEL.md "Project folder layout"): the rules live in one place, the engine's tools\check_layout.ps1, and give the same result as check.ps1/Export
 void Editor::startLayoutCheck() {
     if (m_engineDirectory.empty() || m_project.directory.empty() || m_layoutCheck.running()) return;
-    const std::string script = m_engineDirectory + "\\tools\\check_layout.ps1";
+    const std::string script = m_engineDirectory + MEALKIT_SEP "tools" MEALKIT_SEP "check_layout.ps1";
     if (!fileExists(script)) return;
     m_layoutOutput.clear();
-    m_layoutCheck.start("powershell -NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Project \"" +
+    m_layoutCheck.start(powershellCommand(script) + " -Project \"" +
                             m_project.directory + "\"",
                         m_project.directory);
 }
@@ -2036,7 +2040,7 @@ void Editor::drawEngineRestartPrompt() {
 }
 
 bool Editor::restartAndRebuild() {
-    const std::string script = m_engineDirectory + "\\tools\\rebuild_editor.ps1";
+    const std::string script = m_engineDirectory + MEALKIT_SEP "tools" MEALKIT_SEP "rebuild_editor.ps1";
     if (!fileExists(script)) {
         setStatus(tr("This engine has no tools\\rebuild_editor.ps1: close the editor and rebuild the engine's editor"), true);
         return false;
@@ -2044,7 +2048,7 @@ bool Editor::restartAndRebuild() {
     saveAll();
     const std::string args = "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Project \"" + m_project.directory + "\" -WaitPid " +
                              std::to_string(processId());
-    if (!launchDetached("powershell.exe", args, m_engineDirectory)) {
+    if (!launchDetached(powershellProgram(), args, m_engineDirectory)) {
         setStatus(tr("Could not start the engine rebuild"), true);
         return false;
     }

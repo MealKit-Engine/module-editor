@@ -14,7 +14,7 @@
 namespace mealkit::editor {
 namespace {
 
-std::string settingsPath() { return editorUserDirectory() + "\\editor_settings.txt"; }
+std::string settingsPath() { return editorUserDirectory() + MEALKIT_SEP "editor_settings.txt"; }
 
 const char* const kKeys[] = {"cameraSpeed", "uiScale",  "autosaveSeconds", "externalEditor",
                              "projectLayout", "snapMove", "snapRotate", "snapScale", "compact", "colorPickerSize", "gameAspect", "playMenus",
@@ -56,7 +56,7 @@ Preferences loadPreferences() {
         else if (key == "colorPickerSize") p.colorPickerSize = std::clamp(static_cast<f32>(atof(value.c_str())), 9.0f, 24.0f);
         else if (key == "window") {
             int x = 0, y = 0, w = 0, h = 0, maximized = 0;
-            if (sscanf_s(value.c_str(), "%d %d %d %d %d", &x, &y, &w, &h, &maximized) == 5) p.window = {x, y, w, h, maximized != 0};
+            if (std::sscanf(value.c_str(), "%d %d %d %d %d", &x, &y, &w, &h, &maximized) == 5) p.window = {x, y, w, h, maximized != 0};
         }
     }
     return p;

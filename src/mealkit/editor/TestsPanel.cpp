@@ -14,7 +14,7 @@
 namespace mealkit::editor {
 namespace {
 
-std::string headlessExe(const ProjectInfo& project) { return project.buildRoot() + "\\build\\Release\\bin\\" + project.name() + "_headless.exe"; }
+std::string headlessExe(const ProjectInfo& project) { return project.buildRoot() + MEALKIT_SEP "build" MEALKIT_SEP "Release" MEALKIT_SEP "bin" MEALKIT_SEP + project.name() + "_headless" + exeSuffix(); }
 
 } // namespace
 
@@ -58,7 +58,7 @@ void TestsPanel::queue(const ProjectInfo& project) {
         return;
     }
     m_status = tr("Building the test program...");
-    if (m_process.start("\"" + project.buildRoot() + "\\build.bat\"", project.buildRoot())) {
+    if (m_process.start(buildCommand(project.buildRoot(), ""), project.buildRoot())) {
         m_stage = Stage::Building;
     } else {
         m_status = tr("Could not start the build.");
@@ -74,7 +74,7 @@ void TestsPanel::startNext(const ProjectInfo& project) {
         Result& r = m_results[i];
         if (r.state != State::Queued) continue;
         m_output.clear();
-        std::string command = "\"" + headlessExe(project) + "\" --test tests\\" + r.file;
+        std::string command = "\"" + headlessExe(project) + "\" --test tests" MEALKIT_SEP + r.file;
         if (r.update) command += " --update-expected";
         if (!m_process.start(command, project.directory)) {
             r.state = State::Failed;

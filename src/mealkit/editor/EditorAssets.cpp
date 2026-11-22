@@ -54,14 +54,14 @@ bool referenceFile(const std::string& name) {
 }
 
 void collectFiles(const std::string& root, const std::string& relative, std::vector<std::string>& out) {
-    const std::string folder = relative.empty() ? root : root + "\\" + relative;
+    const std::string folder = relative.empty() ? root : root + MEALKIT_SEP + relative;
     for (const std::string& f : listFiles(folder)) out.push_back(relative.empty() ? f : relative + "/" + f);
     for (const std::string& d : listDirectories(folder))
         if (d[0] != '.') collectFiles(root, relative.empty() ? d : relative + "/" + d, out);
 }
 
 std::string toNative(std::string path) {
-    std::replace(path.begin(), path.end(), '/', '\\');
+    path = nativePath(path);
     return path;
 }
 
@@ -103,7 +103,7 @@ void Editor::revealAsset(const std::string& relative) {
 }
 
 void Editor::drawAssetFolder(const std::string& root, const std::string& relative) {
-    const std::string folder = relative.empty() ? root : root + "\\" + toNative(relative);
+    const std::string folder = relative.empty() ? root : root + MEALKIT_SEP + toNative(relative);
     auto directories = [this](const std::string& path) -> const std::vector<std::string>& {
         auto it = m_assetDirs.find(path);
         return it != m_assetDirs.end() ? it->second : m_assetDirs.emplace(path, listDirectories(path)).first->second;
@@ -113,7 +113,7 @@ void Editor::drawAssetFolder(const std::string& root, const std::string& relativ
         if (d[0] == '.') continue;
         const std::string child = relative.empty() ? d : relative + "/" + d;
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-        if (directories(root + "\\" + toNative(child)).empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+        if (directories(root + MEALKIT_SEP + toNative(child)).empty()) flags |= ImGuiTreeNodeFlags_Leaf;
         if (m_assetFolder == child) flags |= ImGuiTreeNodeFlags_Selected;
         const bool open = ImGui::TreeNodeEx(child.c_str(), flags, "%s  %s", icon::kFolder, d.c_str());
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) m_assetFolder = child;
@@ -151,7 +151,7 @@ void Editor::drawAssetBrowser() {
     ImGui::SameLine();
     // Right: files (drag models/prefabs into the scene view, double-click scenes to open)
     if (ImGui::BeginChild("##files")) {
-        const std::string folder = m_assetFolder.empty() ? root : root + "\\" + toNative(m_assetFolder);
+        const std::string folder = m_assetFolder.empty() ? root : root + MEALKIT_SEP + toNative(m_assetFolder);
         ImGui::TextDisabled("assets/%s", m_assetFolder.c_str());
         // Slider at the far left = list, further right = grid with bigger pictures
         const f32 sliderWidth = ImGui::GetFontSize() * 8.0f;
@@ -163,7 +163,7 @@ void Editor::drawAssetBrowser() {
         if (rescan) {
             std::set<std::string> missing;
             for (const scene::Entity& e : m_scene.entities)
-                if (!e.model.empty() && !fileExists(root + "\\" + toNative(e.model)) && !fileExists(e.model)) missing.insert(e.model);
+                if (!e.model.empty() && !fileExists(root + MEALKIT_SEP + toNative(e.model)) && !fileExists(e.model)) missing.insert(e.model);
             m_assetMissing.assign(missing.begin(), missing.end());
         }
         if (!m_assetMissing.empty()) {
@@ -187,7 +187,7 @@ void Editor::drawAssetBrowser() {
                 m_assetSelected = relative;
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     if (lowerExtension(name) == ".scene") { // edited in MkRender when installed, else opened here to look at and play
-                        if (!openInSceneTool(relative)) openSceneFile(folder + "\\" + name);
+                        if (!openInSceneTool(relative)) openSceneFile(folder + MEALKIT_SEP + name);
                     }
                 }
             }
@@ -238,7 +238,7 @@ void Editor::drawAssetBrowser() {
         if (m_assetUses.empty()) ImGui::TextUnformatted(tr("Not used by any scene, table or other text file"));
         for (const std::string& f : m_assetUses)
             if (ImGui::Selectable(f.c_str())) {
-                if (lowerExtension(f) == ".scene" && m_mode == Mode::Edit) openSceneFile(root + "\\" + toNative(f));
+                if (lowerExtension(f) == ".scene" && m_mode == Mode::Edit) openSceneFile(root + MEALKIT_SEP + toNative(f));
                 else revealAsset(f);
             }
         ImGui::EndPopup();
@@ -274,7 +274,7 @@ void Editor::findAssetUses(const std::string& relative) {
     for (const std::string& f : allAssetFiles()) {
         if (f == relative || !referenceFile(f)) continue;
         std::string text;
-        if (readTextFile(root + "\\" + toNative(f), text) && replacePath(text, relative, relative) > 0) m_assetUses.push_back(f);
+        if (readTextFile(root + MEALKIT_SEP + toNative(f), text) && replacePath(text, relative, relative) > 0) m_assetUses.push_back(f);
     }
 }
 
@@ -285,12 +285,12 @@ void Editor::renameAsset(const std::string& from, const std::string& toRaw) {
     while (!to.empty() && to.front() == '/') to.erase(0, 1);
     if (to.empty() || to == from) return;
     const std::string root = asset::ModelCache::assetsRoot();
-    const std::string fromPath = root + "\\" + toNative(from), toPath = root + "\\" + toNative(to);
+    const std::string fromPath = root + MEALKIT_SEP + toNative(from), toPath = root + MEALKIT_SEP + toNative(to);
     if (fileExists(toPath)) {
         setStatus(trf("Already exists: %s", to.c_str()), true);
         return;
     }
-    const size_t slash = toPath.rfind('\\');
+    const size_t slash = toPath.rfind(kPathSeparator);
     createDirectories(toPath.substr(0, slash));
     if (!moveFile(fromPath, toPath)) {
         setStatus(trf("Could not move %s", from.c_str()), true);
@@ -302,7 +302,7 @@ void Editor::renameAsset(const std::string& from, const std::string& toRaw) {
     size_t changedFiles = 0, changedRefs = 0;
     std::vector<std::string> paths;
     for (const std::string& f : files)
-        if (referenceFile(f)) paths.push_back(root + "\\" + toNative(f));
+        if (referenceFile(f)) paths.push_back(root + MEALKIT_SEP + toNative(f));
     if (!m_project.directory.empty()) paths.push_back(m_project.filePath());
     for (const std::string& path : paths) {
         std::string text;

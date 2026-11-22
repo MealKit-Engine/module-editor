@@ -391,7 +391,7 @@ void Editor::drawSettingsHub() {
         switch (m_settingsPage) {
         case SettingsPage::Project:
             ImGui::BeginDisabled(m_mode != Mode::Edit);
-            m_projectPanel.drawContent(m_project, relativeTo(m_project.directory + "\\assets", m_scenePath));
+            m_projectPanel.drawContent(m_project, relativeTo(m_project.directory + MEALKIT_SEP "assets", m_scenePath));
             ImGui::EndDisabled();
             break;
         case SettingsPage::Preferences: m_prefsPanel.drawContent(m_prefs); break;
@@ -538,8 +538,8 @@ void Editor::updateProblems(f64 dt) {
         if (e.model.empty()) continue;
         const bool first = seen.insert(e.model).second; // one list line per model, a badge on every object using it
         std::string native = e.model;
-        std::replace(native.begin(), native.end(), '/', '\\');
-        if (!fileExists(root + "\\" + native) && !fileExists(e.model)) {
+        native = nativePath(native);
+        if (!fileExists(root + MEALKIT_SEP + native) && !fileExists(e.model)) {
             std::string text = trf("Missing model: %s (%s)", e.model.c_str(), e.name.c_str());
             m_badges[e.id] = {true, text};
             if (first) m_problems.push_back({true, std::move(text), DataPage::Sounds, -1, e.id});

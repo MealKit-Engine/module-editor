@@ -21,22 +21,22 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
     if (m_process.running() || project.directory.empty()) return false;
     std::string command;
     if (kind == BuildKind::Upgrade) {
-        const std::string script = engineDirectory + "\\tools\\upgrade_project.ps1";
+        const std::string script = engineDirectory + MEALKIT_SEP "tools" MEALKIT_SEP "upgrade_project.ps1";
         if (!fileExists(script)) {
             m_status = trf("Upgrade script not found: %s", script.c_str());
             return false;
         }
-        command = "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Project \"" + project.directory + "\"";
+        command = powershellCommand(script) + " -Project \"" + project.directory + "\"";
         m_log = "> upgrade_project.ps1\n";
     } else {
-        const std::string script = project.buildRoot() + "\\build.bat";
+        const std::string script = buildScriptPath(project.buildRoot());
         if (!fileExists(script)) {
             m_status = trf("build.bat not found: %s", script.c_str());
             return false;
         }
         const std::string arg = kind == BuildKind::GameCode ? editorBuildName() : std::string("Export");
-        command = "\"" + script + "\" " + arg;
-        m_log = std::string("> build.bat ") + arg + "\n";
+        command = buildCommand(project.buildRoot(), arg);
+        m_log = "> " + fileName(script) + " " + arg + "\n";
     }
     m_kind = kind;
     m_step = m_steps = 0;
@@ -159,8 +159,8 @@ bool BuildPanel::drawContent(bool editing, const ProjectInfo& project, f64 now, 
                     ImGui::SetTooltip("%s", tr("Click to open in the code editor"));
                 }
                 if (ImGui::IsItemClicked()) {
-                    const bool absolute = at.file.size() > 1 && (at.file[1] == ':' || at.file[0] == '\\');
-                    openInCodeEditor(m_codeEditor, absolute ? at.file : project.directory + "\\" + at.file, at.line);
+                    const bool absolute = isAbsolutePath(at.file) || (!at.file.empty() && at.file[0] == '\\');
+                    openInCodeEditor(m_codeEditor, absolute ? at.file : project.directory + MEALKIT_SEP + at.file, at.line);
                 }
             }
         }

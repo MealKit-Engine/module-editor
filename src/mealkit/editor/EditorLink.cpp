@@ -69,9 +69,8 @@ void Editor::addSceneLink() {
 std::string Editor::linkScene(const std::string& file) {
     if (file.empty()) return {};
     std::string path = file;
-    for (char& c : path)
-        if (c == '/') c = '\\';
-    if (!(path.size() > 1 && path[1] == ':')) path = m_project.directory + "\\assets\\" + path;
+    path = nativePath(path);
+    if (!isAbsolutePath(path)) path = m_project.directory + MEALKIT_SEP "assets" MEALKIT_SEP + path;
     if (!fileExists(path)) return "no scene file " + file;
     if (!loadScene(path)) return "cannot open " + file;
     return {};
@@ -81,7 +80,7 @@ live::Response Editor::handleSceneLink(const live::Request& req) {
     const char* mode = m_mode == Mode::Edit ? "edit" : "play";
     if (req.method == "GET" && req.path == "state") {
         std::string scene = m_scenePath;
-        const std::string assets = m_project.directory + "\\assets\\";
+        const std::string assets = m_project.directory + MEALKIT_SEP "assets" MEALKIT_SEP;
         if (scene.rfind(assets, 0) == 0) scene = scene.substr(assets.size());
         for (char& c : scene)
             if (c == '\\') c = '/';

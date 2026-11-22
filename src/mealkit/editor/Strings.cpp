@@ -65,7 +65,7 @@ void parseTable(const std::string& file, Table& table) {
     }
 }
 
-std::string settingsPath() { return editorUserDirectory() + "\\editor_settings.txt"; }
+std::string settingsPath() { return editorUserDirectory() + MEALKIT_SEP "editor_settings.txt"; }
 
 Table& tableFor(const char* code) {
     Table& t = g_tables[code];
@@ -119,7 +119,7 @@ void initStrings(const std::string& engineDirectory, const std::string& language
     for (const Language& lang : kLanguages) {
         Table& t = tableFor(lang.code);
         if (t.code == "en") continue;
-        const std::string path = engineDirectory + "\\engine\\res\\strings\\" + lang.code + ".txt";
+        const std::string path = engineDirectory + MEALKIT_SEP "engine" MEALKIT_SEP "res" MEALKIT_SEP "strings" MEALKIT_SEP + lang.code + ".txt";
         std::string file;
         if (readTextFile(path, file)) parseTable(file, t);
         else MEALKIT_WARN("Editor strings not found: %s", path.c_str());

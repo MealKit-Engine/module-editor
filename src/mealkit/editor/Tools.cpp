@@ -9,7 +9,7 @@
 
 namespace mealkit::editor {
 
-std::string defaultToolsFolder() { return editorUserDirectory() + "\\" + mkcontract::kToolsFolder; }
+std::string defaultToolsFolder() { return editorUserDirectory() + MEALKIT_SEP + mkcontract::kToolsFolder; }
 
 std::vector<ToolInfo> findTools(const std::vector<std::string>& extraFolders) {
     std::vector<std::string> errors;
@@ -43,9 +43,9 @@ std::vector<mkcontract::AvailableTool> notInstalledTools(const std::vector<ToolI
 }
 
 bool openManagerTools() {
-    const std::string manager = editorUserDirectory() + "\\manager\\MealKitManager.exe";
+    const std::string manager = editorUserDirectory() + MEALKIT_SEP "manager" MEALKIT_SEP "MealKitManager" + exeSuffix();
     if (!fileExists(manager)) return false;
-    return launchDetached(manager, "--tools", editorUserDirectory() + "\\manager");
+    return launchDetached(manager, "--tools", editorUserDirectory() + MEALKIT_SEP "manager");
 }
 
 } // namespace mealkit::editor

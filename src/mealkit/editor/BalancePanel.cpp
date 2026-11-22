@@ -16,7 +16,7 @@
 namespace mealkit::editor {
 namespace {
 
-std::string headlessExe(const ProjectInfo& project) { return project.buildRoot() + "/build/Release/bin/" + project.name() + "_headless.exe"; }
+std::string headlessExe(const ProjectInfo& project) { return project.buildRoot() + "/build/Release/bin/" + project.name() + "_headless" + exeSuffix(); }
 
 struct Summary {
     f64 mean = 0.0, low = 0.0, high = 0.0;
@@ -49,7 +49,7 @@ void BalancePanel::run(const ProjectInfo& project) {
         startMatch(project);
     } else if (!compiler) {
         m_status = tr("No test program: ask a programmer to publish a Release build.");
-    } else if (m_process.start("\"" + project.buildRoot() + "\\build.bat\"", project.buildRoot())) {
+    } else if (m_process.start(buildCommand(project.buildRoot(), ""), project.buildRoot())) {
         m_stage = Stage::Building;
         m_status = tr("Building the test program...");
     } else {
@@ -66,9 +66,9 @@ void BalancePanel::startMatch(const ProjectInfo& project) {
     const int seed = m_done % m_matches + 1;
     const u32 ticks = static_cast<u32>(std::max(1.0f, m_seconds * static_cast<f32>(project.settings.tickRate)));
     std::string exe = headlessExe(project);
-    std::replace(exe.begin(), exe.end(), '/', '\\');
+    exe = nativePath(exe);
     std::string command = "\"" + exe + "\" --seed " + std::to_string(seed) + " --exit-tick " + std::to_string(ticks) + " --final-state";
-    if (m_done >= m_matches) command += " --tuning assets\\" + m_compare; // no spaces: cmd.exe keeps one quoted pair only
+    if (m_done >= m_matches) command += " --tuning assets" MEALKIT_SEP + m_compare; // no spaces: cmd.exe keeps one quoted pair only
     m_output.clear();
     if (m_process.start(command, project.directory)) {
         m_stage = Stage::Running;

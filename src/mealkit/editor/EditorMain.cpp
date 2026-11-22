@@ -139,7 +139,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--list-tools") o.listTools = true;
         else if (a == "--window" && next(v)) {
             int w = 0, h = 0;
-            if (sscanf_s(v, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) {
+            if (std::sscanf(v, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) {
                 o.windowWidth = static_cast<u32>(w);
                 o.windowHeight = static_cast<u32>(h);
             }
@@ -169,14 +169,14 @@ bool parseArgs(int argc, char** argv, Options& o) {
 // (tools\package_engine.ps1, extracted anywhere) finds itself. Otherwise the repo it was built from (CMake path → Windows notation).
 std::string engineDirectory() {
     std::string up = executableDirectory();
-    std::replace(up.begin(), up.end(), '/', '\\');
+    up = nativePath(up);
     for (int i = 0; i < 3 && !up.empty(); ++i) {
-        const size_t slash = up.find_last_of('\\');
+        const size_t slash = up.find_last_of(kPathSeparator);
         up = slash == std::string::npos ? std::string() : up.substr(0, slash);
     }
-    if (!up.empty() && fileExists(up + "\\cmake\\MealKit.cmake") && fileExists(up + "\\VERSION")) return up;
+    if (!up.empty() && fileExists(up + MEALKIT_SEP "cmake" MEALKIT_SEP "MealKit.cmake") && fileExists(up + MEALKIT_SEP "VERSION")) return up;
     std::string dir = MEALKIT_ENGINE_DIR;
-    std::replace(dir.begin(), dir.end(), '/', '\\');
+    dir = nativePath(dir);
     return dir;
 }
 
@@ -184,7 +184,7 @@ std::string engineDirectory() {
 // Opening without a project launches the hub app MealKit Manager from its separate repo (MealKit-Manager, build.bat install).
 // Passes this engine folder with --engine to add it to Manager's engine list. false if it isn't installed
 bool startManager(const std::string& engineDir) {
-    const std::string exe = editor::editorUserDirectory() + "\\manager\\MealKitManager.exe";
+    const std::string exe = editor::editorUserDirectory() + MEALKIT_SEP "manager" MEALKIT_SEP "MealKitManager" + editor::exeSuffix();
     if (!fileExists(exe)) return false;
     if (!launchDetached(exe, "--engine \"" + engineDir + "\"", engineDir)) return false;
     MEALKIT_INFO("Started MealKit Manager: %s", exe.c_str());
@@ -272,6 +272,7 @@ int main(int argc, char** argv) {
 
     editor::Editor editor;
     const std::string scenePath = opt.scenePath.empty() ? project.startScenePath() : opt.scenePath;
+    editor.setEngineDirectory(engineDirectory()); // before init: the icon font is in the engine folder
     if (!editor.init(window, renderer, scenePath, models)) MEALKIT_FATAL("Editor initialization failed");
     editor.setAudio(&audio);
     editor::setSoundEventSource([&audio] { return audio.eventNames(); }); // pick=sound fields
@@ -281,7 +282,6 @@ int main(int argc, char** argv) {
     });
     editor.setFeedback(&feedback);
     editor.setEngineTables(input::engineTables()); // engine tables shown in the [Tables] panel: input bindings (sound events are in MkAudio)
-    editor.setEngineDirectory(engineDirectory());
     editor.setToolPaths(opt.toolPaths);
     editor.setAutomated(opt.frames > 0);
     editor.setProject(project);
@@ -322,7 +322,7 @@ int main(int argc, char** argv) {
         const bool loaded = host.load(dllPath, loadError);
         if (host.loaded()) {
             editor.setGameTypes(host.module()->objectTypes());
-            scene::writeObjectKinds(project.directory + "\\build\\editor\\kinds.txt", host.module()->objectTypes());
+            scene::writeObjectKinds(project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor" MEALKIT_SEP "kinds.txt", host.module()->objectTypes());
             editor.setTuningType(host.module()->tuningType());
             editor.setViewTuningType(host.module()->viewTuningType ? host.module()->viewTuningType() : nullptr);
             static const reflect::TableList kNoTables;

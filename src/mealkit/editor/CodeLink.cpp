@@ -52,9 +52,14 @@ bool openInCodeEditor(const std::string& editor, const std::string& file, int li
     const std::string exe = editor.empty() ? std::string("code") : editor;
     const std::string target = "-g \"" + file + ":" + std::to_string(line) + "\"";
     const bool direct = exe.size() > 4 && exe.compare(exe.size() - 4, 4, ".exe") == 0;
+#if defined(_WIN32)
     // code is code.cmd, so it's called via cmd
     const bool ok = direct ? launchDetached(exe, target, "")
                            : launchDetached("cmd.exe", "/c \"\"" + exe + "\" " + target + "\"", "");
+#else
+    (void)direct; // code is a shell script on PATH
+    const bool ok = launchDetached(exe, target, "");
+#endif
     if (!ok) MEALKIT_WARN("Could not start the code editor '%s' (Preferences > Code editor)", exe.c_str());
     return ok;
 }
@@ -63,7 +68,7 @@ bool findInHeaders(const std::vector<std::string>& folders, const std::string& n
     for (const std::string& folder : folders) {
         if (!directoryExists(folder)) continue;
         for (const std::string& name : listFiles(folder, ".h")) {
-            const std::string path = folder + "\\" + name;
+            const std::string path = folder + MEALKIT_SEP + name;
             std::string text;
             if (!readTextFile(path, text)) continue;
             const size_t at = text.find(needle);
@@ -75,7 +80,7 @@ bool findInHeaders(const std::vector<std::string>& folders, const std::string& n
         }
         std::vector<std::string> sub;
         for (const std::string& d : listDirectories(folder))
-            if (d != "build" && d[0] != '.') sub.push_back(folder + "\\" + d);
+            if (d != "build" && d[0] != '.') sub.push_back(folder + MEALKIT_SEP + d);
         if (findInHeaders(sub, needle, out)) return true;
     }
     return false;

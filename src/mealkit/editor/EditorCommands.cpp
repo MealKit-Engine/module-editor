@@ -230,10 +230,10 @@ void Editor::drawCommandPalette() {
         add(tr(c.name), shortcutText(c), c.run, std::max(fuzzyScore(tr(c.name), q), fuzzyScore(c.name, q)));
     }
     if (m_mode == Mode::Edit) {
-        const std::string sceneDir = m_project.directory.empty() ? std::string() : m_project.directory + "\\assets\\scenes";
+        const std::string sceneDir = m_project.directory.empty() ? std::string() : m_project.directory + MEALKIT_SEP "assets" MEALKIT_SEP "scenes";
         if (!sceneDir.empty())
             for (const std::string& f : listFiles(sceneDir, ".scene")) {
-                const std::string path = sceneDir + "\\" + f;
+                const std::string path = sceneDir + MEALKIT_SEP + f;
                 add(f, tr("Scene"), [this, path] { openSceneFile(path); }, fuzzyScore(f, q));
             }
     }
@@ -305,8 +305,8 @@ void Editor::drawCommandPalette() {
         if (!m_project.directory.empty()) {
             std::string text;
             for (const std::string& line : m_paletteRecent) text += line + "\n";
-            createDirectories(m_project.directory + "\\build\\editor");
-            writeTextFile(m_project.directory + "\\build\\editor\\palette_recent.txt", text);
+            createDirectories(m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor");
+            writeTextFile(m_project.directory + MEALKIT_SEP "build" MEALKIT_SEP "editor" MEALKIT_SEP "palette_recent.txt", text);
         }
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();

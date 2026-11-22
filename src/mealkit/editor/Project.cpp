@@ -23,12 +23,57 @@ const std::string& editorBuildName() {
     return name;
 }
 
+const char* exeSuffix() {
+#if defined(_WIN32)
+    return ".exe";
+#else
+    return "";
+#endif
+}
+
+std::string buildScriptPath(const std::string& buildRoot) {
+#if defined(_WIN32)
+    return buildRoot + MEALKIT_SEP "build.bat";
+#else
+    return buildRoot + MEALKIT_SEP "build.ps1";
+#endif
+}
+
+std::string buildCommand(const std::string& buildRoot, const std::string& config) {
+#if defined(_WIN32)
+    std::string command = "\"" + buildScriptPath(buildRoot) + "\"";
+#else
+    std::string command = powershellCommand(buildScriptPath(buildRoot));
+#endif
+    return config.empty() ? command : command + " " + config;
+}
+
+const char* powershellProgram() {
+#if defined(_WIN32)
+    return "powershell.exe";
+#else
+    return "pwsh";
+#endif
+}
+
+std::string powershellCommand(const std::string& script) {
+    return std::string(powershellProgram()) + " -NoProfile -ExecutionPolicy Bypass -File \"" + script + "\"";
+}
+
+std::string engineLibraryPath() {
+#if defined(_WIN32)
+    return executableDirectory() + MEALKIT_SEP "mealkit.dll";
+#else
+    return parentDirectory(executableDirectory()) + "/engine/libmealkit" + libraryExtension();
+#endif
+}
+
 std::string ProjectInfo::buildRoot() const {
-    // The engine repo's reference samples (samples\<name>) have no build.bat: the engine build compiles them all
-    if (fileExists(directory + "/build.bat")) return directory;
+    // The engine repo's reference samples (samples\<name>) have no build script: the engine build compiles them all
+    if (fileExists(buildScriptPath(directory))) return directory;
     const std::string samples = parentDirectory(directory);
     const std::string engine = parentDirectory(samples);
-    if (fileName(samples) == "samples" && fileExists(engine + "/build.bat") && directoryExists(engine + "/engine/core"))
+    if (fileName(samples) == "samples" && fileExists(buildScriptPath(engine)) && directoryExists(engine + "/engine/core"))
         return engine;
     return directory;
 }
@@ -41,7 +86,7 @@ std::string ProjectInfo::gameDllPath() const {
 
 std::string ProjectInfo::startScenePath() const {
     std::string relative = assetFilePath(settings.scene);
-    std::replace(relative.begin(), relative.end(), '/', '\\');
+    relative = nativePath(relative);
     return directory + "/" + relative;
 }
 

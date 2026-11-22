@@ -1,6 +1,7 @@
 #include "mealkit/editor/GameModuleHost.h"
 
 #include "mealkit/core/Log.h"
+#include "mealkit/editor/Project.h"
 #include "mealkit/platform/DynamicLibrary.h"
 #include "mealkit/platform/Paths.h"
 #include "mealkit/platform/System.h"
@@ -113,7 +114,7 @@ bool GameModuleHost::olderThanEngine(const std::string& dllPath, const std::stri
     // The linker rewrites the import lib only when exports change → matches when the game DLL needs relinking.
     const std::string bin = executableDirectory();
     u64 engine = fileWriteTime(toUtf8(fromUtf8(bin).parent_path() / "engine" / "mealkit.lib"));
-    if (engine == 0) engine = fileWriteTime(bin + "\\mealkit.dll"); // layouts without an import lib
+    if (engine == 0) engine = fileWriteTime(engineLibraryPath()); // layouts without an import lib (Linux: libmealkit.so)
     // When only headers changed (struct layout, inline functions), game code must be recompiled even if exports are the same
     std::error_code ec;
     const fs::path headers = fromUtf8(engineDirectory) / "engine" / "src" / "mealkit";
@@ -125,7 +126,7 @@ bool GameModuleHost::olderThanEngine(const std::string& dllPath, const std::stri
             continue;
         }
         if (path.extension() != ".h") continue;
-        engine = std::max(engine, fileWriteTime(toUtf8(path)));
+        engine = std::max<u64>(engine, fileWriteTime(toUtf8(path)));
     }
     return engine != 0 && game < engine;
 }

@@ -41,7 +41,7 @@ namespace {
 
 constexpr u32 kInputDelayMs = 100; // 127.0.0.1 join windows: fixed (no auto adjustment)
 
-std::string playDirectory(const std::string& projectDir) { return projectDir + "\\build\\" + editorBuildName() + "\\play"; }
+std::string playDirectory(const std::string& projectDir) { return projectDir + MEALKIT_SEP "build" MEALKIT_SEP + editorBuildName() + MEALKIT_SEP "play"; }
 
 } // namespace
 
@@ -153,7 +153,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
         // Scene copy read by join windows (including unsaved edits)
         const std::string dir = playDirectory(config.projectDir);
         createDirectories(dir);
-        const std::string scenePath = dir + "\\play.scene";
+        const std::string scenePath = dir + MEALKIT_SEP "play.scene";
         if (!scene::save(editor.scene(), scenePath)) {
             error = trf("Could not write the temporary scene: %s", scenePath.c_str());
             return false;
@@ -168,7 +168,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
             m_match.reset();
             return false;
         }
-        const std::string exe = executableDirectory() + "\\MealKitEditor.exe";
+        const std::string exe = executableDirectory() + MEALKIT_SEP "MealKitEditor" + exeSuffix();
         for (u32 i = 2; i <= m_config.players; ++i) {
             std::string args = "--player-window --project \"" + config.projectDir + "\" --player-index " +
                                std::to_string(i) + " --join 127.0.0.1:" + std::to_string(kEditorPlayPort) +
@@ -176,7 +176,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
             if (!m_options.tuningPath.empty()) args += " --tuning \"" + m_options.tuningPath + "\"";
             if (!viewTuningPath.empty()) args += " --view-tuning \"" + viewTuningPath + "\"";
             if (config.clientBots) args += " --bot";
-            const std::string log = dir + "\\player" + std::to_string(i) + ".log";
+            const std::string log = dir + MEALKIT_SEP "player" + std::to_string(i) + ".log";
             if (!m_clients.launch(exe, args, config.projectDir, log)) {
                 error = tr("Could not start the player windows");
                 stop();

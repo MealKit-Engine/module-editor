@@ -7,6 +7,8 @@
 
 #include <imgui.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -24,7 +26,10 @@ bool contains(const std::string& text, const char* needle) {
     if (!needle[0]) return true;
     const size_t n = strlen(needle);
     for (size_t i = 0; i + n <= text.size(); ++i)
-        if (_strnicmp(text.data() + i, needle, n) == 0) return true;
+        if (std::equal(needle, needle + n, text.data() + i, [](char a, char b) {
+                return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+            }))
+            return true;
     return false;
 }
 

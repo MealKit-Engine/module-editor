@@ -25,6 +25,17 @@ struct ProjectInfo : game::ProjectFile {
 // This editor's build name = build.bat argument: "Editor" (DX12) or "VulkanEditor" (from build\<name>\bin where the exe is)
 const std::string& editorBuildName();
 
+// OS-dependent build and program names. Windows: build.bat, powershell, .exe, mealkit.dll next to the editor;
+// Linux/macOS: pwsh build.ps1, no suffix, libmealkit.so in build/<name>/engine (found through the editor's RPATH)
+const char* exeSuffix();                                   // ".exe" or ""
+std::string buildScriptPath(const std::string& buildRoot); // <buildRoot>/build.bat or build.ps1
+// Command line running the project build in buildRoot (config empty = the script's default, Release)
+std::string buildCommand(const std::string& buildRoot, const std::string& config);
+const char* powershellProgram(); // "powershell.exe" or "pwsh"
+// "<program> -NoProfile -ExecutionPolicy Bypass -File "<script>"": append the script's own arguments
+std::string powershellCommand(const std::string& script);
+std::string engineLibraryPath(); // the engine library this editor runs
+
 // Reads directory\mealkit.project. On failure, false and a reason.
 bool loadProject(const std::string& directory, ProjectInfo& out, std::string* error = nullptr);
 bool isProjectDirectory(const std::string& directory);
