@@ -75,6 +75,7 @@ struct Options {
     std::string testInput;
     bool compact = false;
     bool assetGrid = false;
+    std::string assetSelect; // --asset-select <path under assets>: shows that file in [Assets] with its preview pane
     bool sounds = false;          // start with the [Sound] window open
     u32 lookThrough = 0;          // --look-through <id>: the scene view looks through that virtual camera
     std::string lookdevModel;     // --lookdev-model <models/x.glb>: the model shown in [Lookdev] (as if picked in [Assets])
@@ -124,6 +125,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--input" && next(v)) o.testInput = v;
         else if (a == "--compact") o.compact = true;
         else if (a == "--asset-grid") o.assetGrid = true;
+        else if (a == "--asset-select" && next(v)) o.assetSelect = v;
         else if (a == "--sounds") o.sounds = true;
         else if (a == "--lookdev") o.lookdev = true;
         else if (a == "--look-through" && next(v)) o.lookThrough = static_cast<u32>(std::atoi(v));
@@ -298,6 +300,7 @@ int main(int argc, char** argv) {
     if (!opt.testInput.empty()) editor.setTestInput(opt.testInput);
     if (opt.compact) editor.setCompact();
     if (opt.assetGrid) editor.openAssetGrid();
+    if (!opt.assetSelect.empty()) editor.selectAssetForCapture(opt.assetSelect);
     if (opt.sounds) editor.openSounds();
     if (!opt.lookdevModel.empty()) editor.setLookdevModel(opt.lookdevModel);
     if (opt.lookdev) editor.openLookdev();

@@ -105,6 +105,7 @@ public:
     void openTables() { openDataPage(DataPage::Table, 0); m_dataFrontFrames = 30; } // for automated tests: also brought to the front
     void openTuning() { openDataPage(DataPage::Tuning, 0); m_dataFrontFrames = 30; }
     void revealAsset(const std::string& relative);
+    void selectAssetForCapture(const std::string& relative) { revealAsset(relative); m_assetsFront = 30; } // --asset-select
     void openAssetGrid() { revealAsset("models/tree.glb"); m_assetThumb = 96.0f; m_assetsFront = 30; }
     Vec3 previewPoint() const { return m_cameraPos + cameraForward() * 10.0f; } // where previews play
     void setCompact() { m_prefs.compact = true; } // --compact, not saved
@@ -237,6 +238,7 @@ private:
     // [Assets] window (EditorAssets.cpp)
     void drawAssetBrowser();
     void drawAssetFolder(const std::string& root, const std::string& relative);
+    void drawAssetPreview(const std::string& root); // pane right of the file list: what the selected asset costs
     void renameAsset(const std::string& from, const std::string& to);
     bool m_assetsOpen = true;
     int m_assetsFront = 0; // frames left to bring the tab to the front
@@ -256,6 +258,11 @@ private:
     std::vector<std::string> m_assetFavorites, m_assetRecent; // relative to assets; recent newest first
     std::vector<std::string> m_assetAll; // every file under assets, read with the once-a-second scan (for search)
     bool m_assetListsLoaded = false;
+    // Preview pane of the selected asset: a sound's waveform (read once per selection) and the voice of its play button
+    std::string m_assetPreviewPath;
+    std::vector<f32> m_assetPreviewPeaks;
+    f64 m_assetPreviewSeconds = 0.0;
+    audio::Handle m_assetPreviewVoice;
     void loadAssetLists();
     void saveAssetLists() const;
     void rememberRecentAsset(const std::string& relative);

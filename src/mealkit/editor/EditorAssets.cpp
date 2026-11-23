@@ -47,9 +47,16 @@ const char* assetIcon(const std::string& name) {
 
 // Kinds for the filter combo; 0 matches everything
 constexpr int kAssetKindCount = 7;
-const char* assetKindName(int kind) {
-    static const char* names[kAssetKindCount] = {"All kinds", "Models", "Scenes and prefabs", "Tables and text", "Sounds", "Images", "Other"};
-    return names[kind];
+const char* assetKindName(int kind) { // already translated
+    switch (kind) {
+    case 0: return tr("All kinds");
+    case 1: return tr("Models");
+    case 2: return tr("Scenes and prefabs");
+    case 3: return tr("Tables and text");
+    case 4: return tr("Sounds");
+    case 5: return tr("Images");
+    default: return tr("Other");
+    }
 }
 
 int assetKindOf(const std::string& name) {
@@ -279,9 +286,9 @@ void Editor::drawAssetBrowser() {
         ImGui::InputTextWithHint("##assetSearch", tr("Search all assets"), m_assetSearch, sizeof(m_assetSearch));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 11.0f);
-        if (beginCombo("##assetKind", tr(assetKindName(m_assetKind)))) {
+        if (beginCombo("##assetKind", assetKindName(m_assetKind))) {
             for (int k = 0; k < kAssetKindCount; ++k)
-                if (ImGui::Selectable(tr(assetKindName(k)), m_assetKind == k)) m_assetKind = k;
+                if (ImGui::Selectable(assetKindName(k), m_assetKind == k)) m_assetKind = k;
             ImGui::EndCombo();
         }
         const bool searching = m_assetSearch[0] != 0;
@@ -303,6 +310,9 @@ void Editor::drawAssetBrowser() {
             for (const std::string& m : m_assetMissing) ImGui::TextWrapped("%s", trf("Missing in this scene: %s", m.c_str()).c_str());
             ImGui::PopStyleColor();
         }
+        // The file list scrolls on its own, with the preview pane on its right (the window is wide and short)
+        const f32 previewWidth = m_assetSelected.empty() ? 0.0f : ImGui::GetFontSize() * 22.0f;
+        ImGui::BeginChild("##assetList", ImVec2(-previewWidth, 0.0f));
         // What is listed: the folder's files, or every match across assets while searching, or the favorites / recent lists
         std::vector<std::string> entries;
         if (searching || m_assetView != AssetView::Folder) {
@@ -384,6 +394,11 @@ void Editor::drawAssetBrowser() {
             if (cell > 0.0f && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + cell < ImGui::GetWindowPos().x + ImGui::GetContentRegionMax().x)
                 ImGui::SameLine();
         }
+        ImGui::EndChild(); // ##assetList
+        if (previewWidth > 0.0f) {
+            ImGui::SameLine();
+            drawAssetPreview(root);
+        }
     }
     ImGui::EndChild();
 
@@ -421,6 +436,90 @@ void Editor::drawAssetBrowser() {
         ImGui::EndPopup();
     }
     ImGui::End();
+}
+
+// Bar of used / limit, red over the limit and yellow from 80 percent. A limit of 0 means none (only the number is shown)
+static void budgetRow(const char* label, u32 used, u32 limit) {
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(ImGui::GetFontSize() * 7.0f);
+    if (limit == 0) {
+        ImGui::Text("%u", used);
+        return;
+    }
+    const bool over = used > limit;
+    ImVec4 color = over ? color::kDanger : (used * 5 >= limit * 4 ? color::kWarning : color::kGood);
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
+    char text[48];
+    snprintf(text, sizeof(text), "%u / %u", used, limit);
+    ImGui::ProgressBar(std::min(static_cast<f32>(used) / static_cast<f32>(limit), 1.0f), ImVec2(ImGui::GetFontSize() * 14.0f, ImGui::GetTextLineHeight()), text);
+    ImGui::PopStyleColor();
+}
+
+// Right of the file list: a model's triangle, material, bone and texture counts against the budget of its kind folder (the same limits the load warns
+// with), a sound's waveform with a play button, and the size of any file
+void Editor::drawAssetPreview(const std::string& root) {
+    ImGui::BeginChild("##assetPreview", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
+    const std::string& relative = m_assetSelected;
+    const std::string full = root + MEALKIT_SEP + toNative(relative);
+    const size_t slash = relative.rfind('/');
+    const std::string name = slash == std::string::npos ? relative : relative.substr(slash + 1);
+    ImGui::TextUnformatted(relative.c_str());
+    if (FILE* f = openFile(full, "rb")) {
+        fseek(f, 0, SEEK_END);
+        const long bytes = ftell(f);
+        fclose(f);
+        ImGui::SameLine();
+        if (bytes >= 1024 * 1024) ImGui::TextDisabled("%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+        else ImGui::TextDisabled("%.1f KB", static_cast<double>(bytes) / 1024.0);
+    } else {
+        ImGui::SameLine();
+        ImGui::TextColored(color::kDanger, "%s", tr("File not found"));
+    }
+    if (isModel(name) && m_models) {
+        const asset::Model* model = m_models->get(relative);
+        if (!model || !model->valid) {
+            ImGui::TextColored(color::kDanger, "%s", tr("The model could not be loaded"));
+        } else {
+            const asset::ModelBudget& budget = m_models->budget(model->kind);
+            ImGui::TextDisabled("%s", trf("Budget kind: %s (from the folder)", asset::modelKindFolder(model->kind)).c_str());
+            budgetRow(tr("Triangles"), model->triangles[0], budget.triangles);
+            budgetRow(tr("Materials"), model->materials, budget.materials);
+            if (model->bones > 0 || budget.bones > 0) budgetRow(tr("Bones"), model->bones, budget.bones);
+            budgetRow(tr("Texture size"), model->textureSize, budget.textureSize);
+            ImGui::TextDisabled("%s", trf("%u LODs, %zu clips, %u textures", model->lodCount, model->clips.size(), model->textures).c_str());
+        }
+    } else if (assetKindOf(name) == 4 && m_audio) {
+        if (m_assetPreviewPath != relative) { // read once per selection
+            m_assetPreviewPath = relative;
+            m_assetPreviewPeaks.clear();
+            m_assetPreviewSeconds = 0.0;
+            if (m_audio->playing(m_assetPreviewVoice)) m_audio->stop(m_assetPreviewVoice);
+            m_audio->peaks(full, 160, m_assetPreviewPeaks, m_assetPreviewSeconds);
+        }
+        const bool playing = m_audio->playing(m_assetPreviewVoice);
+        if (iconButton(playing ? icon::kStop : icon::kPlay, playing ? tr("Stop") : tr("Play"))) {
+            if (playing) m_audio->stop(m_assetPreviewVoice);
+            else m_assetPreviewVoice = m_audio->playFile(full);
+        }
+        ImGui::SameLine();
+        if (m_assetPreviewPeaks.empty()) {
+            ImGui::TextColored(color::kDanger, "%s", tr("The sound could not be read"));
+        } else {
+            ImGui::TextDisabled("%.2f s", m_assetPreviewSeconds);
+            const ImVec2 min = ImGui::GetCursorScreenPos();
+            const ImVec2 size(std::max(ImGui::GetContentRegionAvail().x, 10.0f), std::max(ImGui::GetContentRegionAvail().y, 10.0f));
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            const f32 middle = min.y + size.y * 0.5f;
+            const f32 step = size.x / static_cast<f32>(m_assetPreviewPeaks.size());
+            for (size_t i = 0; i < m_assetPreviewPeaks.size(); ++i) {
+                const f32 h = std::max(m_assetPreviewPeaks[i] * size.y * 0.5f, 1.0f);
+                const f32 x = min.x + step * static_cast<f32>(i);
+                draw->AddRectFilled(ImVec2(x, middle - h), ImVec2(x + std::max(step - 1.0f, 1.0f), middle + h), ImGui::GetColorU32(ImGuiCol_PlotHistogram));
+            }
+            ImGui::Dummy(size);
+        }
+    }
+    ImGui::EndChild();
 }
 
 // Text files that name this asset, found the same way a rename finds what to fix. Effects and sound events named without their folder aren't found
