@@ -295,6 +295,7 @@ void Editor::update(f64 dt) {
         m_multiOwner = m_selected;
     }
     drawMenuBar();
+    nextHintFrame();
     drawStatusBar();
 
     const ImGuiID dockId = ImGui::GetID("MealKitDockSpace");
@@ -1156,6 +1157,7 @@ void Editor::drawStatusBar() {
             }
             drawUnsavedStatus();
             if (m_mode == Mode::Play) ImGui::TextUnformatted(m_playStatus.c_str());
+            else if (!shownHint().empty()) ImGui::TextDisabled("%s", shownHint().c_str()); // hovered item's tooltip, first line
             else if (m_sceneHovered) // only when it applies; messages show as notices over the viewport (drawNotices)
                 ImGui::TextDisabled(
                     "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));

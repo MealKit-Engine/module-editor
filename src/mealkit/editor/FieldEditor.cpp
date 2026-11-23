@@ -42,6 +42,9 @@ ImGuiDataType dataType(const ValueInfo& v) {
     }
 }
 
+// Hint of the item hovered this frame / last frame (the status bar is drawn before the panels, so it reads last frame's)
+std::string g_hintNow, g_hintShown;
+
 void nameTooltip(const char* name) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", name);
 }
@@ -635,6 +638,7 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         ImGui::EndDisabled();
         if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", description);
+        if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) hoverHint(description);
         // Dot on the left if different from the default
         const bool hasDefaults = context && context->defaults;
         bool differs = false;
@@ -758,11 +762,26 @@ bool iconButtonFrame(const char* tooltip, bool active) {
     const bool pressed = ImGui::Button("##icon", ImVec2(side, side));
     ImGui::PopStyleColor(2);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tooltip);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) hoverHint(tooltip);
     ImGui::PopID();
     return pressed;
 }
 
 } // namespace
+
+void hoverHint(const char* text) {
+    if (!text) return;
+    const char* end = text;
+    while (*end && *end != '\n') ++end; // the first line only: tooltips can run long
+    g_hintNow.assign(text, end);
+}
+
+void nextHintFrame() {
+    g_hintShown.swap(g_hintNow);
+    g_hintNow.clear();
+}
+
+const std::string& shownHint() { return g_hintShown; }
 
 void drawGlyph(ImDrawList* draw, const char* glyph, ImVec2 min, ImVec2 max, f32 size, unsigned int color) {
     ImFont* font = ImGui::GetFont();
@@ -785,6 +804,7 @@ bool iconValueButton(const char* glyph, const std::string& value, const char* to
     const bool pressed = ImGui::Button((std::string(glyph) + "  " + value + "###" + tooltip).c_str());
     ImGui::PopStyleColor(2);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tooltip);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) hoverHint(tooltip);
     return pressed;
 }
 

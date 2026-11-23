@@ -85,6 +85,11 @@ bool iconButton(const char* glyph, const char* tooltip, bool active = false);
 bool iconValueButton(const char* glyph, const std::string& value, const char* tooltip);
 // The same button with a drawn magnet (no such glyph in the icon fonts)
 bool magnetButton(const char* tooltip, bool active = false);
+// Status bar hint: a hovered item (icon button, field row with a description) passes its tooltip's first line while hovered.
+// nextHintFrame() runs once per frame before the status bar, which shows last frame's hint (it is drawn before the panels)
+void hoverHint(const char* text);
+void nextHintFrame();
+const std::string& shownHint();
 // Draws one icon glyph centered in a rect. A button's label won't do: it starts at the frame padding when the glyph is wider than the room inside
 void drawGlyph(ImDrawList* draw, const char* glyph, ImVec2 min, ImVec2 max, f32 size, unsigned int color);
 
