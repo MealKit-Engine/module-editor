@@ -580,7 +580,6 @@ void ModulesPanel::drawDetails(bool canChange) {
         ImGui::TextWrapped("%s", item.summary.c_str());
     }
 
-    // Dependencies
     // Chips that pick that module; requires missing from the build are yellow
     if (!m_details.needs.empty() || !m_details.neededBy.empty()) ImGui::Spacing();
     bool pickedModule = moduleChips(tr("Requires"), m_details.needs, m_details.missing);
@@ -630,7 +629,6 @@ void ModulesPanel::drawDetails(bool canChange) {
         }
     }
 
-    // Actions
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::BeginDisabled(!canChange);

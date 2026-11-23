@@ -54,7 +54,6 @@ void PerfPanel::drawContent() {
         ImGui::PushID(name);
         ImGui::PlotLines("##plot", values.data(), static_cast<int>(values.size()), 0, nullptr, 0.0f,
                          static_cast<float>(peak * 1.1), size);
-        // Budget line
         const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
         const f32 y = max.y - (max.y - min.y) * static_cast<f32>(budget / (peak * 1.1));
         ImGui::GetWindowDrawList()->AddLine(ImVec2(min.x, y), ImVec2(max.x, y), ImGui::GetColorU32(red), 1.0f);

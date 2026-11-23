@@ -47,7 +47,6 @@ public:
     std::string takeStatus() { return std::move(m_status); }
 
 private:
-    // One tuning file
     struct Doc {
         const char* file = ""; // file name inside assets
         reflect::Instance value;

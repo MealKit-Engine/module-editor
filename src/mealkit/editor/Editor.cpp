@@ -1284,7 +1284,6 @@ void Editor::drawViewportToolbar() {
         const auto beginGroup = [&](int g) {
             if (g > 0) {
                 ImGui::SameLine(0.0f, gap * 0.5f);
-                // Thin divider between groups
                 const ImVec2 p = ImGui::GetCursorScreenPos();
                 const f32 h = ImGui::GetFrameHeight();
                 ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + h * 0.2f), ImVec2(p.x, p.y + h * 0.8f), ImGui::GetColorU32(ImGuiCol_Separator));

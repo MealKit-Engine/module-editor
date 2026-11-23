@@ -454,7 +454,6 @@ void Editor::renameAsset(const std::string& from, const std::string& toRaw) {
         setStatus(trf("Could not move %s", from.c_str()), true);
         return;
     }
-    // Fix references
     std::vector<std::string> files;
     collectFiles(root, {}, files);
     size_t changedFiles = 0, changedRefs = 0;
