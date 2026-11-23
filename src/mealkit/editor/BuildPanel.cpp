@@ -34,7 +34,16 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
             m_status = trf("build.bat not found: %s", script.c_str());
             return false;
         }
-        const std::string arg = kind == BuildKind::GameCode ? editorBuildName() : std::string("Export");
+        std::string arg = kind == BuildKind::GameCode ? editorBuildName() : std::string("Export");
+        if (kind == BuildKind::Profile) {
+            const BuildProfile* profile = selectedProfile();
+            if (!profile) {
+                m_status = tr("Pick a build profile first");
+                return false;
+            }
+            arg = "profile:" + profile->id;
+            m_runningProfile = profile->title();
+        }
         command = buildCommand(project.buildRoot(), arg);
         m_log = "> " + fileName(script) + " " + arg + "\n";
     }
@@ -42,6 +51,7 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
     m_step = m_steps = 0;
     m_scroll = true;
     if (kind != BuildKind::GameCode) m_open = true; // game code builds open only on failure
+    m_profilesLoaded = false; // a build may be started right after a profile file was edited by hand
     if (!m_process.start(command, project.buildRoot())) {
         m_log += std::string(tr("Could not start the build.")) + "\n";
         m_open = true;
@@ -82,10 +92,15 @@ bool BuildPanel::poll(const ProjectInfo& project, f64 now) {
         m_open = true;
         m_status = m_kind == BuildKind::GameCode  ? tr("Game code build failed - see the build log")
                    : m_kind == BuildKind::Upgrade ? tr("Upgrade failed - see the build log")
+                   : m_kind == BuildKind::Profile ? trf("Build profile %s failed - see the build log", m_runningProfile.c_str())
                                                   : tr("Release build failed - see the build log");
         MEALKIT_ERROR("Build failed with exit code %d", m_process.exitCode());
     } else if (m_kind == BuildKind::Upgrade) {
         m_log += std::string("\n") + tr("Upgrade done - rebuilding the game code") + "\n";
+    } else if (m_kind == BuildKind::Profile) {
+        m_log += "\n" + trf("Done (%ss): %s", seconds.c_str(), m_runningProfile.c_str()) + "\n";
+        m_status = trf("Build profile done: %s", m_runningProfile.c_str());
+        MEALKIT_INFO("Build profile finished: %s", m_runningProfile.c_str());
     } else if (m_kind == BuildKind::GameCode) {
         m_log += "\n" + trf("Done (%ss): game code", seconds.c_str()) + "\n";
         MEALKIT_INFO("Game code build finished");
@@ -97,11 +112,33 @@ bool BuildPanel::poll(const ProjectInfo& project, f64 now) {
     return true;
 }
 
+void BuildPanel::loadProfiles(const ProjectInfo& project) {
+    m_profiles = project.directory.empty() ? std::vector<BuildProfile>() : loadBuildProfiles(project.directory);
+    m_profilesLoaded = true;
+    bool found = false;
+    for (const BuildProfile& profile : m_profiles) found = found || profile.id == m_profileId;
+    if (!found) m_profileId = m_profiles.empty() ? std::string() : m_profiles.front().id;
+}
+
+const BuildProfile* BuildPanel::selectedProfile() const {
+    for (const BuildProfile& profile : m_profiles) {
+        if (profile.id == m_profileId) return &profile;
+    }
+    return nullptr;
+}
+
+std::string BuildPanel::releaseFolder(const ProjectInfo& project) const {
+    const BuildProfile* profile = selectedProfile();
+    if (profile && profile->isExport()) return buildProfileOutputDirectory(project.directory, project.name(), *profile);
+    return project.exportDirectory();
+}
+
 bool BuildPanel::drawStatus(f64 now) const {
     if (!m_process.running()) return false;
     ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f),
                        m_kind == BuildKind::GameCode  ? tr("Building game code... %.0fs")
                        : m_kind == BuildKind::Upgrade ? tr("Upgrading project... %.0fs")
+                       : m_kind == BuildKind::Profile ? tr("Profile build... %.0fs")
                                                       : tr("Release build... %.0fs"),
                        now - m_start);
     if (m_steps > 0) {
@@ -125,12 +162,49 @@ bool BuildPanel::drawContent(bool editing, const ProjectInfo& project, f64 now, 
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::BeginDisabled(!directoryExists(project.exportDirectory()));
-    if (iconButton(icon::kFolderOpen, tr("Open Release Folder"))) openInExplorer(project.exportDirectory());
+    const std::string releaseFolder = this->releaseFolder(project);
+    ImGui::BeginDisabled(!directoryExists(releaseFolder));
+    if (iconButton(icon::kFolderOpen, tr("Open Release Folder"))) openInExplorer(releaseFolder);
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (m_process.running())
         ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), tr("Building... %.0fs"), now - m_start);
+
+    // Build profiles: one file each in profiles/ (configuration + export folder). The combo picks the one [Build Profile] runs
+    if (!m_profilesLoaded && !project.directory.empty()) loadProfiles(project);
+    if (m_profiles.empty()) {
+        ImGui::BeginDisabled(project.directory.empty() || !editing);
+        if (ImGui::Button(tr("Add Default Profiles"))) {
+            for (const BuildProfile& profile : defaultBuildProfiles()) {
+                if (!fileExists(buildProfileDirectory(project.directory) + "/" + profile.id + ".profile")) saveBuildProfile(project.directory, profile);
+            }
+            loadProfiles(project);
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", tr("Writes profiles/*.profile: Windows DX12, Windows Vulkan, Linux Vulkan and Debug. Edit the files to change a configuration or output folder."));
+    } else {
+        const BuildProfile* current = selectedProfile();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        if (beginCombo("##profile", current ? current->title().c_str() : tr("Build profile"))) {
+            for (const BuildProfile& profile : m_profiles) {
+                if (ImGui::Selectable(profile.title().c_str(), profile.id == m_profileId)) m_profileId = profile.id;
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m_process.running() || project.directory.empty() || !editing || !current);
+        if (ImGui::Button(tr("Build Profile"))) {
+            *request = BuildKind::Profile;
+            requested = true;
+        }
+        ImGui::EndDisabled();
+        if (current) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s%s%s", current->config.c_str(), current->isExport() ? " > " : "",
+                                current->isExport() ? buildProfileOutputDirectory(project.directory, project.name(), *current).c_str() : "");
+        }
+    }
     ImGui::Separator();
     if (ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
         // Per line: if there's a "file(line)", make it clickable (opens in the code editor; relative paths are relative to the project folder)

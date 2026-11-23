@@ -1981,7 +1981,7 @@ void Editor::startBuild(BuildKind kind) {
         setStatus(tr("This PC has no C++ compiler: building is for programmers. Use Get Latest Game Code."), true);
         return;
     }
-    if (kind == BuildKind::Export && m_projectPanel.dirty() && !m_projectPanel.save(m_project)) return;
+    if ((kind == BuildKind::Export || kind == BuildKind::Profile) && m_projectPanel.dirty() && !m_projectPanel.save(m_project)) return;
     if (kind == BuildKind::GameCode && m_engineStale) { // it would relink the engine this editor holds (startEngineCheck)
         m_engineRestartPrompt = true;
         return;
