@@ -300,6 +300,8 @@ private:
         std::function<bool()> enabled;
         std::function<void()> run;
         const char* module = nullptr; // engine module the command belongs to: hidden while the project doesn't have it
+        int defaultChord = 0;         // the built-in shortcuts, set by buildCommands (the user's file overrides chord and chord2)
+        int defaultChord2 = 0;
     };
     void buildCommands();
     // Engine modules of the open project (docs/ENGINE_MODULES.md "Module selection"): its modules/ folders with "type engine"; the engine's
@@ -315,7 +317,14 @@ private:
     void commandMenuItem(const char* name, const bool* selected = nullptr);
     void runShortcuts();
     void drawCommandPalette();
-    void drawShortcutHelp(); // F1
+    void drawShortcutHelp(); // F1 / [Settings] > Keyboard Shortcuts: click a key to rebind it
+    // Rebinding: the user's own shortcuts are lines "<command> = <keys>" in <user folder>/editor_shortcuts.txt (an empty value = no shortcut), applied over the
+    // table's defaults. Taking a key another command uses asks first and frees that command's key
+    void loadShortcutOverrides();
+    void saveShortcutOverrides() const;
+    void setCommandChord(size_t index, int chord);
+    int m_shortcutRecording = -1; // command being rebound (waiting for a key press), -1 = none
+    int m_shortcutPendingIndex = -1, m_shortcutPendingChord = 0, m_shortcutPendingOther = -1; // a taken key waiting for the user's answer
     std::vector<Command> m_commands;
     bool m_paletteOpen = false;
     char m_paletteSearch[128] = {};

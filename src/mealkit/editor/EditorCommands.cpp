@@ -19,7 +19,47 @@
 namespace mealkit::editor {
 namespace {
 
-// Case-insensitive substring (Korean compared byte for byte)
+std::string shortcutsPath() { return editorUserDirectory() + MEALKIT_SEP "editor_shortcuts.txt"; }
+
+// "Ctrl+Shift+S" (the names ImGui::GetKeyChordName writes) -> chord. 0 if a part is not known
+int parseChord(const std::string& text) {
+    int chord = 0;
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        size_t end = text.find('+', pos);
+        if (end == std::string::npos) end = text.size();
+        std::string part = text.substr(pos, end - pos);
+        pos = end + 1;
+        while (!part.empty() && part.front() == ' ') part.erase(0, 1);
+        while (!part.empty() && part.back() == ' ') part.pop_back();
+        if (part.empty()) continue;
+        if (part == "Ctrl") chord |= ImGuiMod_Ctrl;
+        else if (part == "Shift") chord |= ImGuiMod_Shift;
+        else if (part == "Alt") chord |= ImGuiMod_Alt;
+        else if (part == "Super") chord |= ImGuiMod_Super;
+        else {
+            ImGuiKey found = ImGuiKey_None;
+            for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k) {
+                const ImGuiKey key = static_cast<ImGuiKey>(k);
+                if (ImGui::IsGamepadKey(key) || ImGui::IsMouseKey(key) || ImGui::IsLRModKey(key)) continue;
+                if (part == ImGui::GetKeyName(key)) found = key;
+            }
+            if (found == ImGuiKey_None) return 0;
+            chord |= found;
+        }
+    }
+    return (chord & ~ImGuiMod_Mask_) ? chord : 0; // a shortcut needs a key besides the modifiers
+}
+
+// The key pressed this frame as a chord (modifiers held + one key), 0 if none. Gamepad, mouse and bare modifier keys don't count
+int pressedChord() {
+    for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k) {
+        const ImGuiKey key = static_cast<ImGuiKey>(k);
+        if (ImGui::IsGamepadKey(key) || ImGui::IsMouseKey(key) || ImGui::IsLRModKey(key)) continue;
+        if (ImGui::IsKeyPressed(key, false)) return static_cast<int>(ImGui::GetIO().KeyMods) | key;
+    }
+    return 0;
+}
 
 } // namespace
 
@@ -110,7 +150,59 @@ void Editor::buildCommands() {
         {"Memory", 0, 0, always, [this] { toggleDebugPage(DebugPage::Memory); }},
         {"Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Log); }},
     };
+    for (Command& c : m_commands) {
+        c.defaultChord = c.chord;
+        c.defaultChord2 = c.chord2;
+    }
     tagCommandModules();
+    loadShortcutOverrides();
+}
+
+void Editor::loadShortcutOverrides() {
+    std::string text;
+    if (!readTextFile(shortcutsPath(), text)) return;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t end = text.find('\n', pos);
+        if (end == std::string::npos) end = text.size();
+        std::string line = text.substr(pos, end - pos);
+        pos = end + 1;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty() || line[0] == '#') continue;
+        const size_t eq = line.find(" =");
+        if (eq == std::string::npos) continue;
+        const std::string name = line.substr(0, eq);
+        std::string keys = line.substr(eq + 2);
+        while (!keys.empty() && keys.front() == ' ') keys.erase(0, 1);
+        const int chord = keys.empty() ? 0 : parseChord(keys);
+        bool known = false;
+        for (Command& c : m_commands)
+            if (name == c.name) {
+                known = true;
+                if (keys.empty() || chord) {
+                    c.chord = chord;
+                    c.chord2 = 0;
+                } else {
+                    MEALKIT_WARN("editor_shortcuts.txt: unknown keys \"%s\" for %s", keys.c_str(), name.c_str());
+                }
+            }
+        if (!known) MEALKIT_WARN("editor_shortcuts.txt: unknown command \"%s\"", name.c_str());
+    }
+}
+
+void Editor::saveShortcutOverrides() const {
+    std::string out = "# MealKit editor shortcuts: <command> = <keys>, empty = no shortcut. Edited in [Settings] > Keyboard Shortcuts\n";
+    for (const Command& c : m_commands)
+        if (c.chord != c.defaultChord || c.chord2 != c.defaultChord2) out += std::string(c.name) + " = " + shortcutText(c) + "\n";
+    createDirectories(editorUserDirectory());
+    if (!writeTextFile(shortcutsPath(), out)) MEALKIT_WARN("Could not write %s", shortcutsPath().c_str());
+}
+
+// Gives the command at index this key as its only shortcut (0 clears it). The caller has dealt with a command that used the key
+void Editor::setCommandChord(size_t index, int chord) {
+    m_commands[index].chord = chord;
+    m_commands[index].chord2 = 0;
+    saveShortcutOverrides();
 }
 
 const Editor::Command* Editor::findCommand(const char* name) const {
@@ -149,7 +241,7 @@ void Editor::runShortcuts() {
         }
     }
     ImGuiIO& io = ImGui::GetIO();
-    if (io.WantTextInput || m_looking) return;
+    if (io.WantTextInput || m_looking || m_shortcutRecording >= 0) return; // while a key is being picked for a command, pressing it must not run it
     for (const Command& c : m_commands) {
         const bool hit = (c.chord && ImGui::IsKeyChordPressed(c.chord)) || (c.chord2 && ImGui::IsKeyChordPressed(c.chord2));
         if (hit && c.enabled()) {
@@ -164,18 +256,75 @@ void Editor::runShortcuts() {
     }
 }
 
-// F1: shortcut list from the command table
+// F1 / [Settings] > Keyboard Shortcuts: every command with a key, or that can have one. Click a key, press the new one (Backspace clears, Esc cancels)
 void Editor::drawShortcutHelp() {
-    if (ImGui::BeginTable("##keys", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
-        for (const Command& c : m_commands) {
-            if (!c.chord) continue;
+    ImGui::TextDisabled("%s", tr("Click a shortcut, then press the new keys. Backspace removes it, Esc cancels."));
+    // A key press while one is being picked
+    if (m_shortcutRecording >= 0) {
+        const int pressed = pressedChord();
+        const size_t index = static_cast<size_t>(m_shortcutRecording);
+        if (pressed == ImGuiKey_Escape) {
+            m_shortcutRecording = -1;
+        } else if (pressed != 0) {
+            m_shortcutRecording = -1;
+            const int chord = pressed == ImGuiKey_Backspace ? 0 : pressed;
+            int other = -1;
+            for (size_t k = 0; k < m_commands.size() && chord; ++k)
+                if (k != index && (m_commands[k].chord == chord || m_commands[k].chord2 == chord)) other = static_cast<int>(k);
+            if (other >= 0) {
+                m_shortcutPendingIndex = static_cast<int>(index);
+                m_shortcutPendingChord = chord;
+                m_shortcutPendingOther = other;
+                ImGui::OpenPopup("##shortcutTaken");
+            } else {
+                setCommandChord(index, chord);
+            }
+        }
+    }
+    if (ImGui::BeginPopupModal("##shortcutTaken", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        const Command& taker = m_commands[static_cast<size_t>(m_shortcutPendingIndex)];
+        Command& owner = m_commands[static_cast<size_t>(m_shortcutPendingOther)];
+        ImGui::TextUnformatted(trf("%s is used by %s. Use it for %s instead?", ImGui::GetKeyChordName(m_shortcutPendingChord), tr(owner.name), tr(taker.name)).c_str());
+        if (ImGui::Button(tr("OK"))) {
+            if (owner.chord == m_shortcutPendingChord) {
+                owner.chord = owner.chord2 == m_shortcutPendingChord ? 0 : owner.chord2;
+                owner.chord2 = 0;
+            } else {
+                owner.chord2 = 0;
+            }
+            setCommandChord(static_cast<size_t>(m_shortcutPendingIndex), m_shortcutPendingChord);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(tr("Cancel")) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    if (ImGui::BeginTable("##keys", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
+        ImGui::TableSetupColumn("##name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("##keys", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 14.0f);
+        ImGui::TableSetupColumn("##reset", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 2.5f);
+        for (size_t i = 0; i < m_commands.size(); ++i) {
+            Command& c = m_commands[i];
+            if (c.module && !projectHas(c.module)) continue;
+            ImGui::PushID(static_cast<int>(i));
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(tr(c.name));
             ImGui::TableNextColumn();
+            const bool recording = m_shortcutRecording == static_cast<int>(i);
             std::string keys = shortcutText(c);
             if (c.chord2) keys += std::string(", ") + ImGui::GetKeyChordName(c.chord2);
-            ImGui::TextUnformatted(keys.c_str());
+            if (keys.empty()) keys = "-";
+            if (ImGui::Selectable((recording ? std::string(tr("Press a key...")) : keys).c_str(), recording)) m_shortcutRecording = recording ? -1 : static_cast<int>(i);
+            ImGui::TableNextColumn();
+            if (c.chord != c.defaultChord || c.chord2 != c.defaultChord2) {
+                if (iconButton(icon::kUndo, tr("Reset to the default shortcut"))) {
+                    c.chord = c.defaultChord;
+                    c.chord2 = c.defaultChord2;
+                    saveShortcutOverrides();
+                }
+            }
+            ImGui::PopID();
         }
         const char* fixed[][2] = {{"Fly the camera", "Right drag + WASD/QE"}, {"Pan the camera", "Middle drag"},
                                   {"Orbit the camera", "Alt + left drag"},     {"Go to camera bookmark", "1 - 9"},
