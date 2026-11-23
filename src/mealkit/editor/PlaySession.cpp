@@ -175,6 +175,7 @@ bool PlaySession::start(const PlayConfig& config, Editor& editor, GameModuleHost
                                " --scene \"" + scenePath + "\"";
             if (!m_options.tuningPath.empty()) args += " --tuning \"" + m_options.tuningPath + "\"";
             if (!viewTuningPath.empty()) args += " --view-tuning \"" + viewTuningPath + "\"";
+            args += " --vsync 0"; // see EditorMain.cpp: windows sharing one GPU stall on FIFO present
             if (config.clientBots) args += " --bot";
             const std::string log = dir + MEALKIT_SEP "player" + std::to_string(i) + ".log";
             if (!m_clients.launch(exe, args, config.projectDir, log)) {

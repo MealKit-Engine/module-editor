@@ -244,6 +244,7 @@ int main(int argc, char** argv) {
     if (!window.create({"MealKit Editor", opt.windowWidth, opt.windowHeight, editor::kEditorCaptionColor})) return 1;
     if (!opt.projectDir.empty() && !opt.frames) window.setPlacement(editor::loadPreferences().window); // automated runs keep a fixed size
     render::Renderer renderer;
+    bool restoreVsync = false; // multi-player play turns vsync off for its length
     if (!renderer.init({window.nativeHandle(), window.width(), window.height(), true, opt.debugLayer, opt.gpuCapture,
                         userDataDirectory() + "/MealKit Editor/cache"}))
         MEALKIT_FATAL("Renderer initialization failed.\n%s", renderer.initError());
@@ -400,6 +401,11 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Several windows presenting with FIFO on one GPU stall for seconds on Linux (Mesa X11: 14 of 30 runs of --play --players 3), so multi-player play runs without vsync
+        if (editor.mode() == editor::Mode::Edit && restoreVsync) {
+            renderer.setVsync(true);
+            restoreVsync = false;
+        }
         if (editor.mode() == editor::Mode::Edit && host.loaded() && editor.takePlayRequest()) {
             editor::PlayConfig config;
             config.players = editor.playPlayers();
@@ -413,6 +419,10 @@ int main(int argc, char** argv) {
             if (!config.replayPath.empty()) config.players = 1;
             std::string playError;
             if (play.start(config, editor, host, models, audio, feedback, now, playError)) {
+                if (config.players > 1 && renderer.vsync()) {
+                    renderer.setVsync(false);
+                    restoreVsync = true;
+                }
                 editor.setMode(editor::Mode::Play);
             } else {
                 MEALKIT_ERROR("Play failed: %s", playError.c_str());
