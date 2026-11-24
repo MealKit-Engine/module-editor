@@ -134,6 +134,7 @@ public:
     // Camera previews in the scene view (edit mode, Esc stops): look through the selected virtual camera / play a cutscene row
     void lookThrough(u32 cameraId) { m_lookThrough = cameraId; } // --look-through <id> (automated capture)
     void setLookdevModel(const std::string& model) { m_assetSelected = model; } // --lookdev-model: as if picked in [Assets]
+    void setLookdevMaterial(i32 index) { m_lookdev.selectMaterial(index); }     // --lookdev-material: [Materials] page with this row selected
     // MkRender link (EditorLink.cpp): live service scene/ (state, play, stop, look)
     void addSceneLink();
     std::string linkScene(const std::string& file);
