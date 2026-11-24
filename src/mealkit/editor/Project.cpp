@@ -15,12 +15,29 @@ using mkcontract::normalizeDirectory;
 std::string ProjectInfo::filePath() const { return directory + "/" + kProjectFileName; }
 
 const std::string& editorBuildName() {
-    // The editor exe is in <folder>\build\<name>\bin: Editor (DX12) or VulkanEditor
+    // The editor exe is in <folder>/build/<os>/<name>/bin: Editor (DX12) or VulkanEditor
     static const std::string name = [] {
         const std::string build = fileName(parentDirectory(executableDirectory()));
         return build == "VulkanEditor" ? build : std::string("Editor");
     }();
     return name;
+}
+
+const char* buildOsName() {
+#if defined(_WIN32)
+    return "windows";
+#elif defined(__APPLE__)
+    return "macos";
+#else
+    return "linux";
+#endif
+}
+
+std::string buildTreeDirectory(const std::string& root, const std::string& config) {
+    const std::string tree = root + "/build/" + buildOsName() + "/" + config;
+    const std::string old = root + "/build/" + config;
+    if (!directoryExists(tree) && fileExists(old + "/CMakeCache.txt")) return old;
+    return tree;
 }
 
 const char* exeSuffix() {
@@ -78,7 +95,7 @@ std::string ProjectInfo::buildRoot() const {
     return directory;
 }
 
-std::string ProjectInfo::editorBuildDirectory() const { return buildRoot() + "/build/" + editorBuildName(); }
+std::string ProjectInfo::editorBuildDirectory() const { return buildTreeDirectory(buildRoot(), editorBuildName()); }
 
 std::string ProjectInfo::gameDllPath() const {
     return editorBuildDirectory() + "/bin/" + settings.name + "_game" + libraryExtension();
@@ -90,7 +107,7 @@ std::string ProjectInfo::startScenePath() const {
     return directory + "/" + relative;
 }
 
-std::string ProjectInfo::exportDirectory() const { return directory + "/export/" + settings.name; }
+std::string ProjectInfo::exportDirectory() const { return directory + "/export/" + buildOsName() + "/" + settings.name; }
 
 bool isProjectDirectory(const std::string& directory) {
     return !directory.empty() && fileExists(directory + "/" + kProjectFileName);

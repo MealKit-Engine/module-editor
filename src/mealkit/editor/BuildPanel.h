@@ -14,7 +14,7 @@ namespace mealkit::editor {
 
 enum class BuildKind {
     GameCode, // build.bat Editor: game DLL (the app swaps it in when done)
-    Export,   // build.bat Export: shipping exe + assets → export\<name>
+    Export,   // build.bat Export: shipping exe + assets → export/<os>/<name>
     Profile,  // the selected build profile (profiles/<id>.profile: configuration and export folder), run as configuration profile:<id>
     Upgrade,  // engine's tools\upgrade_project.ps1: project template files to the current engine version (then a game code build)
 };
@@ -35,7 +35,7 @@ public:
     // Build profiles of the project (read again whenever the window is drawn after loadProfiles, e.g. when a project opens)
     void loadProfiles(const ProjectInfo& project);
     const BuildProfile* selectedProfile() const;
-    // The folder [Open Release Folder] opens: the selected export profile's output, else export/<name>
+    // The folder [Open Release Folder] opens: the selected export profile's output, else export/<os>/<name>
     std::string releaseFolder(const ProjectInfo& project) const;
 
     bool takeOpenRequest() { const bool open = m_open; m_open = false; return open; } // a build wants its log seen

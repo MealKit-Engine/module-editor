@@ -1888,7 +1888,8 @@ void Editor::startEngineCheck() {
     namespace fs = std::filesystem;
     std::error_code ec;
     const fs::path engine = fs::path(std::u8string(m_engineDirectory.begin(), m_engineDirectory.end()));
-    const fs::path log = engine / "build" / editorBuildName() / ".ninja_log";
+    const std::string tree = buildTreeDirectory(m_engineDirectory, editorBuildName());
+    const fs::path log = fs::path(std::u8string(tree.begin(), tree.end())) / ".ninja_log";
     if (!fs::exists(log, ec)) return;
     const fs::file_time_type built = fs::last_write_time(log, ec);
     if (ec) return;

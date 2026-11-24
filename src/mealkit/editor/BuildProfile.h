@@ -7,7 +7,7 @@
 //   @format profile 1
 //   label Windows Vulkan
 //   config VulkanExport        the build script's configuration (Release, Debug, Profile, Export, VulkanExport, Vulkan ...)
-//   output export/win-vulkan   folder an export is gathered in (Export and VulkanExport only; default export/<name>)
+//   output export/win-vulkan   folder an export is gathered in (Export and VulkanExport only; default export/<os>/<name>)
 // The build script reads the same file for the configuration "profile:<id>", so a profile builds the same from a shell or the editor.
 namespace mealkit::editor {
 
@@ -15,7 +15,7 @@ struct BuildProfile {
     std::string id;     // file name without ".profile": letters, digits, '_', '-', '.'
     std::string label;  // shown in the editor (id when empty)
     std::string config; // build script configuration
-    std::string output; // export folder relative to the project (or absolute); empty = export/<name>
+    std::string output; // export folder relative to the project (or absolute); empty = export/<os>/<name>
 
     const std::string& title() const { return label.empty() ? id : label; }
     bool isExport() const { return config == "Export" || config == "VulkanExport"; }

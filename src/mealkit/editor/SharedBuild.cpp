@@ -13,7 +13,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-std::string headlessPath(const ProjectInfo& project) { return project.buildRoot() + MEALKIT_SEP "build" MEALKIT_SEP "Release" MEALKIT_SEP "bin" MEALKIT_SEP + project.name() + "_headless" + exeSuffix(); }
+std::string headlessPath(const ProjectInfo& project) { return buildTreeDirectory(project.buildRoot(), "Release") + MEALKIT_SEP "bin" MEALKIT_SEP + project.name() + "_headless" + exeSuffix(); }
 
 // Through a temporary name, so a reader never sees half a file. Copying keeps the write time, which is how versions are compared
 bool copyWhole(const std::string& from, const std::string& to, std::string& error) {

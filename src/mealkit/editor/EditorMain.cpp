@@ -6,7 +6,7 @@
 //   MealKitEditor.exe --player-window --project <folder> [--player-index n] [--view-tuning <file>] --join <address:port> ...
 //                                             join window mode (opened by editor multiplayer play; the rest are the same game options as the shipping exe)
 //
-// Game code: <project>\build\Editor\bin\<name>_game.dll. When rebuilt, it's swapped in automatically in edit mode (hot reload).
+// Game code: <project>/build/<os>/Editor/bin/<name>_game.dll. When rebuilt, it's swapped in automatically in edit mode (hot reload).
 // Editor controls: right drag + WASD/QE camera (scenes are edited in MkRender), Ctrl+S save, F5 play,
 //              Ctrl+R game code build, Ctrl+B shipping build
 
@@ -167,16 +167,16 @@ bool parseArgs(int argc, char** argv, Options& o) {
     return true;
 }
 
-// Engine folder: the one this exe sits in (<engine>\build\<config>\bin), so an engine that MealKit Manager installed
+// Engine folder: the one this exe sits in (<engine>/build/<os>/<config>/bin, or <engine>/build/<config>/bin before that layout), so an engine that MealKit Manager installed
 // (tools\package_engine.ps1, extracted anywhere) finds itself. Otherwise the repo it was built from (CMake path → Windows notation).
 std::string engineDirectory() {
     std::string up = executableDirectory();
     up = nativePath(up);
-    for (int i = 0; i < 3 && !up.empty(); ++i) {
+    for (int i = 0; i < 4 && !up.empty(); ++i) {
         const size_t slash = up.find_last_of(kPathSeparator);
         up = slash == std::string::npos ? std::string() : up.substr(0, slash);
+        if (i >= 2 && !up.empty() && fileExists(up + MEALKIT_SEP "cmake" MEALKIT_SEP "MealKit.cmake") && fileExists(up + MEALKIT_SEP "VERSION")) return up;
     }
-    if (!up.empty() && fileExists(up + MEALKIT_SEP "cmake" MEALKIT_SEP "MealKit.cmake") && fileExists(up + MEALKIT_SEP "VERSION")) return up;
     std::string dir = MEALKIT_ENGINE_DIR;
     dir = nativePath(dir);
     return dir;

@@ -41,7 +41,7 @@ namespace {
 
 constexpr u32 kInputDelayMs = 100; // 127.0.0.1 join windows: fixed (no auto adjustment)
 
-std::string playDirectory(const std::string& projectDir) { return projectDir + MEALKIT_SEP "build" MEALKIT_SEP + editorBuildName() + MEALKIT_SEP "play"; }
+std::string playDirectory(const std::string& projectDir) { return buildTreeDirectory(projectDir, editorBuildName()) + MEALKIT_SEP "play"; }
 
 } // namespace
 
@@ -252,8 +252,8 @@ void PlaySession::update(f64 now, f64 dt, Editor& editor, Window& window, render
     }
     if (!m_firstMatch) {
         if (now - m_startTime > kJoinTimeoutSeconds) {
-            m_failure = trf("The player windows did not connect within %d seconds (see build\\Editor\\play\\player*.log)",
-                            static_cast<int>(kJoinTimeoutSeconds));
+            m_failure = trf("The player windows did not connect within %d seconds (see %s)", static_cast<int>(kJoinTimeoutSeconds),
+                            (playDirectory(m_config.projectDir) + MEALKIT_SEP "player*.log").c_str());
             return;
         }
         char text[160];

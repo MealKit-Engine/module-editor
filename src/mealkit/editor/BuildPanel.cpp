@@ -15,8 +15,8 @@
 namespace mealkit::editor {
 
 // Runs the project's build.bat without a window.
-//   GameCode: build.bat Editor → build\Editor\bin\<name>_game.dll (the engine mealkit.dll isn't touched if already built)
-//   Export:   build.bat Export → rebuilds only the shipping exe and gathers it in export\<name>
+//   GameCode: build.bat Editor → build/<os>/Editor/bin/<name>_game.dll (the engine mealkit.dll isn't touched if already built)
+//   Export:   build.bat Export → rebuilds only the shipping exe and gathers it in export/<os>/<name>
 bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::string& engineDirectory, f64 now) {
     if (m_process.running() || project.directory.empty()) return false;
     std::string command;

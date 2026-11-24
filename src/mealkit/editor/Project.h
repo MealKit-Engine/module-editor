@@ -16,17 +16,22 @@ struct ProjectInfo : game::ProjectFile {
     const std::string& name() const { return settings.name; }
     std::string filePath() const;        // <directory>\mealkit.project
     std::string buildRoot() const;       // folder with build.bat and build\: the project, or the engine repo for its samples\<name>
-    std::string editorBuildDirectory() const; // <buildRoot()>\build\<editorBuildName()>
-    std::string gameDllPath() const;     // build/<editorBuildName()>/bin/<name>_game.dll (.so, .dylib)
+    std::string editorBuildDirectory() const; // buildTreeDirectory(buildRoot(), editorBuildName())
+    std::string gameDllPath() const;     // <editorBuildDirectory()>/bin/<name>_game.dll (.so, .dylib)
     std::string startScenePath() const;  // assets\<scene>
-    std::string exportDirectory() const; // export\<name>
+    std::string exportDirectory() const; // export/<os>/<name>
 };
 
-// This editor's build name = build.bat argument: "Editor" (DX12) or "VulkanEditor" (from build\<name>\bin where the exe is)
+// This editor's build name = build.bat argument: "Editor" (DX12) or "VulkanEditor" (from build/<os>/<name>/bin where the exe is)
 const std::string& editorBuildName();
 
+// Build trees are <root>/build/<os>/<config> and exports <project>/export/<os>/<name> (engine tools/build_dirs.ps1, the same names)
+const char* buildOsName(); // "windows", "linux" or "macos"
+// The build tree of config under root: build/<os>/<config>, or a build/<config> tree from before that layout when only that one exists
+std::string buildTreeDirectory(const std::string& root, const std::string& config);
+
 // OS-dependent build and program names. Windows: build.bat, powershell, .exe, mealkit.dll next to the editor;
-// Linux/macOS: pwsh build.ps1, no suffix, libmealkit.so in build/<name>/engine (found through the editor's RPATH)
+// Linux/macOS: pwsh build.ps1, no suffix, libmealkit.so in build/<os>/<name>/engine (found through the editor's RPATH)
 const char* exeSuffix();                                   // ".exe" or ""
 std::string buildScriptPath(const std::string& buildRoot); // <buildRoot>/build.bat or build.ps1
 // Command line running the project build in buildRoot (config empty = the script's default, Release)

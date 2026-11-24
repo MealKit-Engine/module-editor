@@ -16,7 +16,7 @@
 namespace mealkit::editor {
 namespace {
 
-std::string headlessExe(const ProjectInfo& project) { return project.buildRoot() + "/build/Release/bin/" + project.name() + "_headless" + exeSuffix(); }
+std::string headlessExe(const ProjectInfo& project) { return buildTreeDirectory(project.buildRoot(), "Release") + "/bin/" + project.name() + "_headless" + exeSuffix(); }
 
 struct Summary {
     f64 mean = 0.0, low = 0.0, high = 0.0;

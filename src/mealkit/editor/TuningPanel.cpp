@@ -104,7 +104,7 @@ void TuningPanel::saveDirty() {
 
 std::string TuningPanel::writePlayCopy(const Doc& doc, const char* fileName) {
     if (!doc.value.type() || m_projectDir.empty()) return {};
-    const std::string dir = m_projectDir + MEALKIT_SEP "build" MEALKIT_SEP + editorBuildName() + MEALKIT_SEP "play";
+    const std::string dir = buildTreeDirectory(m_projectDir, editorBuildName()) + MEALKIT_SEP "play"; // the same folder as PlaySession's
     createDirectories(dir);
     const std::string path = dir + MEALKIT_SEP + fileName;
     return reflect::saveTextFile(*doc.value.type(), doc.value.data(), path, text::kTuning, "editor play (unsaved values)")

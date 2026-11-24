@@ -14,7 +14,7 @@
 namespace mealkit::editor {
 namespace {
 
-std::string headlessExe(const ProjectInfo& project) { return project.buildRoot() + MEALKIT_SEP "build" MEALKIT_SEP "Release" MEALKIT_SEP "bin" MEALKIT_SEP + project.name() + "_headless" + exeSuffix(); }
+std::string headlessExe(const ProjectInfo& project) { return buildTreeDirectory(project.buildRoot(), "Release") + MEALKIT_SEP "bin" MEALKIT_SEP + project.name() + "_headless" + exeSuffix(); }
 
 } // namespace
 

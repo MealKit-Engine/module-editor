@@ -1,5 +1,7 @@
 #include "mealkit/editor/BuildProfile.h"
 
+#include "mealkit/editor/Project.h"
+
 #include "mealkit/core/Log.h"
 #include "mealkit/core/TextFormat.h"
 #include "mealkit/platform/Paths.h"
@@ -94,7 +96,7 @@ std::vector<BuildProfile> defaultBuildProfiles() {
 }
 
 std::string buildProfileOutputDirectory(const std::string& projectDirectory, const std::string& projectName, const BuildProfile& profile) {
-    if (profile.output.empty()) return projectDirectory + "/export/" + projectName;
+    if (profile.output.empty()) return projectDirectory + "/export/" + buildOsName() + "/" + projectName;
     return isAbsolutePath(profile.output) ? profile.output : projectDirectory + "/" + profile.output;
 }
 
