@@ -1308,7 +1308,10 @@ void Editor::drawViewportToolbar() {
         if (iconButton(m_ortho ? icon::kOrtho : icon::kPerspective, tr("Switch between perspective and orthographic (wheel zooms in orthographic)"))) m_ortho = !m_ortho;
         ImGui::SameLine(0, 2);
         const char* views[] = {tr("Lit"), tr("Wireframe"), tr("Normals"), tr("LOD Level"), tr("Overdraw"),
-                               tr("Over Budget"), tr("Material Features")};
+                               tr("Over Budget"), tr("Material Features"), tr("Base Color"), tr("Roughness"), tr("Metallic"),
+                               tr("Emissive"), tr("Sun Only"), tr("Ambient Only"), tr("Reflections Only"), tr("Shadow Cascades"),
+                               tr("Mip Level"), tr("Texel Density")};
+        static_assert(sizeof(views) / sizeof(views[0]) == static_cast<size_t>(render::DebugView::Count), "one name per DebugView");
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
         if (beginCombo("##viewMode", views[static_cast<int>(m_debugView)])) {
             for (u32 i = 0; i < static_cast<u32>(render::DebugView::Count); ++i) {
