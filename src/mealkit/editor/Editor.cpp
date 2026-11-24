@@ -790,6 +790,10 @@ void Editor::addSceneObjects(render::DrawList& out, Vec3 eye, bool gameView) con
             if (m_sprites) render::addSprite(out, *m_sprites, e, world);
             continue;
         }
+        if (e.is(scene::kTypeTilemap)) { // painted grid of sheet cells; the whole grid (up to kMaxSpritesPerFrame) when no view rect is known
+            if (m_sprites) render::addTilemap(out, *m_sprites, e, world);
+            continue;
+        }
         if (e.is(scene::kTypeTerrain)) { // axis-aligned, rotation ignored (like the collision)
             if (asset::Terrain* terrain = terrainOf(e))
                 render::addTerrain(out, *m_models, *terrain, world.position, world.scale, e.color,
