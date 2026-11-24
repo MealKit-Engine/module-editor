@@ -99,7 +99,13 @@ bool colorEdit(const char* label, f32* color, bool alpha = false, int flags = 0)
 f32& colorPickerSize();
 
 // Left page/folder list of a window: resizable, no border, the selection bar has room around its text. Close with ImGui::EndChild()
+// It never takes more than 40% of the window width, so the pane on its right keeps room when the window is narrow or the list is dragged wide
 bool beginListPane(const char* id, f32 width);
+
+// Next item on the same row when `width` still fits there, else on the next row (toolbars that wrap instead of overlapping in a narrow window)
+void sameLineOrWrap(f32 width);
+// Next item on the same row at x (window-local, like ImGui::SameLine), or right after the previous item when that already reaches past x
+void sameLineAt(f32 x);
 
 // "<icon>  <translated title>###<id>" for a window title, from a trl() style label
 std::string iconTitle(const char* glyph, const char* label);

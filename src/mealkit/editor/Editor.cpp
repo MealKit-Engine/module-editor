@@ -44,7 +44,6 @@ constexpr const char* kSceneWindow = "Viewport###SceneView";
 constexpr const char* kUiWindow = "UI###UiWorkspace";
 // Windows docked as tabs in the bottom row (default layout)
 const ImVec4 kPlayColor(0.42f, 0.24f, 0.08f, 1.0f); // menu bar during play
-const char* const kBottomWindows[] = {"Assets###Assets", "Debug###Debug"};
 
 // Case-insensitive substring (scene tree search)
 bool containsNoCase(const std::string& text, const char* needle) {
@@ -900,8 +899,9 @@ bool Editor::gameMouseAllowed() const { return m_mode == Mode::Play && !sceneMou
 
 // ---------------------------------------------------------------- UI
 
-// Predefined layouts: the scene view, one column on the right ([Previews]), bottom row (build log, tables).
-// Play shrinks the bottom row and brings [State] to front; lookdev puts a large [Lookdev] window at the top right.
+// Predefined layouts: the scene view; a column on the right with [Data] (tall field lists) and [Previews] as the tab behind it;
+// a bottom row split into [Assets] (wide: folders | files | preview) on the left and [Debug] on the right, so the log stays in sight while browsing.
+// Play shrinks the bottom row and brings [State] to front; lookdev puts a large [Lookdev] window at the top right with [Data] under it.
 void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     m_sceneOpen = true;
     ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -913,7 +913,8 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     const f32 rightShare = preset == LayoutPreset::LookDev ? 0.42f : 0.27f;
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, rightShare, nullptr, &center);
     const f32 bottomShare = preset == LayoutPreset::Play ? 0.18f : 0.26f;
-    const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, bottomShare, nullptr, &center);
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, bottomShare, nullptr, &center);
+    const ImGuiID bottomRight = ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, 0.4f, nullptr, &bottom);
     ImGui::DockBuilderDockWindow(kUiWindow, center); // a tab behind the viewport
     ImGui::DockBuilderDockWindow(kSceneWindow, center);
     m_sceneFrontFrames = 2;
@@ -925,8 +926,9 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     } else {
         ImGui::DockBuilderDockWindow("Previews###Previews", right);
     }
-    for (const char* w : kBottomWindows) ImGui::DockBuilderDockWindow(w, bottom);
-    ImGui::DockBuilderDockWindow("Data###Data", bottom);
+    ImGui::DockBuilderDockWindow("Data###Data", right); // docked last: the front tab of the right column
+    ImGui::DockBuilderDockWindow("Assets###Assets", bottom);
+    ImGui::DockBuilderDockWindow("Debug###Debug", bottomRight);
     ImGui::DockBuilderFinish(dockId);
     if (preset == LayoutPreset::Play) openDebugPage(DebugPage::State);
 }
@@ -1129,6 +1131,10 @@ void Editor::drawStatusBar() {
     if (ImGui::BeginViewportSideBar("##StatusBar", ImGui::GetMainViewport(), ImGuiDir_Down, ImGui::GetFrameHeight(),
                                     flags)) {
         if (ImGui::BeginMenuBar()) {
+            // Everything left of the fps counter is clipped before it: a long build status or hint in a narrow window ran under the number
+            const char* fps = "0000 fps";
+            const f32 fpsX = ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - 16.0f;
+            ImGui::PushClipRect(ImGui::GetWindowPos(), ImVec2(ImGui::GetWindowPos().x + fpsX - ImGui::GetFontSize() * 0.5f, ImGui::GetWindowPos().y + ImGui::GetWindowHeight()), true);
             // Space between groups instead of divider characters
             const auto gap = [] { ImGui::Dummy(ImVec2(ImGui::GetFontSize() * 0.75f, 0.0f)); };
             // The open scene; clicking it while editing lists the project's scenes to switch to
@@ -1165,8 +1171,8 @@ void Editor::drawStatusBar() {
             else if (m_sceneHovered) // only when it applies; messages show as notices over the viewport (drawNotices)
                 ImGui::TextDisabled(
                     "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));
-            const char* fps = "0000 fps";
-            ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - 16.0f);
+            ImGui::PopClipRect();
+            ImGui::SetCursorPosX(fpsX);
             // Red when over budget; clicking opens the [Performance] window
             const ImVec4 fpsColor = m_perfPanel.overBudget() ? color::kDanger
                                                              : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);

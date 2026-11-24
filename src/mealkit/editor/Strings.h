@@ -34,5 +34,8 @@ const char* trl(const char* label);          // ImGui name: "translation###sourc
 std::string trf(const char* format, ...);     // translated printf format
 // Declared data text (field descriptions, scene kind names): engine declarations are in the table; game declarations stay in the game's language (no warning)
 const char* trData(const char* text);
+// Adds the open project's declaration translations for trData: <project>/assets/strings/editor.<code>.txt, "English source = translation" lines
+// (same format as the engine table). Called by loadProject; entries override the engine table.
+void loadProjectStrings(const std::string& projectDirectory);
 
 } // namespace mealkit::editor

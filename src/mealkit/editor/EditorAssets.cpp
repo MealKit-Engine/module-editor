@@ -267,7 +267,10 @@ void Editor::drawAssetBrowser() {
                 const std::string part = rest.substr(0, slash);
                 rest = slash == std::string::npos ? std::string() : rest.substr(slash + 1);
                 walked += (walked.empty() ? "" : "/") + part;
+                // A deep path wraps to the next row instead of running under the panes' edge
+                const f32 partWidth = ImGui::CalcTextSize("/").x + ImGui::CalcTextSize(part.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f + 4.0f;
                 ImGui::SameLine(0.0f, 2.0f);
+                if (ImGui::GetContentRegionAvail().x < partWidth) ImGui::NewLine();
                 ImGui::TextDisabled("/");
                 ImGui::SameLine(0.0f, 2.0f);
                 ImGui::PushID(walked.c_str());
@@ -281,20 +284,27 @@ void Editor::drawAssetBrowser() {
         } else {
             ImGui::TextDisabled("%s", m_assetView == AssetView::Favorites ? tr("Favorites") : tr("Recent"));
         }
-        // Search (all folders when not empty) and the kind filter
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+        // Search (all folders when not empty), the kind filter and the size slider: one row when it fits, wrapped rows in a narrow window
+        const f32 rowWidth = ImGui::GetContentRegionAvail().x;
+        const f32 searchWidth = std::max(std::min(ImGui::GetFontSize() * 12.0f, rowWidth), 1.0f);
+        const f32 kindWidth = std::max(std::min(ImGui::GetFontSize() * 11.0f, rowWidth), 1.0f);
+        const f32 sliderWidth = std::max(std::min(ImGui::GetFontSize() * 8.0f, rowWidth), 1.0f);
+        ImGui::SetNextItemWidth(searchWidth);
         ImGui::InputTextWithHint("##assetSearch", tr("Search all assets"), m_assetSearch, sizeof(m_assetSearch));
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 11.0f);
+        sameLineOrWrap(kindWidth);
+        ImGui::SetNextItemWidth(kindWidth);
         if (beginCombo("##assetKind", assetKindName(m_assetKind))) {
             for (int k = 0; k < kAssetKindCount; ++k)
                 if (ImGui::Selectable(assetKindName(k), m_assetKind == k)) m_assetKind = k;
             ImGui::EndCombo();
         }
         const bool searching = m_assetSearch[0] != 0;
-        // Slider at the far left = list, further right = grid with bigger pictures
-        const f32 sliderWidth = ImGui::GetFontSize() * 8.0f;
-        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - sliderWidth));
+        // Slider at the far left = list, further right = grid with bigger pictures. Kept at the row's right end, on its own row when the row is full
+        // (it was placed at the right end even when the combo was already there, and drew over it)
+        ImGui::SameLine();
+        const f32 sliderX = ImGui::GetContentRegionMax().x - sliderWidth;
+        if (ImGui::GetCursorPosX() <= sliderX) ImGui::SameLine(sliderX);
+        else ImGui::NewLine();
         ImGui::SetNextItemWidth(sliderWidth);
         ImGui::SliderFloat("##thumbSize", &m_assetThumb, 0.0f, 160.0f, m_assetThumb < 48.0f ? tr("List") : "%.0f");
         const f32 cell = m_assetThumb < 48.0f ? 0.0f : m_assetThumb;
@@ -311,7 +321,8 @@ void Editor::drawAssetBrowser() {
             ImGui::PopStyleColor();
         }
         // The file list scrolls on its own, with the preview pane on its right (the window is wide and short)
-        const f32 previewWidth = m_assetSelected.empty() ? 0.0f : ImGui::GetFontSize() * 22.0f;
+        // At most half the width: a fixed 22 font heights left the list a sliver (or nothing) in a narrow window
+        const f32 previewWidth = m_assetSelected.empty() ? 0.0f : std::min(ImGui::GetFontSize() * 22.0f, ImGui::GetContentRegionAvail().x * 0.5f);
         ImGui::BeginChild("##assetList", ImVec2(-previewWidth, 0.0f));
         // What is listed: the folder's files, or every match across assets while searching, or the favorites / recent lists
         std::vector<std::string> entries;
@@ -441,7 +452,9 @@ void Editor::drawAssetBrowser() {
 // Bar of used / limit, red over the limit and yellow from 80 percent. A limit of 0 means none (only the number is shown)
 static void budgetRow(const char* label, u32 used, u32 limit) {
     ImGui::TextUnformatted(label);
-    ImGui::SameLine(ImGui::GetFontSize() * 7.0f);
+    // A long (translated) label pushes the bar right instead of being drawn over; a narrow preview puts the bar under the label
+    sameLineAt(ImGui::GetFontSize() * 7.0f);
+    if (ImGui::GetContentRegionAvail().x < ImGui::GetFontSize() * 6.0f) ImGui::NewLine();
     if (limit == 0) {
         ImGui::Text("%u", used);
         return;
@@ -451,7 +464,8 @@ static void budgetRow(const char* label, u32 used, u32 limit) {
     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
     char text[48];
     snprintf(text, sizeof(text), "%u / %u", used, limit);
-    ImGui::ProgressBar(std::min(static_cast<f32>(used) / static_cast<f32>(limit), 1.0f), ImVec2(ImGui::GetFontSize() * 14.0f, ImGui::GetTextLineHeight()), text);
+    const f32 barWidth = std::max(std::min(ImGui::GetFontSize() * 14.0f, ImGui::GetContentRegionAvail().x), 1.0f);
+    ImGui::ProgressBar(std::min(static_cast<f32>(used) / static_cast<f32>(limit), 1.0f), ImVec2(barWidth, ImGui::GetTextLineHeight()), text);
     ImGui::PopStyleColor();
 }
 

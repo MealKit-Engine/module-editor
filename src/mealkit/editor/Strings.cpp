@@ -129,6 +129,15 @@ void initStrings(const std::string& engineDirectory, const std::string& language
     useLanguage(g_override ? language : savedLanguage());
 }
 
+void loadProjectStrings(const std::string& projectDirectory) {
+    for (const Language& lang : kLanguages) {
+        Table& t = tableFor(lang.code);
+        if (t.code == "en") continue;
+        std::string file;
+        if (readTextFile(projectDirectory + MEALKIT_SEP "assets" MEALKIT_SEP "strings" MEALKIT_SEP "editor." + lang.code + ".txt", file)) parseTable(file, t);
+    }
+}
+
 bool followLanguage() {
     if (g_override) return false;
     const auto now = std::chrono::steady_clock::now();

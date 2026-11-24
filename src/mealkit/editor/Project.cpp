@@ -1,4 +1,5 @@
 #include "mealkit/editor/Project.h"
+#include "mealkit/editor/Strings.h"
 
 #include "mealkit/platform/DynamicLibrary.h"
 #include "mealkit/platform/Paths.h"
@@ -125,6 +126,7 @@ bool loadProject(const std::string& directory, ProjectInfo& out, std::string* er
         if (error) *error = "mealkit.project has no name";
         return false;
     }
+    loadProjectStrings(out.directory);
     game::applyTickRate(out.settings); // time values (seconds) in tuning/scenes/tables are read with this tick rate
     return true;
 }

@@ -168,7 +168,7 @@ void TestsPanel::drawContent(const ProjectInfo& project) {
         if (r.state == State::Passed) { state = tr("Passed"); color = ImVec4(0.4f, 0.85f, 0.45f, 1.0f); }
         if (r.state == State::Failed) { state = tr("Failed"); color = ImVec4(1.0f, 0.38f, 0.38f, 1.0f); }
         ImGui::TextColored(color, "%s", state);
-        ImGui::SameLine(ImGui::GetFontSize() * 6.0f);
+        sameLineAt(ImGui::GetFontSize() * 6.0f);
         ImGui::TextUnformatted(r.file.c_str());
         if (!r.summary.empty()) {
             ImGui::SameLine();
