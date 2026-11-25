@@ -36,6 +36,8 @@ public:
         return changed;
     }
     std::string takeStatus() { return std::move(m_status); }
+    bool busy() const { return m_process.running(); }
+    const std::string& label() const { return m_label; }
 
 private:
     enum class Filter { All, Installed, Engine, Community, Updates };

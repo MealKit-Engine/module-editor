@@ -53,7 +53,7 @@ enum class Mode { Edit, Play };
 
 // Path relative to root ('/' separated) if the file is inside the root folder, empty string if outside
 std::string relativeTo(const std::string& root, const std::string& path);
-enum class LayoutPreset { Edit, Play, LookDev }; // [Window] > [Layout]
+enum class LayoutPreset { Edit, Play, LookDev, Build }; // [Window] > [Layout]
 
 class Editor {
 public:
@@ -71,7 +71,7 @@ public:
     }
     const ProjectInfo& project() const { return m_project; }
     // Runs the project's build.bat in the background (ignored if already building).
-    void startBuild(BuildKind kind);
+    void startBuild(BuildKind kind, bool run = false); // run: start the built game when it succeeds (Build and Run)
     bool building() const { return m_buildPanel.running(); }
     // true once if the game code build finished successfully (the app reloads the DLL)
     bool takeGameCodeBuilt();
@@ -111,7 +111,7 @@ public:
     void setCompact() { m_prefs.compact = true; } // --compact, not saved
     // --input "move 500 300; down; wait 2; up; key ctrl+z; type abc; command Save; print": test input, one step per frame
     void setTestInput(const std::string& script);
-    void openProblems() { openDebugPage(DebugPage::Log); m_problemsShown = true; m_debugFrontFrames = 30; }
+    void openProblems() { openDebugPage(DebugPage::Log); m_problemsShown = true; m_consoleFront = 30; }
     void setEngineTables(const reflect::TableList& tables) { m_tablesPanel.setEngineTables(tables); }
     // Sound ([Sound] panel preview/voice list). Created and passed by the editor (nullptr = none)
     void setAudio(audio::Engine* audio) { m_audio = audio; }
@@ -213,6 +213,7 @@ private:
     int m_sceneFrontFrames = 0;
     void focusPanelNow(); // called right before that window's Begin
     void drawBuildLog();
+    void drawBuildProfiles();
     void setupDefaultLayout(u32 dockId, LayoutPreset preset);
 
     void updateCamera(f64 dt);
@@ -325,6 +326,7 @@ private:
     void saveShortcutOverrides() const;
     void setCommandChord(size_t index, int chord);
     int m_shortcutRecording = -1; // command being rebound (waiting for a key press), -1 = none
+    char m_shortcutSearch[64] = {}; // [Settings] > Keyboard Shortcuts: command name or key
     int m_shortcutPendingIndex = -1, m_shortcutPendingChord = 0, m_shortcutPendingOther = -1; // a taken key waiting for the user's answer
     std::vector<Command> m_commands;
     bool m_paletteOpen = false;
@@ -407,6 +409,7 @@ private:
 
     bool m_gizmoLocal = false;
     bool m_snapOn = false;   // toolbar snap: when on, snaps without Ctrl (Ctrl inverts)
+    bool m_showStats = false; // viewport statistics overlay
     bool m_showGrid = true;  // edit screen floor grid (spaced by the snap move unit)
     void drawViewportToolbar(); // toolbar at the viewport's top left + axis gizmo at the top right
     void addGrid(render::DrawList& out) const;
@@ -486,6 +489,11 @@ private:
     PreferencesPanel m_prefsPanel;
     bool m_gameCodeBuilt = false;
     bool m_gameCodeFailed = false;
+    bool m_codeBuildFailed = false; // the last game code build failed (toolbar dot)
+    bool m_codeStale = false;       // sources are newer than the game DLL
+    f64 m_staleTimer = 2.0;
+    bool m_buildSettingsOpen = false; // [Build Profiles] window
+    void updateCodeStale(f64 dt);
     bool m_gameLoaded = false;
     bool m_engineRestartPrompt = false; // a build failed because the engine needs rebuilding under this editor
     bool m_engineStale = false;         // the engine's editor build is out of date: game code builds go to the restart prompt
@@ -518,6 +526,8 @@ private:
         DataPage page = DataPage::Tuning; // clicking opens this document (doc >= 0) ...
         int doc = -1;
         u32 entity = 0; // ... or selects this object
+        std::string file; // build problem: opens this source file at line (relative to the project folder)
+        int line = 0;
     };
     void updateProblems(f64 dt);
     void runTestInput();
@@ -532,16 +542,22 @@ private:
     std::vector<std::string> m_assetUses; // files under assets, relative
     std::string m_assetUsesOf;
     bool m_assetUsesOpen = false;
-    // Graphs of state values on the [State] page, one sample per frame during play
+    // Graphs of state values on the [State] page: one sample per simulation tick during play (per frame without a timeline).
+    // Added by path or by right-clicking a row ("Watch as Graph"). Paused and past ticks add nothing; an earlier tick starts over (new play)
     struct StateGraph {
         std::string path;
-        std::vector<float> samples;
+        std::vector<float> samples; // ring of kGraphSamples
+        std::vector<u32> ticks;     // tick of each sample (same ring)
         size_t next = 0;
+        bool sampled = false;
+        u32 lastTick = 0;
     };
+    static constexpr size_t kGraphSamples = 600; // ten seconds at 60 ticks
     std::vector<StateGraph> m_graphs;
     char m_graphPath[96] = {};
     void updateStateGraphs();
     void drawStateGraphs();
+    void watchStatePath(const std::string& path); // adds a graph (once per path)
     std::vector<std::string> m_testInput;
     size_t m_testStep = 0;
     int m_testWait = 0;
@@ -569,11 +585,33 @@ private:
 
     void openDebugPage(DebugPage page);
     void toggleDebugPage(DebugPage page);
-    void drawDebugHub();
+    // The pages of the [Debug] window also exist as windows of their own (docked anywhere, several at once): [Console], [Build Output],
+    // [Profiler], [Simulation State]. The [Debug] window stays for people who want everything in one tab
+    void drawDebugPageBody(DebugPage page);
+    void drawDebugWindow(DebugPage page, const std::string& title, bool* open, int* front);
+    void showBuildOutput(); // brings the build output forward: its own window when open, else the [Debug] page
+    // Each debug page is a window of its own (console, build output, profiler, memory, sound monitor, simulation state, tests, balance)
+    bool m_consoleOpen = true, m_buildOutputOpen = false, m_profilerOpen = false, m_memoryOpen = false, m_soundMonitorOpen = false,
+         m_simStateOpen = false, m_testsOpen = false, m_balanceOpen = false;
+    int m_consoleFront = 0, m_buildOutputFront = 0, m_profilerFront = 0, m_memoryFront = 0, m_soundMonitorFront = 0, m_simStateFront = 0,
+        m_testsFront = 0, m_balanceFront = 0;
+    std::pair<bool*, int*> debugWindow(DebugPage page);
+    // Progress center (status bar, right of the scene name): every long task the editor runs, with cancel where it can
+    struct ProgressTask {
+        std::string name;
+        int step = 0, steps = 0; // steps 0 = unknown
+        f64 started = 0.0;
+        bool cancelable = false;
+        bool hasOutput = false;
+    };
+    std::vector<ProgressTask> m_progress;
+    std::vector<std::pair<std::string, f64>> m_taskSeen; // when a task without its own clock was first seen
+    void collectProgress();
+    bool drawProgressSummary();
+    // Notices that went away are kept here (status bar bell)
+    std::vector<std::string> m_noticeHistory;
+    size_t m_noticeRead = 0;
     void drawMemoryPage();
-    bool m_debugOpen = true;
-    DebugPage m_debugPage = DebugPage::Log;
-    int m_debugFrontFrames = 0;
     bool m_compactApplied = false;
     u32 m_handleEntity = 0;
     std::string m_handleField;

@@ -1,6 +1,7 @@
 // Editor command table and command palette (Ctrl+P). Menus, shortcuts, palette, and F1 help all use this one table.
 #include "mealkit/editor/Editor.h"
 #include "mealkit/editor/SharedBuild.h"
+#include "mealkit/editor/EditorColors.h"
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/FuzzyMatch.h"
 
@@ -95,12 +96,10 @@ void Editor::buildCommands() {
         {"Keyboard Shortcuts", ImGuiKey_F1, 0, always, [this] { openSettingsPage(SettingsPage::Shortcuts); }},
         {"Command Palette", ImGuiMod_Ctrl | ImGuiKey_P, 0, always, [this] { m_paletteOpen = true; }},
         {"Data", 0, 0, always, [this] { m_dataOpen = !m_dataOpen; }},
-        {"Debug", 0, 0, always, [this] { m_debugOpen = !m_debugOpen; }},
         {"Problems", 0, 0, always, [this] {
              openDebugPage(DebugPage::Log);
              m_problemsShown = true;
          }},
-        {"State", 0, 0, always, [this] { toggleDebugPage(DebugPage::State); }},
         {"Tests", 0, 0, always, [this] { toggleDebugPage(DebugPage::Tests); }},
         {"Balance", 0, 0, always, [this] { toggleDebugPage(DebugPage::Balance); }},
         {"Run Bot Matches", 0, 0, always, [this] {
@@ -138,17 +137,25 @@ void Editor::buildCommands() {
              else if (!error.empty()) setStatus(error, true);
              else setStatus(tr("Game code is up to date"));
          }},
-        {"Release Build", ImGuiMod_Ctrl | ImGuiKey_B, 0, canBuild, [this] { startBuild(BuildKind::Export); }},
+        // The active build profile (Export when the project has none). Ctrl+B, Ctrl+Shift+B as in Unity's Build Profiles
+        {"Build Active Profile", ImGuiMod_Ctrl | ImGuiKey_B, 0, [this, canBuild] { return canBuild() && m_mode == Mode::Edit; },
+         [this] { startBuild(BuildKind::Profile); }},
+        {"Build and Run", ImGuiMod_Ctrl | ImGuiKey_F5, 0, [this, canBuild] { return canBuild() && m_mode == Mode::Edit; },
+         [this] { startBuild(BuildKind::Profile, true); }},
+        {"Cancel Build", ImGuiMod_Ctrl | ImGuiKey_Pause, 0, [this] { return m_buildPanel.running(); }, [this] { m_buildPanel.cancel(); }},
+        {"Build Profiles...", ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B, 0, [this] { return !m_project.directory.empty(); }, [this] { m_buildSettingsOpen = !m_buildSettingsOpen; }},
         {"Open Release Folder", 0, 0, [this] { return directoryExists(m_project.exportDirectory()); },
          [this] { openInExplorer(m_project.exportDirectory()); }},
         {"Open Project Folder", 0, 0, [this] { return !m_project.directory.empty(); },
          [this] { openInExplorer(m_project.directory); }},
-        {"Build Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Build); }},
+        {"Console", 0, 0, always, [this] { m_consoleOpen = !m_consoleOpen; if (m_consoleOpen) m_consoleFront = 3; }},
+        {"Build Output", 0, 0, always, [this] { m_buildOutputOpen = !m_buildOutputOpen; if (m_buildOutputOpen) m_buildOutputFront = 3; }},
+        {"Profiler", 0, 0, always, [this] { m_profilerOpen = !m_profilerOpen; if (m_profilerOpen) m_profilerFront = 3; }},
+        {"Simulation State", 0, 0, [this] { return projectHas("sim"); }, [this] { m_simStateOpen = !m_simStateOpen; if (m_simStateOpen) m_simStateFront = 3; }},
         {"Assets", 0, 0, always, [this] { m_assetsOpen = !m_assetsOpen; }},
         {"Viewport", 0, 0, editing, [this] { m_sceneOpen = !m_sceneOpen; }},
-        {"Performance", 0, 0, always, [this] { toggleDebugPage(DebugPage::Performance); }},
         {"Memory", 0, 0, always, [this] { toggleDebugPage(DebugPage::Memory); }},
-        {"Log", 0, 0, always, [this] { toggleDebugPage(DebugPage::Log); }},
+        {"Sound Monitor", 0, 0, [this] { return m_audio != nullptr; }, [this] { toggleDebugPage(DebugPage::Sound); }},
     };
     for (Command& c : m_commands) {
         c.defaultChord = c.chord;
@@ -299,25 +306,64 @@ void Editor::drawShortcutHelp() {
         if (ImGui::Button(tr("Cancel")) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
-    if (ImGui::BeginTable("##keys", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
-        ImGui::TableSetupColumn("##name", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("##keys", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 14.0f);
-        ImGui::TableSetupColumn("##reset", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 2.5f);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+    ImGui::InputTextWithHint("##shortcutSearch", tr("Search"), m_shortcutSearch, sizeof(m_shortcutSearch));
+    const char* q = m_shortcutSearch;
+    const auto matches = [q](const char* name, const std::string& keys) {
+        return !q[0] || fuzzyScore(tr(name), q) >= 0 || fuzzyScore(name, q) >= 0 || fuzzyScore(keys, q) >= 0;
+    };
+    // Sections in menu order; a command not named here is a window or page
+    const auto categoryOf = [](const std::string& name) -> int {
+        static const char* const kFile[] = {"Open...", "Save", "Open Replay...", "Settings...", "Project Settings...", "Preferences...",
+                                            "Open Project Folder", "Open Release Folder"};
+        static const char* const kEdit[] = {"Undo", "Redo", "Command Palette", "Keyboard Shortcuts"};
+        static const char* const kPlay[] = {"Play", "Play From Here", "Toggle Orthographic", "Maximize Viewport"};
+        static const char* const kBuild[] = {"Build Game Code (Hot Reload)", "Publish Game Code", "Get Latest Game Code", "Build Active Profile",
+                                             "Build and Run", "Cancel Build", "Build Profiles...", "Run All Tests", "Run Bot Matches"};
+        for (const char* n : kFile) if (name == n) return 0;
+        for (const char* n : kEdit) if (name == n) return 1;
+        for (const char* n : kPlay) if (name == n) return 2;
+        for (const char* n : kBuild) if (name == n) return 3;
+        return 4;
+    };
+    const char* const sections[] = {"File", "Edit", "Play", "Build", "Window"};
+    bool any = false;
+    for (int section = 0; section < 5; ++section) {
+        bool titled = false;
         for (size_t i = 0; i < m_commands.size(); ++i) {
             Command& c = m_commands[i];
-            if (c.module && !projectHas(c.module)) continue;
-            ImGui::PushID(static_cast<int>(i));
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(tr(c.name));
-            ImGui::TableNextColumn();
-            const bool recording = m_shortcutRecording == static_cast<int>(i);
+            if ((c.module && !projectHas(c.module)) || categoryOf(c.name) != section) continue;
             std::string keys = shortcutText(c);
             if (c.chord2) keys += std::string(", ") + ImGui::GetKeyChordName(c.chord2);
-            if (keys.empty()) keys = "-";
-            if (ImGui::Selectable((recording ? std::string(tr("Press a key...")) : keys).c_str(), recording)) m_shortcutRecording = recording ? -1 : static_cast<int>(i);
-            ImGui::TableNextColumn();
-            if (c.chord != c.defaultChord || c.chord2 != c.defaultChord2) {
+            if (!matches(c.name, keys)) continue;
+            if (!titled) ImGui::SeparatorText(tr(sections[section]));
+            titled = any = true;
+            ImGui::PushID(static_cast<int>(i));
+            // The same key on two commands (possible through the shortcuts file): the name is red
+            std::string conflict;
+            for (size_t k = 0; k < m_commands.size() && c.chord; ++k)
+                if (k != i && (m_commands[k].chord == c.chord || m_commands[k].chord2 == c.chord || (c.chord2 && (m_commands[k].chord == c.chord2 || m_commands[k].chord2 == c.chord2))))
+                    conflict = trf("Same shortcut as %s", tr(m_commands[k].name));
+            if (!conflict.empty()) ImGui::PushStyleColor(ImGuiCol_Text, color::kDanger);
+            const std::string row = propertyRow(tr(c.name), conflict.empty() ? nullptr : conflict.c_str());
+            if (!conflict.empty()) ImGui::PopStyleColor();
+            const bool recording = m_shortcutRecording == static_cast<int>(i);
+            const bool changed = c.chord != c.defaultChord || c.chord2 != c.defaultChord2;
+            const ImGuiStyle& style = ImGui::GetStyle();
+            const f32 reset = ImGui::GetFrameHeight() + style.ItemSpacing.x;
+            const f32 width = std::min(ImGui::GetContentRegionAvail().x - reset, ImGui::GetFontSize() * 14.0f);
+            // A frame like the other pages' value fields, so it reads as something to click
+            ImGui::PushStyleColor(ImGuiCol_Button, style.Colors[recording ? ImGuiCol_FrameBgActive : ImGuiCol_FrameBg]);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, style.Colors[ImGuiCol_FrameBgHovered]);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, style.Colors[ImGuiCol_FrameBgActive]);
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
+            const std::string shown = recording ? std::string(tr("Press a key...")) : (keys.empty() ? std::string("-") : keys);
+            if (ImGui::Button((shown + row).c_str(), ImVec2(std::max(width, ImGui::GetFontSize() * 4.0f), 0.0f)))
+                m_shortcutRecording = recording ? -1 : static_cast<int>(i);
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(3);
+            if (changed) {
+                ImGui::SameLine();
                 if (iconButton(icon::kUndo, tr("Reset to the default shortcut"))) {
                     c.chord = c.defaultChord;
                     c.chord2 = c.defaultChord2;
@@ -326,20 +372,23 @@ void Editor::drawShortcutHelp() {
             }
             ImGui::PopID();
         }
-        const char* fixed[][2] = {{"Fly the camera", "Right drag + WASD/QE"}, {"Pan the camera", "Middle drag"},
-                                  {"Orbit the camera", "Alt + left drag"},     {"Go to camera bookmark", "1 - 9"},
-                                  {"Save camera bookmark", "Ctrl + 1 - 9"},
-                                  {"Camera speed", "Wheel while flying"},     {"Snap while dragging a gizmo", "Ctrl"},
-                                  {"Deselect", "Esc"},                         {"Stop playing", "F5"}};
-        for (auto& row : fixed) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(tr(row[0]));
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(tr(row[1]));
-        }
-        ImGui::EndTable();
     }
+    // Viewport keys that can't be changed
+    const char* fixed[][2] = {{"Fly the camera", "Right drag + WASD/QE"}, {"Pan the camera", "Middle drag"},
+                              {"Orbit the camera", "Alt + left drag"},     {"Go to camera bookmark", "1 - 9"},
+                              {"Save camera bookmark", "Ctrl + 1 - 9"},
+                              {"Camera speed", "Wheel while flying"},     {"Snap while dragging a gizmo", "Ctrl"},
+                              {"Deselect", "Esc"},                         {"Stop playing", "F5"}};
+    bool titled = false;
+    for (auto& row : fixed) {
+        if (!matches(row[0], tr(row[1]))) continue;
+        if (!titled) ImGui::SeparatorText(tr("Viewport (fixed)"));
+        titled = any = true;
+        propertyRow(tr(row[0]));
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", tr(row[1]));
+    }
+    if (!any) ImGui::TextDisabled("%s", tr("No shortcut matches"));
 }
 
 void Editor::openPalette(const std::string& text) {

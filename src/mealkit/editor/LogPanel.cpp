@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
 #include <vector>
 
 namespace mealkit::editor {
@@ -76,22 +77,41 @@ void LogPanel::drawFilters() {
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", names[i]);
     }
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x));
+    ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() * 2.0f + ImGui::GetStyle().ItemSpacing.x * 2.0f));
     ImGui::InputTextWithHint("##search", (std::string(icon::kSearch) + "  " + tr("Search")).c_str(), m_search, sizeof(m_search));
     ImGui::SameLine();
     if (iconButton(icon::kTrash, tr("Clear"))) {
         m_entries.clear();
         for (u32& c : m_counts) c = 0;
     }
+    ImGui::SameLine();
+    if (iconButton(icon::kSettings, tr("Console options"))) ImGui::OpenPopup("##consoleOptions");
+    if (ImGui::BeginPopup("##consoleOptions")) {
+        checkbox(tr("Collapse repeated messages"), &m_group);
+        checkbox(tr("Clear on Play"), &m_clearOnPlay);
+        ImGui::EndPopup();
+    }
 }
 
 void LogPanel::drawLines() {
     std::lock_guard<std::mutex> guard(m_lock);
     std::vector<u32> rows;
+    std::vector<u32> counts; // per row, when collapsing
     rows.reserve(m_entries.size());
+    std::unordered_map<std::string, size_t> firstRow;
     for (u32 i = 0; i < m_entries.size(); ++i) {
         const Entry& e = m_entries[i];
-        if (m_show[static_cast<int>(e.level)] && contains(e.message, m_search)) rows.push_back(i);
+        if (!m_show[static_cast<int>(e.level)] || !contains(e.message, m_search)) continue;
+        if (m_group) {
+            const auto [it, added] = firstRow.emplace(std::to_string(static_cast<int>(e.level)) + e.message, rows.size());
+            if (!added) {
+                rows[it->second] = i; // the newest one stands for the group
+                ++counts[it->second];
+                continue;
+            }
+            counts.push_back(1);
+        }
+        rows.push_back(i);
     }
     if (ImGui::BeginChild("##lines", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
         ImGuiListClipper clipper;
@@ -104,6 +124,10 @@ void LogPanel::drawLines() {
                 ImGui::PushStyleColor(ImGuiCol_Text, kColors[static_cast<int>(e.level)]);
                 ImGui::TextUnformatted(e.message.c_str());
                 ImGui::PopStyleColor();
+                if (m_group && counts[static_cast<size_t>(r)] > 1) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("x%u", counts[static_cast<size_t>(r)]);
+                }
                 FileLine at;
                 if (ImGui::IsItemHovered() && parseFileLine(e.message, &at)) {
                     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);

@@ -59,12 +59,15 @@ std::vector<u32> liveSlots(const ValueInfo& v, const void* data) {
     return slots;
 }
 
-void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, const void* data);
+// Watch callback of the drawFieldsReadOnly call being drawn (empty = no row menu)
+const std::function<void(const std::string&)>* g_watch = nullptr;
 
-void drawReadOnlyStruct(const TypeInfo& type, const void* data) {
+void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, const void* data, const std::string& path);
+
+void drawReadOnlyStruct(const TypeInfo& type, const void* data, const std::string& prefix) {
     for (const FieldInfo& f : type.fields) {
         ImGui::PushID(f.name);
-        drawReadOnlyValue(trData(splitFieldLabel(f.label).name.c_str()), f.name, *f.value, at(data, f.offset));
+        drawReadOnlyValue(trData(splitFieldLabel(f.label).name.c_str()), f.name, *f.value, at(data, f.offset), prefix.empty() ? std::string(f.name) : prefix + "." + f.name);
         ImGui::PopID();
     }
 }
@@ -79,11 +82,23 @@ bool treeRow(const char* label, const char* name, const char* summary) {
     return open;
 }
 
-void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, const void* data) {
+// Values a graph can show: plain numbers and booleans (enum names and vectors aren't one number)
+bool graphable(const ValueInfo& v) {
+    switch (v.kind) {
+    case Kind::Bool:
+    case Kind::Float:
+    case Kind::Ticks: return true;
+    case Kind::Int:
+    case Kind::UInt: return v.enumNames.empty();
+    default: return false;
+    }
+}
+
+void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, const void* data, const std::string& path) {
     switch (v.kind) {
     case Kind::Struct:
         if (treeRow(label, name, v.type->name)) {
-            drawReadOnlyStruct(*v.type, data);
+            drawReadOnlyStruct(*v.type, data, path);
             ImGui::TreePop();
         }
         break;
@@ -93,7 +108,7 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
             for (u32 i = 0; i < v.count; ++i) {
                 const std::string item = "[" + std::to_string(i) + "]";
                 ImGui::PushID(static_cast<int>(i));
-                drawReadOnlyValue(item.c_str(), name, *v.element, at(data, i * v.element->size));
+                drawReadOnlyValue(item.c_str(), name, *v.element, at(data, i * v.element->size), path + item);
                 ImGui::PopID();
             }
             ImGui::TreePop();
@@ -112,7 +127,7 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
                     const std::string item =
                         "#" + trf("%u (generation %u)", static_cast<unsigned>(slot), static_cast<unsigned>(v.ops->generation(data, slot)));
                     ImGui::PushID(static_cast<int>(slot));
-                    drawReadOnlyValue(item.c_str(), name, *v.element, v.ops->item(data, slot));
+                    drawReadOnlyValue(item.c_str(), name, *v.element, v.ops->item(data, slot), path + "[" + std::to_string(slot) + "]");
                     ImGui::PopID();
                 }
             }
@@ -126,6 +141,11 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
         ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen |
                                      ImGuiTreeNodeFlags_SpanFullWidth);
         nameTooltip(name);
+        if (g_watch && *g_watch && graphable(v) && ImGui::BeginPopupContextItem("##watchMenu")) {
+            if (ImGui::MenuItem(tr("Watch as Graph"))) (*g_watch)(path);
+            ImGui::TextDisabled("%s", path.c_str());
+            ImGui::EndPopup();
+        }
         ImGui::TableNextColumn();
         const std::string text = reflect::formatScalar(v, data);
         ImGui::TextUnformatted(text.c_str());
@@ -136,6 +156,7 @@ void drawReadOnlyValue(const char* label, const char* name, const ValueInfo& v, 
 
 std::function<std::vector<std::string>()> g_soundEvents;
 std::function<void(const std::string&, const std::string&)> g_pickPreview;
+std::function<void(const char*, const char*)> g_findInCode;
 
 bool containsText(const std::string& text, const char* needle) {
     const auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
@@ -328,6 +349,9 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
     if (label[0] != '#' && v.kind != Kind::Struct && v.kind != Kind::Array && v.kind != Kind::Container) {
         hidden = propertyRow(label, tooltip);
         label = hidden.c_str();
+        // Numbers don't need the whole value column: a wide window keeps them short, names and paths fill it
+        if (v.kind == Kind::Int || v.kind == Kind::UInt || v.kind == Kind::Float || v.kind == Kind::Ticks) limitNextWidth(v.enumNames.empty() ? 12.0f : 16.0f);
+        else if (v.kind == Kind::Vec3 || v.kind == Kind::Quat) limitNextWidth(24.0f);
     }
     switch (v.kind) {
     case Kind::Bool: changed = checkbox(label, static_cast<bool*>(data)); break;
@@ -437,7 +461,7 @@ bool drawValue(const char* label, const char* name, const ValueInfo& v, void* da
         break;
     case Kind::Container:
         if (ImGui::BeginTable("##pool", 2, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable)) {
-            drawReadOnlyValue(label, name, v, data);
+            drawReadOnlyValue(label, name, v, data, name);
             ImGui::EndTable();
         }
         break;
@@ -564,6 +588,7 @@ FieldLabel splitFieldLabel(const char* label) {
 
 void setSoundEventSource(std::function<std::vector<std::string>()> source) { g_soundEvents = std::move(source); }
 void setPickPreview(std::function<void(const std::string&, const std::string&)> preview) { g_pickPreview = std::move(preview); }
+void setFindInCode(std::function<void(const char*, const char*)> find) { g_findInCode = std::move(find); }
 
 void collectRequired(const TypeInfo& type, const void* data, const std::string& where, std::vector<std::string>& out) {
     for (const FieldInfo& f : type.fields) {
@@ -572,6 +597,13 @@ void collectRequired(const TypeInfo& type, const void* data, const std::string& 
         if (!label.showIf.empty() && !showIfPasses(label.showIf, type, data)) continue;
         if (static_cast<const std::string*>(static_cast<const void*>(at(data, f.offset)))->empty())
             out.push_back(where + trf("%s is required", trData(label.name.c_str())));
+    }
+    if (!type.validate) return;
+    std::vector<reflect::Problem> problems;
+    type.validate(data, problems);
+    for (const reflect::Problem& p : problems) {
+        const FieldInfo* field = p.field ? type.field(p.field) : nullptr;
+        out.push_back(where + (field ? std::string(trData(splitFieldLabel(field->label).name.c_str())) + ": " : std::string()) + p.text);
     }
 }
 
@@ -599,6 +631,11 @@ FieldClipboard g_clipboard;
 bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
     bool changed = false;
     bool groupOpen = true;
+    // validate problems, marked on their fields like an empty required field (the rest go above the fields)
+    std::vector<reflect::Problem> problems;
+    if (type.validate) type.validate(data, problems);
+    for (const reflect::Problem& p : problems)
+        if (!p.field || !type.field(p.field)) ImGui::TextColored(color::kDanger, "%s %s", icon::kWarning, p.text.c_str());
     for (const FieldInfo& f : type.fields) {
         // MEALKIT_LIST: its count field is edited through the list below (Add, x)
         const FieldInfo* next = &f + 1 != type.fields.data() + type.fields.size() ? &f + 1 : nullptr;
@@ -629,7 +666,10 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         const char* description = label.tooltip.empty() ? nullptr : trData(label.tooltip.c_str());
         const bool mixedValue = context && context->mixed && context->mixed->count(f.name) != 0;
         const std::string shown = std::string(trData(label.name.c_str())) + (mixedValue ? " \xE2\x80\x94" : "");
-        const bool missing = label.required && f.value->kind == Kind::String && static_cast<const std::string*>(static_cast<const void*>(at(data, f.offset)))->empty();
+        std::string problem;
+        for (const reflect::Problem& p : problems)
+            if (p.field && std::strcmp(p.field, f.name) == 0) problem += (problem.empty() ? "" : "\n") + p.text;
+        const bool missing = !problem.empty() || (label.required && f.value->kind == Kind::String && static_cast<const std::string*>(static_cast<const void*>(at(data, f.offset)))->empty());
         if (mixedValue) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.30f, 0.26f, 0.16f, 1.0f));
         if (missing) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.40f, 0.16f, 0.15f, 1.0f));
         if (isList) changed |= drawList(shown.c_str(), f.name, *f.value, at(data, f.offset), *static_cast<u32*>(static_cast<void*>(at(data, countField->offset))), context ? &inner : nullptr);
@@ -637,9 +677,12 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
         if (missing) ImGui::PopStyleColor();
         if (mixedValue) ImGui::PopStyleColor();
         ImGui::EndDisabled();
-        if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+        if (!problem.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s%s%s", description ? description : "", description ? "\n\n" : "", problem.c_str());
+        else if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", description);
-        if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) hoverHint(description);
+        if (!problem.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) hoverHint(problem.c_str());
+        else if (description && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) hoverHint(description);
         // Dot on the left if different from the default
         const bool hasDefaults = context && context->defaults;
         bool differs = false;
@@ -671,6 +714,10 @@ bool drawFields(const TypeInfo& type, void* data, const FieldContext* context) {
                     reflect::setFromText(type, data, f.name + path.substr(g_clipboard.name.size()), value);
                 changed = true;
             }
+            if (g_findInCode) {
+                ImGui::Separator();
+                if (ImGui::MenuItem(tr("Find in Code"))) g_findInCode(type.name, f.name);
+            }
             ImGui::EndPopup();
         }
         ImGui::PopID();
@@ -685,13 +732,29 @@ std::string propertyRow(const char* label, const char* tooltip) {
     const f32 left = ImGui::GetCursorPosX();
     const f32 start = ImGui::GetCursorStartPos().x;
     const f32 region = left - start + ImGui::GetContentRegionAvail().x;
-    const f32 valueX = std::max(start + std::floor(std::clamp(region * 0.4f, font * 5.0f, font * 14.0f)), left + font * 3.0f);
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    const ImVec2 size = ImGui::CalcTextSize(label, end);
+
+    // The name column is as wide as the longest name this window drew last frame (its indent included), so names are cut only
+    // when they would take more than half of the window. Kept in the window's storage: every window and child has its own column
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    const ImGuiID seed = ImGui::GetCurrentWindow()->ID; // not the ID stack: rows inside PushID share the column
+    const ImGuiID frameKey = ImHashStr("##propertyFrame", 0, seed), thisKey = ImHashStr("##propertyThis", 0, seed), lastKey = ImHashStr("##propertyLast", 0, seed);
+    const int frame = ImGui::GetFrameCount();
+    if (storage->GetInt(frameKey, -1) != frame) {
+        storage->SetFloat(lastKey, storage->GetFloat(thisKey, 0.0f));
+        storage->SetFloat(thisKey, 0.0f);
+        storage->SetInt(frameKey, frame);
+    }
+    const f32 needed = left - start + size.x + style.ItemInnerSpacing.x + style.ItemSpacing.x;
+    storage->SetFloat(thisKey, std::max(storage->GetFloat(thisKey, 0.0f), needed));
+    const f32 longest = std::max(storage->GetFloat(lastKey, 0.0f), needed);
+    const f32 column = std::clamp(longest, font * 5.0f, std::max(font * 5.0f, region * 0.5f));
+    const f32 valueX = std::max(start + std::floor(column), left + font * 3.0f);
 
     const f32 width = valueX - left - style.ItemInnerSpacing.x;
     const f32 height = ImGui::GetFrameHeight();
     const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const char* end = ImGui::FindRenderedTextEnd(label);
-    const ImVec2 size = ImGui::CalcTextSize(label, end);
     ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), ImVec2(pos.x, pos.y + style.FramePadding.y), ImVec2(pos.x + width, pos.y + height),
                               pos.x + width, label, end, &size);
     ImGui::Dummy(ImVec2(width, height));
@@ -704,6 +767,10 @@ std::string propertyRow(const char* label, const char* tooltip) {
     ImGui::SameLine(valueX);
     ImGui::SetNextItemWidth(-FLT_MIN);
     return std::string("##") + label;
+}
+
+void limitNextWidth(f32 fontHeights) {
+    ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x, ImGui::GetFontSize() * fontHeights));
 }
 
 bool sectionHeader(const char* label, int treeNodeFlags) {
@@ -956,12 +1023,14 @@ void sameLineAt(f32 x) {
 
 std::string iconTitle(const char* glyph, const char* label) { return std::string(glyph) + "  " + trl(label); }
 
-void drawFieldsReadOnly(const TypeInfo& type, const void* data) {
+void drawFieldsReadOnly(const TypeInfo& type, const void* data, const std::function<void(const std::string&)>& watch) {
     const ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg;
     if (!ImGui::BeginTable("##fields", 2, flags)) return;
     ImGui::TableSetupColumn(tr("Name"), ImGuiTableColumnFlags_WidthStretch, 0.45f);
     ImGui::TableSetupColumn(tr("Value"), ImGuiTableColumnFlags_WidthStretch, 0.55f);
-    drawReadOnlyStruct(type, data);
+    g_watch = &watch;
+    drawReadOnlyStruct(type, data, std::string());
+    g_watch = nullptr;
     ImGui::EndTable();
 }
 

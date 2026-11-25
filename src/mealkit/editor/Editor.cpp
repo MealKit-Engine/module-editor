@@ -212,8 +212,11 @@ void Editor::loadPanelState() {
     std::string text;
     if (m_automated || m_panelStatePath.empty() || !readTextFile(m_panelStatePath, text)) return;
     const std::pair<const char*, bool*> panels[] = {{"scene", &m_sceneOpen}, {"assets", &m_assetsOpen},
-                                                    {"debug", &m_debugOpen},         {"data", &m_dataOpen},   {"previews", &m_previewOpen},
-                                                    {"modules", &m_modulesOpen}, {"ui", &m_uiWorkspaceOpen}};
+                                                    {"data", &m_dataOpen},   {"previews", &m_previewOpen},
+                                                    {"modules", &m_modulesOpen}, {"ui", &m_uiWorkspaceOpen},
+                                                    {"console", &m_consoleOpen}, {"buildOutput", &m_buildOutputOpen}, {"profiler", &m_profilerOpen}, {"simState", &m_simStateOpen},
+                                                    {"memory", &m_memoryOpen}, {"soundMonitor", &m_soundMonitorOpen}, {"tests", &m_testsOpen}, {"balance", &m_balanceOpen}};
+    bool oldDebug = false; // "debug 1" from before the [Debug] window was split: its log page is the console
     size_t start = 0;
     for (size_t end = text.find('\n'); end != std::string::npos; start = end + 1, end = text.find('\n', start)) {
         const std::string line = text.substr(start, end - start);
@@ -223,8 +226,11 @@ void Editor::loadPanelState() {
         const int value = std::atoi(line.c_str() + space + 1);
         for (const auto& [name, flag] : panels)
             if (key == name) *flag = value != 0;
+        if (key == "debug") oldDebug = value != 0;
+        if (key == "buildProfile") m_buildPanel.setActiveProfileId(line.substr(space + 1));
         if (key == "previewPage" && value >= 0 && value <= static_cast<int>(PreviewPage::Cutscene)) m_previewPage = static_cast<PreviewPage>(value);
     }
+    if (oldDebug) m_consoleOpen = true;
 }
 
 void Editor::savePanelState() const {
@@ -233,12 +239,20 @@ void Editor::savePanelState() const {
     const auto add = [&text](const char* name, int value) { text += std::string(name) + " " + std::to_string(value) + "\n"; };
     add("scene", m_sceneOpen);
     add("assets", m_assetsOpen);
-    add("debug", m_debugOpen);
     add("data", m_dataOpen);
     add("previews", m_previewOpen);
     add("modules", m_modulesOpen);
     add("ui", m_uiWorkspaceOpen);
+    add("console", m_consoleOpen);
+    add("buildOutput", m_buildOutputOpen);
+    add("profiler", m_profilerOpen);
+    add("simState", m_simStateOpen);
+    add("memory", m_memoryOpen);
+    add("soundMonitor", m_soundMonitorOpen);
+    add("tests", m_testsOpen);
+    add("balance", m_balanceOpen);
     add("previewPage", static_cast<int>(m_previewPage));
+    if (!m_buildPanel.activeProfileId().empty()) text += "buildProfile " + m_buildPanel.activeProfileId() + "\n";
     writeTextFile(m_panelStatePath, text);
 }
 
@@ -332,7 +346,16 @@ void Editor::update(f64 dt) {
 
     const bool editing = m_mode == Mode::Edit;
     drawDataHub(dt, editing);
-    drawDebugHub();
+    drawDebugWindow(DebugPage::Log, std::string(icon::kLog) + "  " + (m_problems.empty() ? std::string(tr("Console")) : trf("Console (%zu)", m_problems.size())) + "###Console", &m_consoleOpen, &m_consoleFront);
+    drawDebugWindow(DebugPage::Build, std::string(icon::kBuild) + "  " + (m_buildPanel.running() ? std::string(tr("Build Output")) + " ..." : std::string(tr("Build Output"))) + "###BuildOutput", &m_buildOutputOpen, &m_buildOutputFront);
+    drawDebugWindow(DebugPage::Performance, std::string(icon::kPerformance) + "  " + tr("Profiler") + "###Profiler", &m_profilerOpen, &m_profilerFront);
+    drawDebugWindow(DebugPage::Memory, std::string(icon::kPerformance) + "  " + tr("Memory") + "###Memory", &m_memoryOpen, &m_memoryFront);
+    if (m_audio && projectHas("audio"))
+        drawDebugWindow(DebugPage::Sound, std::string(icon::kSound) + "  " + tr("Sound Monitor") + "###SoundMonitor", &m_soundMonitorOpen, &m_soundMonitorFront);
+    if (projectHas("sim")) drawDebugWindow(DebugPage::State, std::string(icon::kState) + "  " + tr("Simulation State") + "###SimState", &m_simStateOpen, &m_simStateFront);
+    const u32 failedTests = m_testsPanel.failedCount();
+    drawDebugWindow(DebugPage::Tests, std::string(icon::kTests) + "  " + (failedTests ? trf("Tests (%u failed)", failedTests) : std::string(tr("Tests"))) + "###Tests", &m_testsOpen, &m_testsFront);
+    drawDebugWindow(DebugPage::Balance, std::string(icon::kBalance) + "  " + tr("Balance") + "###Balance", &m_balanceOpen, &m_balanceFront);
     drawPreviewHub();
     // Editing the sound event table (view-only) saves it so changes are heard immediately (audio rereads the file)
     m_viewTableDirty |= m_tablesPanel.takeViewTableChanged();
@@ -359,6 +382,9 @@ void Editor::update(f64 dt) {
     pollBuild();
     pollLayoutCheck();
     drawBuildLog();
+    updateCodeStale(dt);
+    if (m_buildPanel.takeSettingsRequest()) m_buildSettingsOpen = true;
+    if (m_buildSettingsOpen) drawBuildProfiles();
     takePanelStatus();
     drawNotices();
     drawSceneList();
@@ -849,9 +875,10 @@ void Editor::setMode(Mode mode) {
     m_window->setCursorCaptured(false);
     if (mode == Mode::Edit) m_playStatus.clear();
     if (mode == Mode::Play) {
+        m_logPanel.onPlayStart();
         m_sceneOpen = true; // the game must be seen
-        openDebugPage(DebugPage::State); // the [State] page during play
-        m_sceneFrontFrames = m_debugFrontFrames + 2; // outlasts the [Debug] request so the game view ends up with the keyboard
+        if (projectHas("sim")) openDebugPage(DebugPage::State); // the simulation state during play
+        m_sceneFrontFrames = m_simStateFront + 2; // outlasts that request so the game view ends up with the keyboard
     }
 }
 
@@ -912,7 +939,7 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     m_previewOpen = true;
     const f32 rightShare = preset == LayoutPreset::LookDev ? 0.42f : 0.27f;
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, rightShare, nullptr, &center);
-    const f32 bottomShare = preset == LayoutPreset::Play ? 0.18f : 0.26f;
+    const f32 bottomShare = preset == LayoutPreset::Play ? 0.18f : preset == LayoutPreset::Build ? 0.5f : 0.26f;
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, bottomShare, nullptr, &center);
     const ImGuiID bottomRight = ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, 0.4f, nullptr, &bottom);
     ImGui::DockBuilderDockWindow(kUiWindow, center); // a tab behind the viewport
@@ -928,9 +955,21 @@ void Editor::setupDefaultLayout(u32 dockId, LayoutPreset preset) {
     }
     ImGui::DockBuilderDockWindow("Data###Data", right); // docked last: the front tab of the right column
     ImGui::DockBuilderDockWindow("Assets###Assets", bottom);
-    ImGui::DockBuilderDockWindow("Debug###Debug", bottomRight);
+    // Debug windows are tabs of the bottom right strip, open or not, so one opened later lands there
+    for (const char* name : {"Build Output###BuildOutput", "Profiler###Profiler", "Memory###Memory", "Sound Monitor###SoundMonitor",
+                             "Simulation State###SimState", "Tests###Tests", "Balance###Balance", "Console###Console"})
+        ImGui::DockBuilderDockWindow(name, bottomRight);
     ImGui::DockBuilderFinish(dockId);
-    if (preset == LayoutPreset::Play) openDebugPage(DebugPage::State);
+    m_consoleOpen = true;
+    m_consoleFront = 3;
+    if (preset == LayoutPreset::Play && projectHas("sim")) openDebugPage(DebugPage::State);
+    if (preset == LayoutPreset::Build) { // build output and console big at the bottom, the settings window floating
+        ImGui::DockBuilderDockWindow("Console###Console", bottom);
+        ImGui::DockBuilderDockWindow("Build Output###BuildOutput", bottom);
+        m_consoleOpen = m_buildOutputOpen = true;
+        m_buildOutputFront = 3;
+        m_buildSettingsOpen = true;
+    }
 }
 
 void Editor::drawMenuBar() {
@@ -942,7 +981,7 @@ void Editor::drawMenuBar() {
 
     // Enabled during play too: each item decides for itself
     if (ImGui::BeginMenu(tr("Project"))) {
-        commandMenuItem("Settings..."); // project settings, preferences, tools and shortcuts are its pages
+        commandMenuItem("Settings..."); // a floating dialog: project settings, preferences, tools and shortcuts are its pages
         ImGui::Separator();
         // Back to the project list: MealKit Manager. The editor stays open
         if (ImGui::MenuItem(tr("Project Manager"))) {
@@ -966,7 +1005,6 @@ void Editor::drawMenuBar() {
             ImGui::EndMenu();
             if (!chosen.empty() && chosen != m_scenePath) openSceneFile(chosen);
         }
-        commandMenuItem("Scenes", &m_sceneListOpen);
         ImGui::Separator();
         if (hasSceneTool() && ImGui::MenuItem(tr("Open in MkRender"), nullptr, false, !m_scenePath.empty())) {
             const std::string assets = m_project.directory + MEALKIT_SEP "assets" MEALKIT_SEP;
@@ -981,20 +1019,30 @@ void Editor::drawMenuBar() {
         commandMenuItem("Redo");
         ImGui::EndMenu();
     }
+    // Every dockable window is here and only here; the other menus hold actions (and dialogs such as Settings and Build Profiles)
     if (ImGui::BeginMenu(tr("Window"))) {
         commandMenuItem("Viewport", &m_sceneOpen);
         commandMenuItem("Maximize Viewport", &m_sceneMaximized);
         if (projectHas("ui")) commandMenuItem("UI", &m_uiWorkspaceOpen);
+        if (projectHas("scene")) commandMenuItem("Scenes", &m_sceneListOpen);
         ImGui::Separator();
         commandMenuItem("Assets", &m_assetsOpen);
-        commandMenuItem("Debug", &m_debugOpen); // log with problems, build log, performance and state are its pages
         commandMenuItem("Data", &m_dataOpen); // tuning, tables, feedback and sounds are its pages (their commands stay in the palette)
-        commandMenuItem("Previews", &m_previewOpen); // UI, look dev and cutscenes are its pages
+        commandMenuItem("Previews", &m_previewOpen); // look dev and cutscenes are its pages
         commandMenuItem("Modules", &m_modulesOpen); // engine and source modules of the project, and the registry
         ImGui::Separator();
+        commandMenuItem("Console", &m_consoleOpen);
+        commandMenuItem("Build Output", &m_buildOutputOpen);
+        commandMenuItem("Profiler", &m_profilerOpen);
+        commandMenuItem("Memory", &m_memoryOpen);
+        if (m_audio && projectHas("audio")) commandMenuItem("Sound Monitor", &m_soundMonitorOpen);
+        if (projectHas("sim")) commandMenuItem("Simulation State", &m_simStateOpen);
+        commandMenuItem("Tests", &m_testsOpen);
+        commandMenuItem("Balance", &m_balanceOpen);
+        ImGui::Separator();
         if (ImGui::BeginMenu(tr("Layout"))) {
-            const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev")};
-            for (int i = 0; i < 3; ++i)
+            const char* names[] = {tr("Edit"), tr("Play"), tr("Look Dev"), tr("Build")};
+            for (int i = 0; i < 4; ++i)
                 if (ImGui::MenuItem(names[i], nullptr, static_cast<int>(m_layoutPreset) == i)) {
                     m_layoutPreset = static_cast<LayoutPreset>(i);
                     m_layoutReset = true;
@@ -1025,8 +1073,16 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Build"), !m_project.directory.empty())) {
+        // Game code (hot reload) is the everyday loop; profiles make the game players get (Unity Build Profiles, Godot Export)
         commandMenuItem("Build Game Code (Hot Reload)");
-        commandMenuItem("Release Build");
+        ImGui::Separator();
+        ImGui::TextDisabled("%s", trf("Active profile: %s", m_buildPanel.activeTitle().c_str()).c_str());
+        commandMenuItem("Build Active Profile");
+        commandMenuItem("Build and Run");
+        commandMenuItem("Cancel Build");
+        ImGui::Separator();
+        commandMenuItem("Build Profiles...", &m_buildSettingsOpen);
+        commandMenuItem("Open Release Folder");
         ImGui::EndMenu();
     }
     // Tool suite (editor/Tools.h): opens MealKit tools from separate repos with this project
@@ -1158,7 +1214,8 @@ void Editor::drawStatusBar() {
             }
             ImGui::TextDisabled(tr("%zu objects"), m_scene.entities.size());
             gap();
-            if (m_buildPanel.drawStatus(m_time)) {
+            collectProgress();
+            if (drawProgressSummary()) {
                 gap();
             } else if (!m_gameStatus.empty()) {
                 if (m_gameLoaded) ImGui::TextDisabled("%s", m_gameStatus.c_str());
@@ -1172,6 +1229,26 @@ void Editor::drawStatusBar() {
                 ImGui::TextDisabled(
                     "%s", tr("Camera: right drag + WASD/QE, wheel for speed | Select: click | Hold Ctrl on gizmo: snap"));
             ImGui::PopClipRect();
+            // Bell: messages that already left the viewport, newest first (the number is the ones not looked at yet)
+            {
+                const size_t unread = m_noticeHistory.size() - std::min(m_noticeRead, m_noticeHistory.size());
+                const std::string label = unread ? std::string(icon::kFlag) + " " + std::to_string(unread) : std::string(icon::kFlag);
+                ImGui::SetCursorPosX(fpsX - ImGui::CalcTextSize(label.c_str()).x - ImGui::GetFontSize() * 1.5f);
+                ImGui::TextColored(unread ? ImVec4(0.95f, 0.80f, 0.35f, 1.0f) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%s", label.c_str());
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    ImGui::SetTooltip("%s", tr("Earlier messages"));
+                }
+                if (ImGui::IsItemClicked()) {
+                    ImGui::OpenPopup("##noticeHistory");
+                    m_noticeRead = m_noticeHistory.size();
+                }
+                if (ImGui::BeginPopup("##noticeHistory")) {
+                    if (m_noticeHistory.empty()) ImGui::TextDisabled("%s", tr("No messages"));
+                    for (size_t i = m_noticeHistory.size(); i-- > 0;) ImGui::TextUnformatted(m_noticeHistory[i].c_str());
+                    ImGui::EndPopup();
+                }
+            }
             ImGui::SetCursorPosX(fpsX);
             // Red when over budget; clicking opens the [Performance] window
             const ImVec4 fpsColor = m_perfPanel.overBudget() ? color::kDanger
@@ -1273,7 +1350,7 @@ void Editor::drawState() {
     }
     ImGui::TextDisabled(tr("%s (read-only)"), m_stateView.type->name);
     drawStateGraphs();
-    drawFieldsReadOnly(*m_stateView.type, m_stateView.data);
+    drawFieldsReadOnly(*m_stateView.type, m_stateView.data, [this](const std::string& path) { watchStatePath(path); });
 }
 
 // Toolbar overlaid on the viewport (top left) and axis gizmo (top right; clicking an axis views from that side)
@@ -1334,9 +1411,59 @@ void Editor::drawViewportToolbar() {
         ImGui::DragFloat("##camSpeed", &m_cameraSpeed, 0.01f, 1.0f, 400.0f, "%.0f m/s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
         tip(tr("Camera speed"));
         endGroup(2);
+
+        beginGroup(4);
+        if (iconButton(icon::kPerformance, tr("Viewport statistics (fps, draw calls, tick time)"), m_showStats)) m_showStats = !m_showStats;
+        endGroup(4);
+
+        // Game code: build button + state dot (green up to date, yellow sources changed / building, red failed; red opens the build log)
+        beginGroup(3);
+        const bool building = m_buildPanel.running() && m_buildPanel.kind() == BuildKind::GameCode;
+        ImGui::BeginDisabled(m_project.directory.empty() || m_mode != Mode::Edit);
+        if (iconButton(icon::kBuild, m_codeBuildFailed ? tr("Game code build failed: show the build log") : tr("Build Game Code (Hot Reload)"))) {
+            if (m_codeBuildFailed && !building) showBuildOutput();
+            else startBuild(BuildKind::GameCode);
+        }
+        ImGui::EndDisabled();
+        ImVec4 dot = ImVec4(0.45f, 0.85f, 0.5f, 1.0f);
+        const char* dotTip = tr("Game code is up to date");
+        if (building) {
+            dot = ImVec4(0.95f, 0.80f, 0.35f, 0.5f + 0.5f * std::sin(static_cast<f32>(m_time) * 6.0f));
+            dotTip = tr("Building game code...");
+        } else if (m_codeBuildFailed) {
+            dot = ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
+            dotTip = tr("Game code build failed");
+        } else if (m_codeStale) {
+            dot = ImVec4(0.95f, 0.80f, 0.35f, 1.0f);
+            dotTip = tr("Sources are newer than the game code: build needed");
+        }
+        ImGui::SameLine(0, 4);
+        {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const f32 r = ImGui::GetFontSize() * 0.3f;
+            ImGui::Dummy(ImVec2(r * 2.0f, ImGui::GetFrameHeight()));
+            ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + r, p.y + ImGui::GetFrameHeight() * 0.5f), r, ImGui::GetColorU32(dot));
+            tip(dotTip);
+        }
+        endGroup(3);
     }
     ImGui::End();
     ImGui::PopStyleVar(2);
+
+    if (m_showStats) {
+        const game::FrameSample s = m_perf.sample();
+        ImGui::SetNextWindowPos(ImVec2(m_viewport.x + 8.0f, m_viewport.y + 8.0f));
+        ImGui::SetNextWindowBgAlpha(0.6f);
+        const ImGuiWindowFlags statFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                           ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDocking |
+                                           ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs;
+        if (ImGui::Begin("##ViewportStats", nullptr, statFlags)) {
+            ImGui::Text("%.0f fps  %.2f ms", s.fps, s.frameMs);
+            if (s.hasRenderer) ImGui::Text("%s %u", tr("Draw calls"), s.drawCalls);
+            if (s.hasGame) ImGui::Text("%s %.2f ms  #%u", tr("Tick"), s.simMsPerTick, s.tick);
+        }
+        ImGui::End();
+    }
 
     // Axis gizmo: when ImGuizmo rotates the view matrix, convert back to camera angles/position
     const f32 size = cubeSize;
@@ -1735,6 +1862,11 @@ bool Editor::loadScene(const std::string& path) {
 
 void Editor::setStatus(const std::string& text, bool failed, NoticeOpen open) {
     if (m_notices.size() >= 5) m_notices.erase(m_notices.begin());
+    m_noticeHistory.push_back(text);
+    if (m_noticeHistory.size() > 30) {
+        m_noticeHistory.erase(m_noticeHistory.begin());
+        if (m_noticeRead > 0) --m_noticeRead;
+    }
     m_notices.push_back({text, m_time, failed, failed ? open : NoticeOpen::None});
 }
 
@@ -1796,7 +1928,8 @@ void Editor::tagCommandModules() {
     static constexpr ModuleOf kModuleOf[] = {
         {"Viewport", "scene"},
         {"Assets", "asset"},     {"Data", "data"},         {"Tuning", "data"},     {"Tables", "data"},
-        {"Feedback", "feedback"}, {"Effects", "feedback"}, {"Sounds", "audio"},    {"State", "sim"},
+        {"Feedback", "feedback"}, {"Effects", "feedback"}, {"Sounds", "audio"},    {"Simulation State", "sim"},
+        {"Sound Monitor", "audio"},
         {"Previews", "render"},
     };
     for (Command& c : m_commands)
@@ -1825,6 +1958,12 @@ void Editor::closePanelsOfMissingModules() {
 
 void Editor::setProject(const ProjectInfo& project) {
     m_project = project;
+    // Field right-click "Find in Code": the game's headers first, then the engine's (engine types in the inspector)
+    setFindInCode([this](const char* typeName, const char* fieldName) {
+        FileLine at;
+        if (findFieldDeclaration({m_project.directory, m_engineDirectory}, typeName, fieldName, &at)) openInCodeEditor(m_buildPanel.codeEditor(), at.file, at.line);
+        else setStatus(trf("Couldn't find where %s.%s is declared", typeName, fieldName), true);
+    });
     readProjectModules();
     loadViewState(); // the scene opens before the project
     // 2D project still on a 3D view (first open, or a view saved before view2d was set): face the XY plane around the origin
@@ -1989,7 +2128,7 @@ bool Editor::takeGameCodeBuildFailed() {
 }
 
 // Shipping copies assets and mealkit.project from disk, so unsaved scenes/project settings are saved first
-void Editor::startBuild(BuildKind kind) {
+void Editor::startBuild(BuildKind kind, bool run) {
     if (m_buildPanel.running() || m_project.directory.empty()) return;
     if (kind != BuildKind::Upgrade && !hasCompiler()) {
         setStatus(tr("This PC has no C++ compiler: building is for programmers. Use Get Latest Game Code."), true);
@@ -2000,12 +2139,37 @@ void Editor::startBuild(BuildKind kind) {
         m_engineRestartPrompt = true;
         return;
     }
-    m_buildPanel.start(kind, m_project, m_engineDirectory, m_time);
+    if (m_buildPanel.start(kind, m_project, m_engineDirectory, m_time, run) && kind == BuildKind::GameCode) m_staleTimer = 1.5;
+}
+
+// Are the project's sources newer than the built game DLL? (checked every 2 s; only source/ and modules/ are looked at)
+void Editor::updateCodeStale(f64 dt) {
+    m_staleTimer += dt;
+    if (m_staleTimer < 2.0 || m_project.directory.empty() || m_buildPanel.running()) return;
+    m_staleTimer = 0.0;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dll = fs::path(m_project.gameDllPath());
+    const fs::file_time_type built = fs::exists(dll, ec) ? fs::last_write_time(dll, ec) : fs::file_time_type::min();
+    bool stale = false;
+    for (const char* folder : {"source", "modules"}) {
+        const fs::path root = fs::path(m_project.directory) / folder;
+        if (!fs::is_directory(root, ec)) continue;
+        for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end && !stale; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            const std::string ext = it->path().extension().string();
+            if (ext != ".cpp" && ext != ".h" && ext != ".hpp" && ext != ".inl") continue;
+            stale = fs::last_write_time(it->path(), ec) > built;
+        }
+    }
+    m_codeStale = stale;
 }
 
 void Editor::pollBuild() {
     if (!m_buildPanel.poll(m_project, m_time)) return;
     const BuildKind kind = m_buildPanel.kind();
+    if (m_buildPanel.cancelled()) return;
+    if (kind == BuildKind::GameCode) m_codeBuildFailed = !m_buildPanel.succeeded();
     if (!m_buildPanel.succeeded()) {
         if (m_buildPanel.engineBuildFailed()) m_engineRestartPrompt = true; // the engine changed under this editor
         if (kind == BuildKind::GameCode) {
@@ -2072,8 +2236,105 @@ bool Editor::restartAndRebuild() {
     return true;
 }
 
+static std::string clockText(f64 seconds) {
+    const int total = static_cast<int>(seconds);
+    char text[24];
+    std::snprintf(text, sizeof(text), "%d:%02d", total / 60, total % 60);
+    return text;
+}
+
+// Long tasks in one list. The build has its own clock and step counter; the others are shown with the time since they were first seen
+void Editor::collectProgress() {
+    m_progress.clear();
+    if (m_buildPanel.running()) {
+        ProgressTask task;
+        task.name = m_buildPanel.title();
+        task.step = m_buildPanel.step();
+        task.steps = m_buildPanel.steps();
+        task.started = m_buildPanel.startTime();
+        task.cancelable = true;
+        task.hasOutput = true;
+        m_progress.push_back(std::move(task));
+    }
+    const auto other = [&](bool running, const std::string& name) {
+        if (!running) return;
+        f64 started = m_time;
+        for (const auto& [seen, time] : m_taskSeen)
+            if (seen == name) started = time;
+        ProgressTask task;
+        task.name = name;
+        task.started = started;
+        m_progress.push_back(std::move(task));
+    };
+    other(m_testsPanel.running(), tr("Tests"));
+    other(m_balancePanel.running(), tr("Balance"));
+    other(m_modulesPanel.busy(), m_modulesPanel.label().empty() ? std::string(tr("Modules")) : m_modulesPanel.label());
+    std::vector<std::pair<std::string, f64>> seen;
+    for (const ProgressTask& task : m_progress) seen.emplace_back(task.name, task.started);
+    m_taskSeen = std::move(seen);
+}
+
+// Status bar: "Game code build 47/212 0:31" (several: "3 tasks"); a click lists them with progress bar, [Cancel] and [Output]
+bool Editor::drawProgressSummary() {
+    if (m_progress.empty()) return false;
+    const ProgressTask& first = m_progress.front();
+    std::string text = m_progress.size() > 1 ? trf("%zu tasks", m_progress.size()) : first.name;
+    if (m_progress.size() == 1 && first.steps > 0) text += "  " + std::to_string(first.step) + "/" + std::to_string(first.steps);
+    if (m_progress.size() == 1) text += "  " + clockText(m_time - first.started);
+    ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), "%s", text.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    if (ImGui::IsItemClicked()) ImGui::OpenPopup("##progress");
+    if (ImGui::BeginPopup("##progress")) {
+        for (size_t i = 0; i < m_progress.size(); ++i) {
+            const ProgressTask& task = m_progress[i];
+            ImGui::PushID(static_cast<int>(i));
+            ImGui::TextUnformatted(task.name.c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", clockText(m_time - task.started).c_str());
+            const f32 fraction = task.steps > 0 ? static_cast<f32>(task.step) / static_cast<f32>(task.steps) : -static_cast<f32>(m_time);
+            ImGui::ProgressBar(fraction, ImVec2(ImGui::GetFontSize() * 14.0f, 0.0f), task.steps > 0 ? (std::to_string(task.step) + "/" + std::to_string(task.steps)).c_str() : "");
+            if (task.hasOutput) {
+                ImGui::SameLine();
+                if (iconButton(icon::kLog, tr("Show output"))) {
+                    showBuildOutput();
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            if (task.cancelable) {
+                ImGui::SameLine();
+                if (iconButton(icon::kClose, tr("Cancel"))) m_buildPanel.cancel();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndPopup();
+    }
+    return true;
+}
+
+// [Build Profiles] window: builds, and edits of the game's shipping settings (saved to mealkit.project like [Project Settings])
+void Editor::drawBuildProfiles() {
+    BuildWindowRequest request;
+    if (!m_buildPanel.drawSettings(&m_buildSettingsOpen, m_mode == Mode::Edit, m_project, m_time, &request)) return;
+    if (request.projectChanged) {
+        if (m_projectPanel.dirty()) { // unsaved edits there would be overwritten by either save: ask for those first
+            setStatus(tr("Save or revert [Project Settings] first"), true);
+        } else {
+            ProjectInfo next = m_project;
+            next.settings = request.settings;
+            if (game::saveProjectFile(next.filePath(), next)) {
+                m_project = next;
+                m_projectPanel.revert(m_project);
+            } else {
+                setStatus(trf("Could not save project settings: %s", next.filePath().c_str()), true);
+            }
+        }
+    }
+    if (request.openProjectSettings) openProjectSettings();
+    if (request.build) startBuild(BuildKind::Profile, request.run);
+}
+
 void Editor::drawBuildLog() {
-    if (m_buildPanel.takeOpenRequest()) openDebugPage(DebugPage::Build);
+    if (m_buildPanel.takeOpenRequest()) showBuildOutput();
 }
 
 void Editor::saveAll() {
@@ -2115,7 +2376,8 @@ void Editor::drawNotices() {
             if (n.open != NoticeOpen::None && ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
             if (n.open != NoticeOpen::None && ImGui::IsItemClicked()) {
                 const bool build = n.open == NoticeOpen::BuildLog;
-                openDebugPage(build ? DebugPage::Build : DebugPage::Log);
+                if (build) showBuildOutput();
+                else openDebugPage(DebugPage::Log);
                 n.time = -1.0;
             }
             ImGui::PopID();
@@ -2172,9 +2434,7 @@ void Editor::drawEmptyViewport() {
         if (iconButton(icon::kBuild, tr("Build Game Code"))) startBuild(BuildKind::GameCode);
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if (iconButton(icon::kLog, tr("Build Log"))) {
-            openDebugPage(DebugPage::Build);
-        }
+        if (iconButton(icon::kLog, tr("Build Output"))) showBuildOutput();
     }
     ImGui::End();
 }

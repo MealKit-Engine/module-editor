@@ -20,4 +20,9 @@ bool openInCodeEditor(const std::string& editor, const std::string& file, int li
 // First line containing needle in .h files under folders (including subfolders)
 bool findInHeaders(const std::vector<std::string>& folders, const std::string& needle, FileLine* out);
 
+// Where a reflected field is declared (inspector "Find in Code"): the MEALKIT_STRUCT/OBJECT/VIEWMODEL(typeName) line in .h files
+// under folders, then the first MEALKIT_ line after it with fieldName as a later argument ("MEALKIT_FIELD(f32, speed, ...").
+// The type line when the field isn't found before the next declared type. false if the type isn't found either.
+bool findFieldDeclaration(const std::vector<std::string>& folders, const std::string& typeName, const std::string& fieldName, FileLine* out);
+
 } // namespace mealkit::editor

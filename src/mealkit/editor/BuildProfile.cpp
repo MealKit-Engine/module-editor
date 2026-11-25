@@ -64,6 +64,11 @@ std::vector<BuildProfile> loadBuildProfiles(const std::string& projectDirectory)
             if (key == "label") profile.label = value;
             else if (key == "config") profile.config = value;
             else if (key == "output") profile.output = value;
+            else if (key == "platform") profile.platform = value;
+        }
+        if (profile.platform.empty()) { // files written before the platform line
+            for (const char* os : {"windows", "linux"})
+                if (profile.id.rfind(os, 0) == 0) profile.platform = os;
         }
         if (profile.config.empty()) {
             MEALKIT_WARN("Build profile %s skipped: no config line", file.c_str());
@@ -78,22 +83,25 @@ bool saveBuildProfile(const std::string& projectDirectory, const BuildProfile& p
     if (!validProfileId(profile.id) || profile.config.empty()) return false;
     const std::string directory = buildProfileDirectory(projectDirectory);
     if (!createDirectories(directory)) return false;
-    std::string out = "# MealKit build profile. Build it from the editor's [Build Log] window or with the configuration profile:" + profile.id + "\n";
+    std::string out = "# MealKit build profile. Build it from the editor's [Build Profiles] window or with the configuration profile:" + profile.id + "\n";
     out += text::formatLine(kProfileFormat) + "\n";
     if (!profile.label.empty()) out += "label " + profile.label + "\n";
     out += "config " + profile.config + "\n";
     if (!profile.output.empty()) out += "output " + profile.output + "\n";
+    if (!profile.platform.empty()) out += "platform " + profile.platform + "\n";
     return writeTextFile(directory + "/" + profile.id + ".profile", out);
 }
 
 std::vector<BuildProfile> defaultBuildProfiles() {
     return {
-        {"windows-dx12", "Windows DX12", "Export", "export/windows-dx12"},
-        {"windows-vulkan", "Windows Vulkan", "VulkanExport", "export/windows-vulkan"},
-        {"linux-vulkan", "Linux Vulkan", "Export", "export/linux-vulkan"},
-        {"debug", "Debug", "Debug", ""},
+        {"windows-dx12", "Windows DX12", "Export", "export/windows-dx12", "windows"},
+        {"windows-vulkan", "Windows Vulkan", "VulkanExport", "export/windows-vulkan", "windows"},
+        {"linux-vulkan", "Linux Vulkan", "Export", "export/linux-vulkan", "linux"},
+        {"debug", "Debug", "Debug", "", ""},
     };
 }
+
+bool BuildProfile::buildsHere() const { return platform.empty() || platform == buildOsName(); }
 
 std::string buildProfileOutputDirectory(const std::string& projectDirectory, const std::string& projectName, const BuildProfile& profile) {
     if (profile.output.empty()) return projectDirectory + "/export/" + buildOsName() + "/" + projectName;

@@ -1,5 +1,6 @@
 #include "mealkit/editor/Preferences.h"
 
+#include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Project.h"
 #include "mealkit/editor/Strings.h"
@@ -90,12 +91,14 @@ bool savePreferences(const Preferences& p) {
 
 bool drawSnapSettings(Preferences& p) {
     bool changed = false;
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-    changed |= ImGui::InputFloat(tr("Move snap (m)"), &p.snapMove, 0.25f, 1.0f, "%.2f");
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-    changed |= ImGui::InputFloat(tr("Rotate snap (degrees)"), &p.snapRotate, 5.0f, 15.0f, "%.1f");
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-    changed |= ImGui::InputFloat(tr("Scale snap"), &p.snapScale, 0.05f, 0.25f, "%.2f");
+    const auto number = [](const char* label) {
+        std::string hidden = propertyRow(label);
+        limitNextWidth(12.0f);
+        return hidden;
+    };
+    changed |= ImGui::InputFloat(number(tr("Move snap (m)")).c_str(), &p.snapMove, 0.25f, 1.0f, "%.2f");
+    changed |= ImGui::InputFloat(number(tr("Rotate snap (degrees)")).c_str(), &p.snapRotate, 5.0f, 15.0f, "%.1f");
+    changed |= ImGui::InputFloat(number(tr("Scale snap")).c_str(), &p.snapScale, 0.05f, 0.25f, "%.2f");
     p.snapMove = std::clamp(p.snapMove, 0.01f, 100.0f);
     p.snapRotate = std::clamp(p.snapRotate, 0.1f, 180.0f);
     p.snapScale = std::clamp(p.snapScale, 0.001f, 10.0f);
@@ -104,22 +107,28 @@ bool drawSnapSettings(Preferences& p) {
 
 bool PreferencesPanel::drawContent(Preferences& p) {
     bool changed = false;
+    const auto slider = [](const char* label) {
+        std::string hidden = propertyRow(label);
+        limitNextWidth(16.0f);
+        return hidden;
+    };
     ImGui::SeparatorText(tr("Viewport"));
-    changed |= ImGui::SliderFloat(tr("Camera speed"), &p.cameraSpeed, 1.0f, 100.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+    changed |= ImGui::SliderFloat(slider(tr("Camera speed")).c_str(), &p.cameraSpeed, 1.0f, 100.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
     changed |= drawSnapSettings(p);
     ImGui::SeparatorText(tr("Interface"));
-    changed |= ImGui::SliderFloat(tr("Text size"), &p.uiScale, 0.75f, 2.0f, "%.2fx");
-    changed |= checkbox(tr("Compact rows"), &p.compact);
-    changed |= checkbox(tr("Save the window layout per project"), &p.projectLayout);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Takes effect the next time a project opens"));
+    changed |= ImGui::SliderFloat(slider(tr("Text size")).c_str(), &p.uiScale, 0.75f, 2.0f, "%.2fx");
+    changed |= checkbox(propertyRow(tr("Compact rows")).c_str(), &p.compact);
+    changed |= checkbox(propertyRow(tr("Save the window layout per project"), tr("Takes effect the next time a project opens")).c_str(), &p.projectLayout);
     ImGui::SeparatorText(tr("Files"));
     int seconds = static_cast<int>(p.autosaveSeconds);
-    if (ImGui::InputInt(tr("Autosave every (seconds, 0: off)"), &seconds, 30)) {
+    const std::string autosave = propertyRow(tr("Autosave every (seconds, 0: off)"));
+    limitNextWidth(12.0f);
+    if (ImGui::InputInt(autosave.c_str(), &seconds, 30)) {
         p.autosaveSeconds = static_cast<u32>(std::clamp(seconds, 0, 3600));
         changed = true;
     }
     if (ImGui::IsWindowAppearing()) snprintf(m_editor, sizeof(m_editor), "%s", p.externalEditor.c_str());
-    ImGui::InputText(tr("Code editor"), m_editor, sizeof(m_editor));
+    ImGui::InputText(propertyRow(tr("Code editor")).c_str(), m_editor, sizeof(m_editor));
     if (ImGui::IsItemDeactivatedAfterEdit()) {
         p.externalEditor = m_editor;
         changed = true;

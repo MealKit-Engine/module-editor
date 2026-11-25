@@ -3,6 +3,7 @@
 
 #include "mealkit/render/ModelDraw.h" // asset::ModelCache + its drawing
 #include "mealkit/core/Memory.h"
+#include "mealkit/editor/CodeLink.h"
 #include "mealkit/editor/FieldEditor.h"
 #include "mealkit/editor/ImGuiLayer.h"
 #include "mealkit/editor/Strings.h"
@@ -191,22 +192,51 @@ void Editor::runTestInput() {
     }
 }
 
+namespace {
+float graphSample(const reflect::ValueInfo& value, const void* data) {
+    const std::string text = reflect::formatScalar(value, data);
+    if (text == "true") return 1.0f;
+    return std::strtof(text.c_str(), nullptr); // false is 0
+}
+} // namespace
+
 void Editor::updateStateGraphs() {
     if (m_mode != Mode::Play || !m_stateView.type || !m_stateView.data) return;
-    constexpr size_t kSamples = 600; // ten seconds at 60 fps
+    const game::Timeline t = m_simDebug ? m_simDebug->timeline() : game::Timeline{};
+    if (m_simDebug && t.viewingPast) return; // the recording is replayed: those ticks are already sampled
     for (StateGraph& g : m_graphs) {
+        const u32 tick = m_simDebug ? t.live : (g.sampled ? g.lastTick + 1 : 0);
+        if (m_simDebug && g.sampled && tick == g.lastTick) continue; // paused, or a frame without a tick
+        if (g.sampled && tick < g.lastTick) { // a new play
+            g.samples.clear();
+            g.ticks.clear();
+            g.next = 0;
+        }
         const reflect::ValueInfo* value = nullptr;
         void* data = nullptr;
         if (!reflect::resolvePath(*m_stateView.type, const_cast<void*>(m_stateView.data), g.path, value, data)) continue;
-        const float sample = std::strtof(reflect::formatScalar(*value, data).c_str(), nullptr);
-        if (g.samples.size() < kSamples) g.samples.push_back(sample);
-        else g.samples[g.next] = sample;
-        g.next = (g.next + 1) % kSamples;
+        const float sample = graphSample(*value, data);
+        if (g.samples.size() < kGraphSamples) {
+            g.samples.push_back(sample);
+            g.ticks.push_back(tick);
+        } else {
+            g.samples[g.next] = sample;
+            g.ticks[g.next] = tick;
+        }
+        g.next = (g.next + 1) % kGraphSamples;
+        g.sampled = true;
+        g.lastTick = tick;
     }
 }
 
+void Editor::watchStatePath(const std::string& path) {
+    for (const StateGraph& g : m_graphs)
+        if (g.path == path) return;
+    m_graphs.push_back({path, {}, {}, 0, false, 0});
+}
+
 void Editor::drawStateGraphs() {
-    if (!sectionHeader(tr("Graphs"))) return;
+    if (!sectionHeader(tr("Graphs"), m_graphs.empty() ? 0 : ImGuiTreeNodeFlags_DefaultOpen)) return;
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
     const bool enter = ImGui::InputTextWithHint("##graphPath", tr("Field path, such as tick"), m_graphPath, sizeof(m_graphPath), ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();
@@ -215,18 +245,37 @@ void Editor::drawStateGraphs() {
     const bool valid = reflect::resolvePath(*m_stateView.type, const_cast<void*>(m_stateView.data), m_graphPath, value, data) && !reflect::formatScalar(*value, data).empty();
     ImGui::BeginDisabled(!valid);
     if (iconButton(icon::kAdd, tr("Add Graph")) || (enter && valid)) {
-        m_graphs.push_back({m_graphPath, {}, 0});
+        watchStatePath(m_graphPath);
         m_graphPath[0] = 0;
     }
     ImGui::EndDisabled();
+    if (m_graphs.empty()) ImGui::TextDisabled("%s", tr("Or right-click a number below: Watch as Graph"));
+    const game::Timeline t = m_simDebug ? m_simDebug->timeline() : game::Timeline{};
     int remove = -1;
     for (size_t i = 0; i < m_graphs.size(); ++i) {
         const StateGraph& g = m_graphs[i];
         ImGui::PushID(static_cast<int>(i));
-        const size_t offset = g.samples.size() < 600 ? 0 : g.next;
-        const std::string last = g.samples.empty() ? std::string() : std::to_string(g.samples[(g.next + g.samples.size() - 1) % g.samples.size()]);
-        ImGui::PlotLines("##plot", g.samples.data(), static_cast<int>(g.samples.size()), static_cast<int>(offset), last.c_str(), FLT_MAX, FLT_MAX,
+        const size_t count = g.samples.size();
+        const size_t offset = count < kGraphSamples ? 0 : g.next;
+        // The value at the tick on screen: the newest one, or the one recorded at a past tick being viewed
+        size_t shown = count ? (g.next + count - 1) % count : 0;
+        bool marker = false;
+        if (m_simDebug && t.viewingPast)
+            for (size_t k = 0; k < count; ++k)
+                if (g.ticks[k] == t.view) {
+                    shown = k;
+                    marker = true;
+                }
+        char overlay[64] = {};
+        if (count) std::snprintf(overlay, sizeof(overlay), "%g  (tick %u)", static_cast<double>(g.samples[shown]), static_cast<unsigned>(g.ticks[shown]));
+        ImGui::PlotLines("##plot", g.samples.data(), static_cast<int>(count), static_cast<int>(offset), overlay, FLT_MAX, FLT_MAX,
                          ImVec2(ImGui::GetContentRegionAvail().x * 0.7f, ImGui::GetFontSize() * 3.0f));
+        if (marker && count > 1) { // where the viewed past tick is along the line
+            const size_t position = (shown + count - offset) % count;
+            const ImVec2 lo = ImGui::GetItemRectMin(), hi = ImGui::GetItemRectMax();
+            const f32 x = lo.x + (hi.x - lo.x) * static_cast<f32>(position) / static_cast<f32>(count - 1);
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(x, lo.y), ImVec2(x, hi.y), ImGui::GetColorU32(color::kWarning), 1.5f);
+        }
         ImGui::SameLine();
         ImGui::TextUnformatted(g.path.c_str());
         ImGui::SameLine();
@@ -236,84 +285,85 @@ void Editor::drawStateGraphs() {
     if (remove >= 0) m_graphs.erase(m_graphs.begin() + remove);
 }
 
+std::pair<bool*, int*> Editor::debugWindow(DebugPage page) {
+    switch (page) {
+    case DebugPage::Log: return {&m_consoleOpen, &m_consoleFront};
+    case DebugPage::Build: return {&m_buildOutputOpen, &m_buildOutputFront};
+    case DebugPage::Performance: return {&m_profilerOpen, &m_profilerFront};
+    case DebugPage::Memory: return {&m_memoryOpen, &m_memoryFront};
+    case DebugPage::Sound: return {&m_soundMonitorOpen, &m_soundMonitorFront};
+    case DebugPage::State: return {&m_simStateOpen, &m_simStateFront};
+    case DebugPage::Tests: return {&m_testsOpen, &m_testsFront};
+    case DebugPage::Balance: return {&m_balanceOpen, &m_balanceFront};
+    }
+    return {&m_consoleOpen, &m_consoleFront};
+}
+
 void Editor::openDebugPage(DebugPage page) {
-    m_debugOpen = true;
-    m_debugPage = page;
-    m_debugFrontFrames = 3;
+    const auto [open, front] = debugWindow(page);
+    *open = true;
+    *front = 3;
 }
 
 void Editor::toggleDebugPage(DebugPage page) {
-    if (m_debugOpen && m_debugPage == page) m_debugOpen = false;
+    const auto [open, front] = debugWindow(page);
+    if (*open) *open = false;
     else openDebugPage(page);
 }
 
-// [Debug] window: everything for finding out what went wrong, one list on the left. It starts as a tab in the bottom strip
-void Editor::drawDebugHub() {
-    if (!m_debugOpen) return;
-    if (ImGuiWindow* assets = ImGui::FindWindowByName("Assets###Assets"); assets && assets->DockId)
-        ImGui::SetNextWindowDockID(assets->DockId, ImGuiCond_FirstUseEver); // old layout files don't have this window
-    if (m_debugFrontFrames > 0) {
-        --m_debugFrontFrames;
+void Editor::drawDebugPageBody(DebugPage page) {
+    switch (page) {
+    case DebugPage::Log: drawLogPage(); break;
+    case DebugPage::Build: {
+        BuildKind request = BuildKind::GameCode;
+        if (m_buildPanel.drawContent(m_mode == Mode::Edit, m_project, m_time, &request)) startBuild(request);
+        break;
+    }
+    case DebugPage::Performance: {
+        // Off shows the real frame cost instead of the monitor refresh interval
+        bool vsync = m_renderer->vsync();
+        if (checkbox(tr("Vertical Sync"), &vsync)) m_renderer->setVsync(vsync);
+        // Only when RenderDoc/PIX was loaded with --gpu-capture
+        if (const char* tool = rhi::gpuCaptureTool()) {
+            ImGui::SameLine();
+            if (iconButton(icon::kCamera, trf("GPU Capture (%s)", tool).c_str())) captureGpuFrame();
+        }
+        m_perfPanel.drawContent();
+        break;
+    }
+    case DebugPage::Memory: drawMemoryPage(); break;
+    case DebugPage::Sound:
+        if (m_audio) m_soundPanel.drawMonitor(*m_audio);
+        break;
+    case DebugPage::State: drawState(); break;
+    case DebugPage::Tests: m_testsPanel.drawContent(m_project); break;
+    case DebugPage::Balance: m_balancePanel.drawContent(m_project); break;
+    }
+}
+
+// One debug window. A layout file from before it existed puts it beside the console, or beside [Assets]
+void Editor::drawDebugWindow(DebugPage page, const std::string& title, bool* open, int* front) {
+    if (!*open) return;
+    ImGuiWindow* dock = page == DebugPage::Log ? nullptr : ImGui::FindWindowByName("Console###Console");
+    if (!dock || !dock->DockId) dock = ImGui::FindWindowByName("Assets###Assets");
+    if (dock && dock->DockId) ImGui::SetNextWindowDockID(dock->DockId, ImGuiCond_FirstUseEver);
+    if (*front > 0) {
+        --*front;
         ImGui::SetNextWindowFocus();
     }
-    // The problem count is in the tab, so problems show while another tab is in front
-    const std::string title = std::string(icon::kDebug) + "  " + (m_problems.empty() ? std::string(tr("Debug")) : trf("Debug (%zu)", m_problems.size())) + "###Debug";
-    if (!ImGui::Begin(title.c_str(), &m_debugOpen)) {
-        ImGui::End();
-        return;
-    }
-    if (beginListPane("##debugList", ImGui::GetFontSize() * 9.0f)) {
-        const auto entry = [this](const char* glyph, const std::string& label, DebugPage page) {
-            if (ImGui::Selectable((std::string(glyph) + "  " + label + "##" + std::to_string(static_cast<int>(page))).c_str(), m_debugPage == page)) openDebugPage(page);
-        };
-        entry(icon::kLog, tr("Log"), DebugPage::Log);
-        entry(icon::kBuild, m_buildPanel.running() ? std::string(tr("Build Log")) + " ..." : std::string(tr("Build Log")), DebugPage::Build);
-        entry(icon::kPerformance, tr("Performance"), DebugPage::Performance);
-        entry(icon::kPerformance, tr("Memory"), DebugPage::Memory);
-        if (m_audio && projectHas("audio")) entry(icon::kSound, tr("Sounds"), DebugPage::Sound);
-        if (projectHas("sim")) entry(icon::kState, tr("State"), DebugPage::State);
-        const u32 failedTests = m_testsPanel.failedCount();
-        entry(icon::kTests, failedTests ? trf("Tests (%u failed)", failedTests) : std::string(tr("Tests")), DebugPage::Tests);
-        entry(icon::kBalance, tr("Balance"), DebugPage::Balance);
-    }
-    ImGui::EndChild();
-    ImGui::SameLine();
-    if (ImGui::BeginChild("##debugPage")) {
-        switch (m_debugPage) {
-        case DebugPage::Log: drawLogPage(); break;
-        case DebugPage::Build: {
-            BuildKind request = BuildKind::GameCode;
-            if (m_buildPanel.drawContent(m_mode == Mode::Edit, m_project, m_time, &request)) startBuild(request);
-            break;
-        }
-        case DebugPage::Performance: {
-            // Off shows the real frame cost instead of the monitor refresh interval
-            bool vsync = m_renderer->vsync();
-            if (checkbox(tr("Vertical Sync"), &vsync)) m_renderer->setVsync(vsync);
-            // Only when RenderDoc/PIX was loaded with --gpu-capture
-            if (const char* tool = rhi::gpuCaptureTool()) {
-                ImGui::SameLine();
-                if (iconButton(icon::kCamera, trf("GPU Capture (%s)", tool).c_str())) captureGpuFrame();
-            }
-            m_perfPanel.drawContent();
-            break;
-        }
-        case DebugPage::Memory: drawMemoryPage(); break;
-        case DebugPage::Sound:
-            if (m_audio) m_soundPanel.drawMonitor(*m_audio);
-            break;
-        case DebugPage::State: drawState(); break;
-        case DebugPage::Tests: m_testsPanel.drawContent(m_project); break;
-        case DebugPage::Balance: m_balancePanel.drawContent(m_project); break;
-        }
-    }
-    ImGui::EndChild();
+    if (ImGui::Begin(title.c_str(), open)) drawDebugPageBody(page);
     ImGui::End();
+}
+
+// Build output has one home, its own window
+void Editor::showBuildOutput() {
+    m_buildOutputOpen = true;
+    m_buildOutputFront = 3;
 }
 
 // Memory tags (core/Memory.h): bytes now and peak per engine module, allocation calls since start
 void Editor::drawMemoryPage() {
-    ImGui::TextDisabled("%s", tr("Memory counted by engine module tags. Process total is on the Performance page."));
+    ImGui::TextDisabled("%s", tr("Memory counted by engine module tags. Process total is in the Profiler window."));
     if (!ImGui::BeginTable("##memTags", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) return;
     ImGui::TableSetupColumn(tr("Tag"));
     ImGui::TableSetupColumn(tr("Now"));
@@ -367,15 +417,24 @@ void Editor::openPreviewPage(PreviewPage page) {
 // [Settings] window: project settings, preferences, modules, tools and shortcuts under one list
 void Editor::drawSettingsHub() {
     if (!m_settingsOpen) return;
-    ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 54.0f, ImGui::GetFontSize() * 34.0f), ImGuiCond_FirstUseEver);
+    // A dialog, not a panel: it floats over the layout (never docks), opens in the middle, stays inside the screen, and Esc closes it
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const f32 font = ImGui::GetFontSize();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(font * 54.0f, vp->WorkSize.x * 0.9f), std::min(font * 34.0f, vp->WorkSize.y * 0.85f)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(font * 24.0f, font * 12.0f), ImVec2(vp->WorkSize.x, vp->WorkSize.y));
     if (m_settingsFrontFrames > 0) {
         --m_settingsFrontFrames;
         ImGui::SetNextWindowFocus();
     }
-    if (!ImGui::Begin(iconTitle(icon::kSettings, "Settings###Settings").c_str(), &m_settingsOpen)) {
+    if (!ImGui::Begin(iconTitle(icon::kSettings, "Settings###Settings").c_str(), &m_settingsOpen, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
     }
+    // Checked before the pages draw: Esc that cancels a text field, a popup or a shortcut being picked is theirs
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::IsAnyItemActive() &&
+        m_shortcutRecording < 0 && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+        m_settingsOpen = false;
     if (beginListPane("##settingsList", ImGui::GetFontSize() * 10.0f)) {
         const auto entry = [this](const std::string& label, SettingsPage page) {
             if (ImGui::Selectable((label + "##" + std::to_string(static_cast<int>(page))).c_str(), m_settingsPage == page)) m_settingsPage = page;
@@ -519,6 +578,17 @@ void Editor::updateProblems(f64 dt) {
     if (m_problemTimer < 0.5) return;
     m_problemTimer = 0.0;
     m_problems.clear();
+    if (!m_buildPanel.running() && !m_buildPanel.cancelled() && !m_buildPanel.succeeded()) { // build errors stay until the next build passes
+        int shown = 0;
+        for (const BuildDiagnostic& diag : m_buildPanel.diagnostics()) {
+            if (!diag.error || ++shown > 50) continue;
+            Problem problem;
+            problem.text = trf("Build: %s(%d) %s", fileName(diag.file).c_str(), diag.line, diag.message.c_str());
+            problem.file = diag.file;
+            problem.line = diag.line;
+            m_problems.push_back(std::move(problem));
+        }
+    }
     m_badges.clear();
     m_differsFromDefault.clear();
     for (const Entity& e : m_scene.entities) { // field changes from the kind's defaults
@@ -635,7 +705,10 @@ void Editor::drawProblems() {
                 const u32 entity = p.entity;
                 const DataPage page = p.page;
                 const int doc = p.doc;
-                if (entity != 0) {
+                if (!p.file.empty()) {
+                    const bool absolute = isAbsolutePath(p.file) || p.file[0] == '\\';
+                    openInCodeEditor(m_buildPanel.codeEditor(), absolute ? p.file : m_buildPanel.projectDirectory() + MEALKIT_SEP + p.file, p.line);
+                } else if (entity != 0) {
                     m_selected = entity; // the object is fixed in MkRender
                 } else if (doc >= 0) {
                     openDataPage(page, doc);
