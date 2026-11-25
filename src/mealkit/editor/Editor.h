@@ -151,6 +151,9 @@ public:
     // Fills the edit mode 3D scene (scene objects + selection highlight) and camera.
     void buildSceneView(render::FrameParams& frame, render::DrawList& drawList) const;
     void setDebugView(render::DebugView view) { m_debugView = view; } // --view-mode (automated capture)
+    // --pixel x,y: pixel inspector on the scene view, reading that window pixel every frame; --lookdev-pixel x,y: the same on the [Look Dev] image (its pixel)
+    void setPixelInspect(i32 x, i32 y) { m_lookdev.setPixelInspect(true), m_pixelAutoX = x, m_pixelAutoY = y; }
+    void setLookdevPixel(i32 x, i32 y) { m_lookdev.setPixelAuto(x, y); }
     // Automated runs (--frames, --render-golden): turns off dynamic resolution (so images don't vary with GPU speed, same as the game's automated runs)
     void setAutomated(bool automated) { m_automated = automated; }
     // Graphics regression test (--render-golden): opens the scene and renders the whole window from a fixed camera (degrees) without UI
@@ -207,6 +210,7 @@ private:
     void focusPanel(const char* window);
     void drawSceneWindow(unsigned int dockId); // scene view tab: sets m_viewport
     bool sceneMouseBlocked() const;
+    void drawPixelInspector(); // scene view pixel inspector (ROADMAP T2): reads under the left button, readout at the bottom left
     bool m_sceneOpen = true; // closed only while editing: play opens it
     bool m_sceneVisible = true;
     bool m_sceneHovered = false;
@@ -405,6 +409,9 @@ private:
     Mat4 m_view;
     Mat4 m_proj;
     render::Viewport m_viewport;
+    i32 m_pixelAutoX = -1, m_pixelAutoY = -1; // --pixel
+    f32 m_pixelPointX = 0.0f;                 // where it read (window points), to put the readout on the other side
+    bool m_pixelRead = false;                 // the scene view asked for a pixel (the switch itself is LookdevPanel::pixelInspect, shared with the Look Dev image)
     f32 m_toolbarHeight = 0.0f; // scene tab's tool bar row above m_viewport (0 during play)
 
     bool m_gizmoLocal = false;

@@ -81,6 +81,8 @@ struct Options {
     std::string lookdevModel;     // --lookdev-model <models/x.glb>: the model shown in [Lookdev] (as if picked in [Assets])
     std::string cutscene;         // --cutscene <name>: plays a cutscenes.table row in the scene view
     i32 lookdevMaterial = -1;     // --lookdev-material <n>: open [Lookdev] > [Materials] with the n-th material selected (its triangles tinted)
+    i32 pixel[2] = {-1, -1};      // --pixel x,y: pixel inspector on the scene view at that window pixel (every frame; captures show the readout)
+    i32 lookdevPixel[2] = {-1, -1}; // --lookdev-pixel x,y: the same on the [Lookdev] image, in image pixels
     bool lookdev = false;         // --lookdev: start with the [Lookdev] window open (the model picked in [Assets], or --lookdev-model)
     bool feedback = false;        // start with the [Feedback] window open
     std::string palette;          // --palette <text>: start with the command palette open with this text
@@ -132,6 +134,8 @@ bool parseArgs(int argc, char** argv, Options& o) {
         else if (a == "--look-through" && next(v)) o.lookThrough = static_cast<u32>(std::atoi(v));
         else if (a == "--lookdev-model" && next(v)) o.lookdevModel = v;
         else if (a == "--lookdev-material" && next(v)) o.lookdevMaterial = std::atoi(v);
+        else if (a == "--pixel" && next(v)) std::sscanf(v, "%d,%d", &o.pixel[0], &o.pixel[1]);
+        else if (a == "--lookdev-pixel" && next(v)) std::sscanf(v, "%d,%d", &o.lookdevPixel[0], &o.lookdevPixel[1]);
         else if (a == "--cutscene" && next(v)) o.cutscene = v;
         else if (a == "--palette" && next(v)) o.palette = v;
         else if (a == "--command" && next(v)) o.commands.push_back(v);
@@ -155,7 +159,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
             std::printf(
                 "Usage: MealKitEditor [--project <folder>] [scene file] [--bodies n] [--debug]\n"
                 "  automation: --frames n --capture png --play [--players n] --replay rec --bot --export --build-game --upgrade\n"
-                "              --project-settings --tables --sounds --lookdev [--lookdev-model <model>] [--lookdev-material <n>] --look-through <id> --cutscene <name> --palette <text> --command <name> --feedback --ui --ui-check --ui-render <ui/x.ui> <png>\n"
+                "              --project-settings --tables --sounds --lookdev [--lookdev-model <model>] [--lookdev-material <n>] [--lookdev-pixel x,y] [--pixel x,y] --look-through <id> --cutscene <name> --palette <text> --command <name> --feedback --ui --ui-check --ui-render <ui/x.ui> <png>\n"
                 "  tools: --tool-path <folder> (repeatable) --list-tools\n"
                 "  without --project: starts MealKit Manager (%%LOCALAPPDATA%%\\MealKit\\manager), which lists, makes and opens projects\n"
                 "  player window: --player-window --project <folder> [--player-index n] [--view-tuning <file>]\n"
@@ -306,6 +310,8 @@ int main(int argc, char** argv) {
     if (opt.sounds) editor.openSounds();
     if (!opt.lookdevModel.empty()) editor.setLookdevModel(opt.lookdevModel);
     if (opt.lookdevMaterial >= 0) editor.setLookdevMaterial(opt.lookdevMaterial);
+    if (opt.pixel[0] >= 0 && opt.pixel[1] >= 0) editor.setPixelInspect(opt.pixel[0], opt.pixel[1]);
+    if (opt.lookdevPixel[0] >= 0 && opt.lookdevPixel[1] >= 0) editor.setLookdevPixel(opt.lookdevPixel[0], opt.lookdevPixel[1]);
     if (opt.lookdev) editor.openLookdev();
     if (opt.lookThrough) editor.lookThrough(opt.lookThrough);
     if (!opt.cutscene.empty()) editor.previewCutscene(opt.cutscene);

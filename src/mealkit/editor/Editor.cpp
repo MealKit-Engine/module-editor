@@ -399,6 +399,7 @@ void Editor::update(f64 dt) {
         // Another tab covers the scene view: no gizmo, toolbar or picking
     } else if (editing) {
         drawViewportToolbar(); // read-only preview: camera, view modes; the scene is edited in MkRender
+        drawPixelInspector();
     } else if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { // F5 (Shift+F5 too) stops; Esc belongs to the game (pause menus)
         m_stopRequest = true;
     } else if (m_simDebug && m_canPause && m_simDebug->timeline().recording) {
@@ -1403,6 +1404,9 @@ void Editor::drawViewportToolbar() {
                 if (ImGui::Selectable(views[i], m_debugView == view)) m_debugView = view;
                 ImGui::EndDisabled();
             }
+            ImGui::Separator();
+            if (ImGui::Selectable(tr("Pixel Inspector"), m_lookdev.pixelInspect(), ImGuiSelectableFlags_NoAutoClosePopups)) m_lookdev.setPixelInspect(!m_lookdev.pixelInspect());
+            ImGui::SetItemTooltip("%s", tr("Click the view to read a pixel: HDR value, luminance and final color"));
             ImGui::EndCombo();
         }
         tip(tr("View Mode"));
@@ -1512,6 +1516,36 @@ void Editor::addGrid(render::DrawList& out) const {
 Vec3 Editor::cameraForward() const {
     return {std::sin(m_cameraYaw) * std::cos(m_cameraPitch), std::sin(m_cameraPitch),
             std::cos(m_cameraYaw) * std::cos(m_cameraPitch)};
+}
+
+// Pixel inspector (ROADMAP T2): with the switch on (View Mode list), the left button over the scene view reads the pixel under it and dragging keeps reading
+// (Alt + left still orbits). The values come from Renderer::pixelInspect(): the HDR color before post, after exposure, luminance and the final sRGB.
+// The same switch makes the [Look Dev] image read its own pixels (LookdevPanel)
+void Editor::drawPixelInspector() {
+    if (!m_lookdev.pixelInspect() || !m_renderer || m_viewport.width < 200.0f || m_viewport.height < 120.0f) return;
+    ImGuiIO& io = ImGui::GetIO();
+    const f32 scale = io.DisplayFramebufferScale.x; // ImGui points to pixels
+    const auto read = [&](f32 x, f32 y) {
+        m_renderer->inspectPixel(static_cast<u32>(std::max(0.0f, x * scale)), static_cast<u32>(std::max(0.0f, y * scale)));
+        m_pixelRead = true;
+        m_pixelPointX = x;
+        m_lookdev.forgetPixel();
+    };
+    const ImVec2 mouse = io.MousePos;
+    const bool inViewport = mouse.x >= m_viewport.x && mouse.y >= m_viewport.y && mouse.x < m_viewport.x + m_viewport.width && mouse.y < m_viewport.y + m_viewport.height;
+    if (m_pixelAutoX >= 0) read(static_cast<f32>(m_pixelAutoX) / scale, static_cast<f32>(m_pixelAutoY) / scale);
+    else if (inViewport && !sceneMouseBlocked() && !io.KeyAlt && !m_orbiting && ImGui::IsMouseDown(ImGuiMouseButton_Left)) read(mouse.x, mouse.y);
+    if (m_lookdev.pixelAsked()) return; // the last read was in the Look Dev image, which shows it
+    // On the side away from the pixel read last, so the readout does not cover it (the final color includes what is drawn over the scene)
+    const bool right = m_pixelPointX < m_viewport.x + m_viewport.width * 0.5f;
+    ImGui::SetNextWindowPos(ImVec2(right ? m_viewport.x + m_viewport.width - 8.0f : m_viewport.x + 8.0f, m_viewport.y + m_viewport.height - 8.0f), ImGuiCond_Always,
+                            ImVec2(right ? 1.0f : 0.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.82f);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove |
+                                   ImGuiWindowFlags_NoInputs;
+    if (ImGui::Begin("##PixelReadout", nullptr, flags)) drawPixelReadout(m_pixelRead ? m_renderer->pixelInspect() : render::PixelInspect{});
+    ImGui::End();
 }
 
 void Editor::updateCamera(f64 dt) {
