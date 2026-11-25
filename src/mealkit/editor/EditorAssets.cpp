@@ -138,6 +138,16 @@ size_t replacePath(std::string& text, const std::string& from, const std::string
     return count;
 }
 
+// True when text names the path as a whole (same boundary rule as replacePath, without changing the text)
+bool containsPath(const std::string& text, const std::string& path) {
+    for (size_t at = text.find(path); at != std::string::npos; at = text.find(path, at + path.size())) {
+        const bool before = at == 0 || !pathChar(text[at - 1]);
+        const bool after = at + path.size() >= text.size() || !pathChar(text[at + path.size()]);
+        if (before && after) return true;
+    }
+    return false;
+}
+
 } // namespace
 
 std::vector<std::string> Editor::allAssetFiles() const {
@@ -521,7 +531,7 @@ void Editor::drawAssetPreview(const std::string& root) {
         } else {
             ImGui::TextDisabled("%.2f s", m_assetPreviewSeconds);
             const ImVec2 min = ImGui::GetCursorScreenPos();
-            const ImVec2 size(std::max(ImGui::GetContentRegionAvail().x, 10.0f), std::max(ImGui::GetContentRegionAvail().y, 10.0f));
+            const ImVec2 size(std::max(ImGui::GetContentRegionAvail().x, 10.0f), ImGui::GetFontSize() * 4.0f); // fixed height: the reference lists follow
             ImDrawList* draw = ImGui::GetWindowDrawList();
             const f32 middle = min.y + size.y * 0.5f;
             const f32 step = size.x / static_cast<f32>(m_assetPreviewPeaks.size());
@@ -533,20 +543,61 @@ void Editor::drawAssetPreview(const std::string& root) {
             ImGui::Dummy(size);
         }
     }
+    // "Used by" and "Uses", read once per selection (a rename or a refresh of the selection reads them again)
+    if (m_assetRefsOf != relative) scanAssetRefs(relative);
+    ImGui::Spacing();
+    const auto refList = [&](const char* title, const std::vector<std::string>& list, const char* none) {
+        ImGui::SeparatorText(trf("%s (%zu)", title, list.size()).c_str());
+        if (list.empty()) ImGui::TextDisabled("%s", none);
+        std::string go;
+        for (const std::string& f : list) {
+            ImGui::PushID(f.c_str());
+            if (ImGui::Selectable(f.c_str())) go = f;
+            ImGui::PopID();
+        }
+        return go;
+    };
+    std::string go = refList(tr("Used by"), m_assetUsedBy, tr("Not used by any scene, table or other text file"));
+    if (m_assetUsedByProject) ImGui::TextDisabled("%s", tr("Also named in the project settings"));
+    const std::string goUses = refList(tr("Uses"), m_assetUsesList, tr("Names no other asset"));
+    if (go.empty()) go = goUses;
     ImGui::EndChild();
+    if (!go.empty()) {
+        if (lowerExtension(go) == ".scene" && m_mode == Mode::Edit) openSceneFile(root + MEALKIT_SEP + toNative(go));
+        else revealAsset(go);
+    }
 }
 
-// Text files that name this asset, found the same way a rename finds what to fix. Effects and sound events named without their folder aren't found
-void Editor::findAssetUses(const std::string& relative) {
-    m_assetUses.clear();
-    m_assetUsesOf = relative;
-    m_assetUsesOpen = true;
+// Text files that name this asset (found the same way a rename finds what to fix) and the assets this text file names. Effects and sound events
+// named without their folder aren't found
+void Editor::scanAssetRefs(const std::string& relative) {
+    m_assetRefsOf = relative;
+    m_assetUsedBy.clear();
+    m_assetUsesList.clear();
+    m_assetUsedByProject = false;
     const std::string root = asset::ModelCache::assetsRoot();
-    for (const std::string& f : allAssetFiles()) {
+    const std::vector<std::string> files = allAssetFiles();
+    for (const std::string& f : files) {
         if (f == relative || !referenceFile(f)) continue;
         std::string text;
-        if (readTextFile(root + MEALKIT_SEP + toNative(f), text) && replacePath(text, relative, relative) > 0) m_assetUses.push_back(f);
+        if (readTextFile(root + MEALKIT_SEP + toNative(f), text) && containsPath(text, relative)) m_assetUsedBy.push_back(f);
     }
+    if (!m_project.directory.empty()) {
+        std::string text;
+        m_assetUsedByProject = readTextFile(m_project.filePath(), text) && containsPath(text, relative);
+    }
+    std::string text;
+    if (referenceFile(relative) && readTextFile(root + MEALKIT_SEP + toNative(relative), text)) {
+        for (const std::string& f : files)
+            if (f != relative && containsPath(text, f)) m_assetUsesList.push_back(f);
+    }
+}
+
+void Editor::findAssetUses(const std::string& relative) {
+    scanAssetRefs(relative);
+    m_assetUses = m_assetUsedBy;
+    m_assetUsesOf = relative;
+    m_assetUsesOpen = true;
 }
 
 // Moves the file and fixes path references in text files under assets and in mealkit.project. The open scene is fixed in memory too
@@ -593,6 +644,7 @@ void Editor::renameAsset(const std::string& from, const std::string& toRaw) {
     }
     if (!m_scenePath.empty()) m_sceneTime = fileWriteTime(m_scenePath); // so the scene rewritten above isn't seen as "changed outside"
     if (m_assetSelected == from) m_assetSelected = to;
+    m_assetRefsOf.clear();
     setStatus(trf("Moved %s -> %s (%zu references in %zu files)", from.c_str(), to.c_str(), changedRefs, changedFiles));
     MEALKIT_INFO("Asset moved: %s -> %s (%zu references in %zu files)", from.c_str(), to.c_str(), changedRefs, changedFiles);
 }

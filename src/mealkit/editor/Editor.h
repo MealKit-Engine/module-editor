@@ -542,6 +542,11 @@ private:
     std::vector<std::string> m_assetUses; // files under assets, relative
     std::string m_assetUsesOf;
     bool m_assetUsesOpen = false;
+    // Preview pane lines: files that name the selected asset, and the assets it names (read once per selection)
+    void scanAssetRefs(const std::string& relative);
+    std::string m_assetRefsOf;
+    std::vector<std::string> m_assetUsedBy, m_assetUsesList;
+    bool m_assetUsedByProject = false;
     // Graphs of state values on the [State] page: one sample per simulation tick during play (per frame without a timeline).
     // Added by path or by right-clicking a row ("Watch as Graph"). Paused and past ticks add nothing; an earlier tick starts over (new play)
     struct StateGraph {
