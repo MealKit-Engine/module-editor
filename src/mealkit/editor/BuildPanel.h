@@ -126,6 +126,7 @@ private:
     std::string m_runningProfile; // title of the profile being built (log and status)
     bool m_profilesLoaded = false;
     bool m_runAfter = false;
+    std::string m_webOutput; // the export folder of a browser profile being built (no exe to run)
     std::string m_runPath;        // exe to start when the build succeeds
     bool m_wantSettings = false;
     // Per profile ("" = plain Export): how its last build in this session ended

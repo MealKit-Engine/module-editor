@@ -98,6 +98,7 @@ std::vector<BuildProfile> defaultBuildProfiles() {
         {"windows-vulkan", "Windows Vulkan", "VulkanExport", "export/windows-vulkan", "windows"},
         {"linux-vulkan", "Linux Vulkan", "Export", "export/linux-vulkan", "linux"},
         {"linux-webgpu", "Linux WebGPU", "WebGPUExport", "export/linux-webgpu", "linux"},
+        {"web", "Web", "WebExport", "export/web", "linux"}, // built on Linux (Emscripten), runs in any WebGPU browser
         {"debug", "Debug", "Debug", "", ""},
     };
 }
@@ -105,7 +106,7 @@ std::vector<BuildProfile> defaultBuildProfiles() {
 bool BuildProfile::buildsHere() const { return platform.empty() || platform == buildOsName(); }
 
 std::string buildProfileOutputDirectory(const std::string& projectDirectory, const std::string& projectName, const BuildProfile& profile) {
-    if (profile.output.empty()) return projectDirectory + "/export/" + buildOsName() + "/" + projectName;
+    if (profile.output.empty()) return projectDirectory + "/export/" + (profile.isWeb() ? "web" : buildOsName()) + "/" + projectName;
     return isAbsolutePath(profile.output) ? profile.output : projectDirectory + "/" + profile.output;
 }
 

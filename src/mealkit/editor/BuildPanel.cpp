@@ -118,6 +118,7 @@ const ConfigChoice kConfigs[] = {
     {"Vulkan", "Development build with the Vulkan renderer"},
     {"WebGPUExport", "Shipping build with the WebGPU renderer (Linux)"},
     {"WebGPU", "Development build with the WebGPU renderer (Linux)"},
+    {"WebExport", "Browser build: a page with WebGPU, built on Linux with Emscripten"},
 };
 
 } // namespace
@@ -169,6 +170,7 @@ bool BuildPanel::start(BuildKind kind, const ProjectInfo& project, const std::st
     m_kind = kind;
     m_buildingId = profile ? profile->id : std::string();
     m_runAfter = run && (kind == BuildKind::Profile || kind == BuildKind::Export);
+    m_webOutput = profile && profile->isWeb() ? outputFolder(project, profile) : std::string();
     m_runPath = m_runAfter ? runnablePath(project, profile) : std::string();
     m_projectDirectory = project.directory;
     m_cancelled = false;
@@ -255,6 +257,12 @@ bool BuildPanel::poll(const ProjectInfo& project, f64 now) {
         m_log += "\n" + trf("Done (%ss): %s", seconds.c_str(), project.exportDirectory().c_str()) + "\n";
         m_status = trf("Release build done: %s", ("export\\" + project.name()).c_str());
         MEALKIT_INFO("Export finished: %s", project.exportDirectory().c_str());
+    }
+    // A browser build has no exe: the page is played from a web server (WebGPU needs https or localhost)
+    if (m_succeeded && !m_webOutput.empty()) {
+        m_status = trf("Built a web page in %s: serve that folder (https or http://localhost) and open it in a WebGPU browser",
+                       m_webOutput.c_str());
+        m_runAfter = false;
     }
     // Build and Run: the exe the build made, started from its folder
     if (m_succeeded && m_runAfter) {
@@ -539,7 +547,7 @@ bool BuildPanel::drawSettings(bool* open, bool editing, const ProjectInfo& proje
                 loadProfiles(project);
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", tr("Writes profiles/*.profile: Windows DX12, Windows Vulkan, Linux Vulkan, Linux WebGPU and Debug"));
+                ImGui::SetTooltip("%s", tr("Writes profiles/*.profile: Windows DX12, Windows Vulkan, Linux Vulkan, Linux WebGPU, Web and Debug"));
         }
         ImGui::EndDisabled();
     }
