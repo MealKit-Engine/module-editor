@@ -97,6 +97,7 @@ std::vector<BuildProfile> defaultBuildProfiles() {
         {"windows-dx12", "Windows DX12", "Export", "export/windows-dx12", "windows"},
         {"windows-vulkan", "Windows Vulkan", "VulkanExport", "export/windows-vulkan", "windows"},
         {"linux-vulkan", "Linux Vulkan", "Export", "export/linux-vulkan", "linux"},
+        {"linux-webgpu", "Linux WebGPU", "WebGPUExport", "export/linux-webgpu", "linux"},
         {"debug", "Debug", "Debug", "", ""},
     };
 }
