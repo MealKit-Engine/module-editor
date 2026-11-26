@@ -22,7 +22,7 @@ struct ProjectInfo : game::ProjectFile {
     std::string exportDirectory() const; // export/<os>/<name>
 };
 
-// This editor's build name = build.bat argument: "Editor" (DX12) or "VulkanEditor" (from build/<os>/<name>/bin where the exe is)
+// This editor's build name = build.bat argument: "Editor" (DX12), "VulkanEditor" or "WebGPUEditor" (from build/<os>/<name>/bin where the exe is)
 const std::string& editorBuildName();
 
 // Build trees are <root>/build/<os>/<config> and exports <project>/export/<os>/<name> (engine tools/build_dirs.ps1, the same names)

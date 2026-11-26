@@ -16,10 +16,10 @@ using mkcontract::normalizeDirectory;
 std::string ProjectInfo::filePath() const { return directory + "/" + kProjectFileName; }
 
 const std::string& editorBuildName() {
-    // The editor exe is in <folder>/build/<os>/<name>/bin: Editor (DX12) or VulkanEditor
+    // The editor exe is in <folder>/build/<os>/<name>/bin: Editor (DX12; Vulkan on Linux), VulkanEditor or WebGPUEditor
     static const std::string name = [] {
         const std::string build = fileName(parentDirectory(executableDirectory()));
-        return build == "VulkanEditor" ? build : std::string("Editor");
+        return build == "VulkanEditor" || build == "WebGPUEditor" ? build : std::string("Editor");
     }();
     return name;
 }
