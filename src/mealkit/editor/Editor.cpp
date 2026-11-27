@@ -714,9 +714,7 @@ void Editor::updateHotReload(f64 dt) {
 void Editor::drawPopups() {
     if (!m_message.empty() && !ImGui::IsPopupOpen(trl("Notice###Message"))) ImGui::OpenPopup(trl("Notice###Message"));
     if (ImGui::BeginPopupModal(trl("Notice###Message"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 36.0f);
-        ImGui::TextUnformatted(m_message.c_str());
-        ImGui::PopTextWrapPos();
+        selectableText("##text", m_message, ImGui::GetFontSize() * 36.0f);
         if (ImGui::Button(tr("OK"), ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
             m_message.clear();
             ImGui::CloseCurrentPopup();
@@ -727,12 +725,13 @@ void Editor::drawPopups() {
     if (m_upgradeOffer && m_message.empty() && !ImGui::IsPopupOpen(trl("Project Upgrade###Upgrade")))
         ImGui::OpenPopup(trl("Project Upgrade###Upgrade"));
     if (ImGui::BeginPopupModal(trl("Project Upgrade###Upgrade"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text(tr("This project's build files were made from the engine %s template (engine is now %s)."),
-                    m_project.settings.engineVersion.empty() ? tr("0.3 or older") : m_project.settings.engineVersion.c_str(),
-                    kEngineVersion);
-        ImGui::TextUnformatted(tr("Replace the template files (build.bat, CMakeLists.txt, CLAUDE.md, .vscode, .clang-format, ...) with the new version?"));
-        ImGui::TextDisabled("%s", tr("Files you edited are not overwritten; the new content is left as <file>.new. Old files are backed up in .upgrade_backup."));
-        ImGui::TextDisabled("%s", tr("source/ and assets/ are unchanged. If the game code no longer fits the engine API, fix it using the build log."));
+        const f32 width = ImGui::GetFontSize() * 40.0f;
+        selectableText("##made", trf("This project's build files were made from the engine %s template (engine is now %s).",
+                                     m_project.settings.engineVersion.empty() ? tr("0.3 or older") : m_project.settings.engineVersion.c_str(),
+                                     kEngineVersion), width);
+        selectableText("##replace", tr("Replace the template files (build.bat, CMakeLists.txt, CLAUDE.md, .vscode, .clang-format, ...) with the new version?"), width);
+        selectableText("##kept", tr("Files you edited are not overwritten; the new content is left as <file>.new. Old files are backed up in .upgrade_backup."), width, true);
+        selectableText("##code", tr("source/ and assets/ are unchanged. If the game code no longer fits the engine API, fix it using the build log."), width, true);
         if (ImGui::Button(tr("Upgrade"), ImVec2(140, 0))) {
             m_upgradeRequested = true;
             m_upgradeOffer = false;
@@ -2082,7 +2081,9 @@ void Editor::startEngineCheck() {
     };
     for (const char* file : {"VERSION", "modules.lock", "CMakeLists.txt"}) consider(engine / file);
     for (const char* folder : {"engine", "modules", "cmake"}) {
-        for (fs::recursive_directory_iterator it(engine / folder, fs::directory_options::skip_permission_denied, ec), end;
+        // follow_directory_symlink: a module linked to its checkout (module.ps1 engine local on) is a link on Linux
+        constexpr auto options = fs::directory_options::skip_permission_denied | fs::directory_options::follow_directory_symlink;
+        for (fs::recursive_directory_iterator it(engine / folder, options, ec), end;
              !ec && it != end && newest.empty(); it.increment(ec)) {
             const fs::path name = it->path().filename();
             if (it->is_directory(ec)) {
@@ -2233,11 +2234,10 @@ void Editor::drawEngineRestartPrompt() {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (!ImGui::BeginPopupModal("##engineRestart", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) return;
-    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
-    ImGui::TextUnformatted(tr("The engine changed, but this editor is still using the old engine (mealkit.dll), so the engine can't be rebuilt while it is open."));
+    const f32 width = ImGui::GetFontSize() * 30.0f;
+    selectableText("##changed", tr("The engine changed, but this editor is still using the old engine (mealkit.dll), so the engine can't be rebuilt while it is open."), width);
     ImGui::Spacing();
-    ImGui::TextDisabled("%s", tr("Restart saves your changes, closes the editor, builds the engine in a console window and opens this project again. The game code is built when it opens."));
-    ImGui::PopTextWrapPos();
+    selectableText("##restart", tr("Restart saves your changes, closes the editor, builds the engine in a console window and opens this project again. The game code is built when it opens."), width, true);
     ImGui::Spacing();
     if (ImGui::Button(tr("Save, Restart and Rebuild"))) {
         m_engineRestartPrompt = false;

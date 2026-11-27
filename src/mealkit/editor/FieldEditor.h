@@ -67,6 +67,9 @@ void collectRequired(const reflect::TypeInfo& type, const void* data, const std:
 // Input field that edits a std::string directly (grows the string if the buffer is too small)
 bool inputString(const char* label, std::string& text);
 
+// Wrapped text that can be selected by dragging and copied (messages, dialog explanations). width is the widest it gets, in pixels
+void selectableText(const char* id, const std::string& text, f32 width, bool dimmed = false);
+
 // Read-only table (name | value). Structs/arrays/Pools can be expanded. Large Pools draw only visible rows.
 // watch: right-clicking a number row offers "Watch as Graph" and passes its path ("a.b", "a[2]", "pool[5].c", as reflect::resolvePath reads it)
 void drawFieldsReadOnly(const reflect::TypeInfo& type, const void* data, const std::function<void(const std::string& path)>& watch = {});

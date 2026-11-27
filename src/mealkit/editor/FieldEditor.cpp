@@ -18,7 +18,7 @@
 #include <vector>
 
 #include <imgui.h>
-#include <imgui_internal.h> // RenderTextEllipsis
+#include <imgui_internal.h> // RenderTextEllipsis, ImFontCalcWordWrapPositionEx
 
 namespace mealkit::editor {
 namespace {
@@ -546,6 +546,26 @@ bool inputString(const char* label, std::string& text) {
         return 0;
     };
     return ImGui::InputText(label, text.data(), text.capacity() + 1, ImGuiInputTextFlags_CallbackResize, resize, &text);
+}
+
+// A read-only multiline input without a frame. Its height is counted the way InputText wraps, so no scrollbar appears
+void selectableText(const char* id, const std::string& text, f32 width, bool dimmed) {
+    const char* begin = text.c_str();
+    const char* end = begin + text.size();
+    const f32 wrap = std::max(1.0f, std::min(width, std::ceil(ImGui::CalcTextSize(begin, end).x) + 1.0f));
+    int lines = !text.empty() && text.back() == '\n' ? 1 : 0;
+    for (const char* s = begin; s < end; s = *s == '\n' ? s + 1 : s) {
+        ++lines;
+        s = ImFontCalcWordWrapPositionEx(ImGui::GetFont(), ImGui::GetFontSize(), s, end, wrap, ImDrawTextFlags_WrapKeepBlanks);
+    }
+    const ImVec2 size(wrap + ImGui::GetStyle().ScrollbarSize, static_cast<f32>(std::max(lines, 1)) * ImGui::GetFontSize() + 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(dimmed ? ImGuiCol_TextDisabled : ImGuiCol_Text));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::InputTextMultiline(id, const_cast<char*>(begin), text.size() + 1, size, ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_WordWrap);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
 }
 
 bool drawValueWidget(const char* label, const char* name, const ValueInfo& value, void* data,
